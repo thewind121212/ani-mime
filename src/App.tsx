@@ -21,7 +21,7 @@ function App() {
   const [status, setStatus] = useState<Status>("initializing");
   const [dragging, setDragging] = useState(false);
   const [frozen, setFrozen] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     const unlistenStatus = listen<string>("status-changed", (e) => {
