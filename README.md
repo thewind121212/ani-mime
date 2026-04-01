@@ -15,6 +15,10 @@
   <img src="https://img.shields.io/badge/Built%20with-Rust%20%26%20Tauri-orange?style=for-the-badge&logo=rust" alt="Built with Rust">
 </p>
 
+<p align="center">
+  <img src="docs/demo.gif" width="960" alt="Ani-Mime Demo" />
+</p>
+
 ---
 
 ## What is Ani-Mime?
