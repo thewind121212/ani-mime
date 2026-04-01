@@ -452,6 +452,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+            let _ = window.set_shadow(false);
+            let _ = window.set_visible_on_all_workspaces(true);
 
             #[cfg(target_os = "macos")]
             {
