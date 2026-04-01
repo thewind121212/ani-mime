@@ -31,6 +31,8 @@
   "bundle": {
     "resources": [
       "script/terminal-mirror.zsh",
+      "script/terminal-mirror.bash",
+      "script/terminal-mirror.fish",
       "script/tauri-hook.sh"
     ],
     "active": true,
