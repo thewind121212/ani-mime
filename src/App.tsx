@@ -3,22 +3,24 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
-type Status = "searching" | "idle" | "busy" | "service" | "disconnected";
+type Status = "initializing" | "searching" | "idle" | "busy" | "service" | "disconnected";
 
 function App() {
-  const [status, setStatus] = useState<Status>("searching");
+  const [status, setStatus] = useState<Status>("initializing");
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
     const unlistenStatus = listen<string>("status-changed", (e) => {
       const s = e.payload;
       if (
+        s === "initializing" ||
+        s === "searching" ||
         s === "busy" ||
         s === "idle" ||
         s === "service" ||
         s === "disconnected"
       ) {
-        setStatus(s);
+        setStatus(s as Status);
       }
     });
 
@@ -43,7 +45,9 @@ function App() {
           ? "dot idle"
           : status === "disconnected"
             ? "dot disconnected"
-            : "dot searching";
+            : status === "initializing"
+              ? "dot initializing"
+              : "dot searching";
 
   const label =
     status === "service"
@@ -54,7 +58,9 @@ function App() {
           ? "Free"
           : status === "disconnected"
             ? "Sleep"
-            : "Searching...";
+            : status === "initializing"
+              ? "Initializing..."
+              : "Searching...";
 
   return (
     <div

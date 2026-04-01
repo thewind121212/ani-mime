@@ -29,6 +29,10 @@
     }
   },
   "bundle": {
+    "resources": [
+      "script/terminal-mirror.zsh",
+      "script/tauri-hook.sh"
+    ],
     "active": true,
     "targets": "all",
     "icon": [

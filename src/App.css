@@ -77,6 +77,12 @@ body {
   box-shadow: none;
 }
 
+.dot.initializing {
+  background: #ff9f0a;
+  box-shadow: 0 0 6px rgba(255, 159, 10, 0.5);
+  animation: pulse 1s ease-in-out infinite;
+}
+
 .dot.searching {
   background: #ffcc00;
   box-shadow: 0 0 6px rgba(255, 204, 0, 0.5);

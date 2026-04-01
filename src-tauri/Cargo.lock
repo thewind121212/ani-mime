@@ -46,6 +46,7 @@ name = "ani-mime"
 version = "0.1.0"
 dependencies = [
  "cocoa",
+ "dirs",
  "objc",
  "serde",
  "serde_json",
