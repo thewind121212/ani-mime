@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.13.19] - 2026-04-04
+
+### Added
+- Native macOS menu bar with About, Settings (Cmd+,), and Quit
+- Settings window with sidebar navigation (General, About)
+- Dark/light theme toggle for status pill via CSS custom properties
+- Pet selection: choose between Rottweiler and Dalmatian
+- Dalmatian pixel art sprites (idle, bark, sniff, sit, sleep)
+- Preferences persistence via tauri-plugin-store (theme + pet survive restarts)
+- Cross-window real-time sync for theme and pet changes
+- About page with app info, author, and Twitter link
+
+### Changed
+- Mascot window fitted to content size (140x175)
+- Status pill colors now driven by CSS variables for theming
+- Vite configured for multi-page build (main + settings)
+
+### Fixed
+- Opt out of macOS Sequoia window tiling/snapping via NSWindowCollectionBehavior
+
 ## [0.2.17] - 2026-04-03
 
 ### Fixed

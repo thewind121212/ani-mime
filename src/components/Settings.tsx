@@ -87,7 +87,7 @@ export function Settings() {
             <div className="settings-card">
               <div className="about-info">
                 <div className="about-name">Ani-Mime</div>
-                <div className="about-version">Version 0.2.17</div>
+                <div className="about-version">Version 0.13.19</div>
                 <div className="about-desc">A floating macOS desktop mascot that reacts to terminal and Claude Code activity in real-time.</div>
               </div>
             </div>
