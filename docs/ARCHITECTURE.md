@@ -1,198 +1,102 @@
-# Tauri Status Pill — Architecture
+# Ani-Mime Architecture
 
-## Overview
+A floating macOS desktop mascot that reacts to your terminal and Claude Code activity in real-time.
 
-A floating macOS status pill that shows whether you're actively working in the terminal or free.
-Uses **Manual Tagging + Heartbeat** — no process tree scanning, no time-based guessing.
-
-```
-┌─────────┐    HTTP    ┌─────────────┐   Tauri Events   ┌──────────┐
-│   Zsh   │ ────────── │ Rust Server │ ──────────────── │  React   │
-│  Hooks  │  :1234     │  + Watchdog │                   │   Pill   │
-└─────────┘            └─────────────┘                   └──────────┘
-```
-
----
-
-## Layer 1: Zsh Script (`terminal-mirror.zsh`)
-
-### Hooks
-
-- **`preexec`** — fires before every command. Classifies the command and sends `busy`.
-- **`precmd`** — fires when prompt returns. Sends `idle`.
-
-### Command Classification (regex)
-
-Zsh categorizes the command **before it runs**:
-
-| Command         | Matches keyword | Type      |
-| --------------- | --------------- | --------- |
-| `yarn start`    | `start`         | `service` |
-| `npm run dev`   | `run dev`       | `service` |
-| `bun dev`       | `dev`           | `service` |
-| `vite`          | no match        | `task`    |
-| `metro start`   | `metro`         | `service` |
-| `docker-compose up` | `docker-compose` + `up` | `service` |
-| `sleep 60`      | no match        | `task`    |
-| `make build`    | no match        | `task`    |
-| `git push`      | no match        | `task`    |
-
-**Service keywords:** `start`, `dev`, `serve`, `watch`, `metro`, `docker-compose`, `docker compose`, `up`, `run dev`, `run start`, `run serve`
-
-### Heartbeat
-
-A background loop sends `GET /heartbeat?pid=$$` every **20 seconds**.
-This proves the terminal session is still alive even when idle.
-
-### HTTP Signals
-
-| Event         | URL                                         |
-| ------------- | ------------------------------------------- |
-| Command start | `/status?pid=$$&state=busy&type=task`       |
-| Service start | `/status?pid=$$&state=busy&type=service`    |
-| Command end   | `/status?pid=$$&state=idle`                 |
-| Shell alive   | `/heartbeat?pid=$$` (every 20s)             |
-
----
-
-## Layer 2: Rust Backend (`lib.rs`)
-
-### Design Principles
-
-- **No `sysinfo` crate.** No process tree scanning.
-- **No time-based heuristics.** No grace periods or guessing.
-- **Zsh tells Rust exactly what the command is.** Rust just reacts.
-
-### Session Map
-
-Tracks each shell PID independently: `HashMap<u32, Session>`
-
-Each session stores:
-- `busy_type` — `"task"`, `"service"`, or `""` (idle)
-- `ui_state` — what this session is showing
-- `last_seen` — last heartbeat/signal timestamp
-- `service_since` — when service state started (for 2s auto-transition)
-
-### HTTP Handler
-
-| Receives                    | Session State |
-| --------------------------- | ------------- |
-| `state=busy&type=task`      | `"busy"`      |
-| `state=busy&type=service`   | `"service"` + start 2s timer |
-| `state=idle`                | `"idle"`      |
-| `/heartbeat?pid=X`          | update `last_seen` |
-
-### Multi-Session Priority
-
-When multiple terminals are open, the **winning UI state** is resolved by priority:
+## System Overview
 
 ```
-busy > service > idle > disconnected
+┌──────────────┐     HTTP :1234     ┌───────────────────────┐    Tauri Events    ┌────────────┐
+│  Shell Hooks │ ──────────────────> │     Rust Backend      │ ─────────────────> │   React    │
+│  (zsh/bash/  │  /status            │                       │  "status-changed"  │  Frontend  │
+│   fish)      │  /heartbeat         │  ┌─────────────────┐  │                    │            │
+└──────────────┘                     │  │  HTTP Server     │  │                    │ ┌────────┐ │
+                                     │  │  (tiny_http)     │  │                    │ │Mascot  │ │
+┌──────────────┐     HTTP :1234      │  └────────┬────────┘  │                    │ │Sprite  │ │
+│ Claude Code  │ ──────────────────> │           │           │                    │ └────────┘ │
+│   Hooks      │  /status            │  ┌────────▼────────┐  │                    │ ┌────────┐ │
+└──────────────┘                     │  │  App State      │  │                    │ │Status  │ │
+                                     │  │  (sessions map) │  │                    │ │Pill    │ │
+                                     │  └────────┬────────┘  │                    │ └────────┘ │
+                                     │           │           │                    └────────────┘
+                                     │  ┌────────▼────────┐  │
+                                     │  │  Watchdog       │  │
+                                     │  │  (every 2s)     │  │
+                                     │  └─────────────────┘  │
+                                     └───────────────────────┘
 ```
 
-Example: Terminal A is `busy`, Terminal B is `idle` → UI shows `busy`.
+## Key Design Decisions
 
-### Watchdog (runs every 2 seconds)
+1. **HTTP over IPC** — Shell hooks use `curl` to talk to the backend. This is simpler than Unix sockets and works across all shells.
+2. **Heartbeat over process scanning** — Shells prove they're alive via periodic pings. No `sysinfo` crate, no process tree walking.
+3. **Priority-based state resolution** — Multiple terminals resolve to one UI state: `busy > service > idle > disconnected`.
+4. **Service auto-transition** — Dev servers flash "service" (blue) for 2s then become "idle". Prevents permanently-blue pill.
 
-1. **Service → Idle:** Any session in `"service"` for **2+ seconds** → auto-transition to `"idle"`.
-2. **Stale removal:** Any session with no heartbeat for **40 seconds** → remove (terminal was closed/killed).
-3. **All gone:** If all sessions removed → emit `"disconnected"`.
+## Documentation Index
 
----
-
-## Layer 3: React Frontend (`App.tsx` + `App.css`)
-
-### UI States
-
-| Status           | Color  | Animation    | Label        |
-| ---------------- | ------ | ------------ | ------------ |
-| **searching**    | Yellow | Pulse        | Searching... |
-| **busy** (task)  | Red    | Pulse        | Working...   |
-| **service**      | Blue   | Steady glow  | Service      |
-| **idle**         | Green  | Steady       | Free         |
-| **disconnected** | Gray   | None         | Sleep        |
-
----
-
-## Example Flows
-
-### `sleep 60` (regular command, 60 seconds)
-
-```
-0s   preexec → type=task → UI: busy (red)
-...  pill stays red for the full 60 seconds
-60s  precmd fires → UI: idle (green)
-```
-
-### `yarn start` (dev server)
-
-```
-0s   preexec → type=service → UI: service (blue)
-2s   watchdog auto-transitions → UI: idle (green)
-...  server keeps running, pill stays green
-Ctrl+C → precmd fires → UI: idle (green)
-```
-
-### `git push` (short command, ~5s)
-
-```
-0s   preexec → type=task → UI: busy (red)
-5s   precmd fires → UI: idle (green)
-```
-
-### `make build` (long build, ~45s)
-
-```
-0s   preexec → type=task → UI: busy (red)
-...  pill stays red for 45 seconds
-45s  precmd fires → UI: idle (green)
-```
-
-### Close terminal window (force kill)
-
-```
-heartbeat stops
-... 40 seconds pass with no signal ...
-watchdog removes session → UI: disconnected (gray)
-```
-
-### Two terminals open
-
-```
-Terminal A: runs `make build` → busy
-Terminal B: idle
-Resolved UI: busy (red) — busy wins over idle
-
-Terminal A finishes → idle
-Resolved UI: idle (green)
-```
-
----
+| Document | Description |
+|----------|-------------|
+| [Backend](./backend.md) | Rust module structure, state management, HTTP server |
+| [Frontend](./frontend.md) | React components, hooks, sprite system |
+| [Data Flow](./data-flow.md) | End-to-end request lifecycle, state machine |
+| [HTTP API](./http-api.md) | Endpoint reference for shell/Claude hooks |
+| [Shell Integration](./shell-integration.md) | Hook scripts for zsh, bash, fish |
+| [Setup Flow](./setup-flow.md) | First-launch auto-setup, shell detection |
+| [Storage](./storage.md) | Planned persistent storage layer |
 
 ## Tech Stack
 
-- **Frontend:** React 19, Vite 7, TypeScript 5.8
-- **Backend:** Tauri 2, `tiny_http` (HTTP server on port 1234)
-- **Shell:** Zsh hooks (`preexec`, `precmd`, `add-zsh-hook`)
-- **Package manager:** Bun
-- **macOS native:** `cocoa` + `objc` crates for transparent window
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 19, TypeScript 5.8, Vite 7 |
+| Backend | Rust, Tauri 2, tiny_http |
+| Shell hooks | zsh/bash/fish scripts, curl |
+| macOS native | cocoa + objc crates |
+| Package manager | Bun |
 
----
-
-## File Map
+## Project Structure (Target)
 
 ```
-tauri-app/
-├── src/
-│   ├── App.tsx              # React pill component
-│   ├── App.css              # Status dot colors + animations
-│   └── main.tsx             # React entry point
-├── src-tauri/
-│   ├── Cargo.toml           # Rust dependencies
+ani-mime/
+├── src/                          # React frontend
+│   ├── main.tsx                  # Entry point
+│   ├── App.tsx                   # Root component (composition)
+│   ├── components/
+│   │   ├── Mascot.tsx            # Sprite animation
+│   │   └── StatusPill.tsx        # Dot + label pill
+│   ├── hooks/
+│   │   └── useStatus.ts          # Tauri event listener + state
+│   ├── constants/
+│   │   └── sprites.ts            # Sprite config map
+│   ├── types/
+│   │   └── status.ts             # Shared Status type
+│   └── styles/
+│       ├── app.css               # Global styles
+│       ├── mascot.css            # Sprite animation
+│       └── status-pill.css       # Pill + dot styles
+│
+├── src-tauri/                    # Rust backend
+│   ├── Cargo.toml
 │   ├── src/
-│   │   ├── lib.rs           # HTTP server + watchdog + macOS window setup
-│   │   └── main.rs          # Tauri entry point
+│   │   ├── main.rs               # Binary entry point
+│   │   ├── lib.rs                # Tauri setup, run()
+│   │   ├── state.rs              # AppState, Session, resolve_ui_state()
+│   │   ├── server.rs             # HTTP server, route handling
+│   │   ├── watchdog.rs           # Heartbeat monitor, stale cleanup
+│   │   ├── helpers.rs            # Shared utilities (now_secs, query params)
+│   │   ├── setup/
+│   │   │   ├── mod.rs            # auto_setup() orchestrator
+│   │   │   ├── shell.rs          # Shell detection, RC file injection
+│   │   │   └── claude.rs         # Claude Code hooks config
+│   │   └── platform/
+│   │       └── macos.rs          # Cocoa/objc window setup
 │   └── script/
-│       └── terminal-mirror.zsh  # Zsh integration (sourced in .zshrc)
-└── terminal-mirror.zsh      # Alternate copy with heartbeat
+│       ├── terminal-mirror.zsh
+│       ├── terminal-mirror.bash
+│       ├── terminal-mirror.fish
+│       ├── tauri-hook.sh
+│       └── install-hook.sh
+│
+├── docs/                         # Architecture documentation
+└── public/                       # Static assets
 ```

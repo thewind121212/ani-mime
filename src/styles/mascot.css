@@ -1,0 +1,16 @@
+/* --- Sprite animation --- */
+.sprite {
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  background-size: var(--sprite-width) 128px;
+  animation: sprite-play var(--sprite-duration) steps(var(--sprite-steps), end) infinite;
+}
+
+.sprite.frozen {
+  animation: none;
+}
+
+@keyframes sprite-play {
+  from { background-position: 0 0; }
+  to { background-position: calc(-1 * var(--sprite-width)) 0; }
+}
