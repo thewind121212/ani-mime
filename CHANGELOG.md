@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.14.1] - 2026-04-07
+
+### Fixed
+- Center mascot, status pill, and speech bubble within main window
+- Settings content area now scrollable when content overflows
+
 ## [0.14.0] - 2026-04-07
 
 ### Added
