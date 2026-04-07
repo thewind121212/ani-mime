@@ -161,13 +161,27 @@ pub fn run() {
             watchdog::start_watchdog(app.handle().clone(), app_state.clone());
 
             // Start mDNS peer discovery
-            // TODO: Task 11 will load nickname/pet from store. For now use defaults.
-            discovery::start_discovery(
-                app.handle().clone(),
-                app_state.clone(),
-                "Anonymous".to_string(),
-                "rottweiler".to_string(),
-            );
+            // Load nickname/pet from store for mDNS registration
+            let discovery_handle = app.handle().clone();
+            let discovery_state = app_state.clone();
+            std::thread::spawn(move || {
+                // Give the store plugin time to initialize
+                std::thread::sleep(std::time::Duration::from_millis(500));
+
+                let app_data_dir = discovery_handle.path().app_data_dir().unwrap();
+                let store_path = app_data_dir.join("settings.json");
+                let (nickname, pet) = if store_path.exists() {
+                    let content = std::fs::read_to_string(&store_path).unwrap_or_default();
+                    let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_default();
+                    let n = json["nickname"].as_str().unwrap_or("Anonymous").to_string();
+                    let p = json["pet"].as_str().unwrap_or("rottweiler").to_string();
+                    (n, p)
+                } else {
+                    ("Anonymous".to_string(), "rottweiler".to_string())
+                };
+
+                discovery::start_discovery(discovery_handle, discovery_state, nickname, pet);
+            });
 
             Ok(())
         })
