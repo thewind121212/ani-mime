@@ -3,6 +3,7 @@ import "../styles/status-pill.css";
 
 interface StatusPillProps {
   status: Status;
+  glow?: boolean;
 }
 
 const dotClassMap: Record<Status, string> = {
@@ -23,9 +24,9 @@ const labelMap: Record<Status, string> = {
   searching: "Searching...",
 };
 
-export function StatusPill({ status }: StatusPillProps) {
+export function StatusPill({ status, glow }: StatusPillProps) {
   return (
-    <div className="pill">
+    <div className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""}`}>
       <span className={dotClassMap[status] ?? "dot searching"} />
       <span className="label">{labelMap[status] ?? "Searching..."}</span>
     </div>

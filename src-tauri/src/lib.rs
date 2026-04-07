@@ -65,6 +65,8 @@ pub fn run() {
             let app_state = Arc::new(Mutex::new(AppState {
                 sessions: HashMap::new(),
                 current_ui: "searching".to_string(),
+                idle_since: 0,
+                sleeping: false,
             }));
 
             server::start_http_server(app.handle().clone(), app_state.clone());

@@ -3,7 +3,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
+  padding: 6px 16px;
   border-radius: 9999px;
   background: var(--bg-pill);
   backdrop-filter: blur(10px);
@@ -66,6 +66,62 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Neon glow on task completion */
+.pill.neon-glow {
+  border-color: #34c759;
+  box-shadow:
+    0 0 6px rgba(52, 199, 89, 0.4),
+    0 0 14px rgba(52, 199, 89, 0.25),
+    0 0 30px rgba(52, 199, 89, 0.15),
+    inset 0 0 6px rgba(52, 199, 89, 0.1);
+  animation: neon-pulse 1.5s ease-in-out infinite;
+}
+
+/* Red neon glow when busy/working */
+.pill.neon-busy {
+  border-color: #ff3b30;
+  box-shadow:
+    0 0 6px rgba(255, 59, 48, 0.4),
+    0 0 14px rgba(255, 59, 48, 0.25),
+    0 0 30px rgba(255, 59, 48, 0.15),
+    inset 0 0 6px rgba(255, 59, 48, 0.1);
+  animation: neon-pulse-red 1.5s ease-in-out infinite;
+}
+
+@keyframes neon-pulse-red {
+  0%, 100% {
+    box-shadow:
+      0 0 6px rgba(255, 59, 48, 0.4),
+      0 0 14px rgba(255, 59, 48, 0.25),
+      0 0 30px rgba(255, 59, 48, 0.15),
+      inset 0 0 6px rgba(255, 59, 48, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(255, 59, 48, 0.6),
+      0 0 22px rgba(255, 59, 48, 0.4),
+      0 0 44px rgba(255, 59, 48, 0.2),
+      inset 0 0 10px rgba(255, 59, 48, 0.15);
+  }
+}
+
+@keyframes neon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 6px rgba(52, 199, 89, 0.4),
+      0 0 14px rgba(52, 199, 89, 0.25),
+      0 0 30px rgba(52, 199, 89, 0.15),
+      inset 0 0 6px rgba(52, 199, 89, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(52, 199, 89, 0.6),
+      0 0 22px rgba(52, 199, 89, 0.4),
+      0 0 44px rgba(52, 199, 89, 0.2),
+      inset 0 0 10px rgba(52, 199, 89, 0.15);
+  }
 }
 
 .label {

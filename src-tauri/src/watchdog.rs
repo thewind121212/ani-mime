@@ -6,6 +6,7 @@ use crate::state::{emit_if_changed, AppState};
 
 const HEARTBEAT_TIMEOUT_SECS: u64 = 40;
 const SERVICE_DISPLAY_SECS: u64 = 2;
+const IDLE_TO_SLEEP_SECS: u64 = 120;
 
 /// Watchdog: runs every 2s.
 /// - Transitions service → idle after 2s of showing service.
@@ -29,29 +30,34 @@ pub fn start_watchdog(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppStat
         }
 
         // Remove stale sessions (no heartbeat for 40s)
-        // pid=0 is the Claude Code hooks session — keep it alive as long as
-        // any shell session exists (shell heartbeat keeps everything alive)
-        let has_shell_sessions = st
-            .sessions
-            .iter()
-            .any(|(pid, s)| *pid != 0 && now - s.last_seen < HEARTBEAT_TIMEOUT_SECS);
-
+        // pid=0 (Claude Code): no heartbeat, never expire by timeout
         st.sessions.retain(|pid, session| {
             if *pid == 0 {
-                has_shell_sessions
+                true
             } else {
                 now - session.last_seen < HEARTBEAT_TIMEOUT_SECS
             }
         });
 
         // Update UI
-        if st.sessions.is_empty() && st.current_ui != "searching" {
+        if st.sessions.is_empty() && st.current_ui != "searching" && st.current_ui != "initializing" {
             if st.current_ui != "disconnected" {
                 let _ = app_handle.emit("status-changed", "disconnected");
                 st.current_ui = "disconnected".to_string();
             }
         } else {
             emit_if_changed(&app_handle, &mut st);
+        }
+
+        // Idle → Sleep countdown: if UI has been "idle" long enough, transition to sleep
+        if st.current_ui == "idle"
+            && st.idle_since > 0
+            && now - st.idle_since >= IDLE_TO_SLEEP_SECS
+        {
+            let _ = app_handle.emit("status-changed", "disconnected");
+            st.current_ui = "disconnected".to_string();
+            st.idle_since = 0;
+            st.sleeping = true;
         }
     });
 }

@@ -7,6 +7,8 @@
   --border-pill-hover: rgba(255, 255, 255, 0.15);
   --shadow-pill-hover: 0 0 12px rgba(255, 255, 255, 0.05);
   --text-primary: rgba(255, 255, 255, 0.85);
+  --bg-bubble: rgba(128, 128, 128, 0.85);
+  --text-bubble: #fff;
 }
 
 /* Light theme */
@@ -17,4 +19,6 @@
   --border-pill-hover: rgba(0, 0, 0, 0.2);
   --shadow-pill-hover: 0 0 12px rgba(0, 0, 0, 0.08);
   --text-primary: rgba(0, 0, 0, 0.85);
+  --bg-bubble: rgba(255, 255, 255, 0.8);
+  --text-bubble: rgba(0, 0, 0, 0.85);
 }
