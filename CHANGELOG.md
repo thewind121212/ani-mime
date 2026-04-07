@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.0] - 2026-04-07
+
+### Added
+- **Peer Visits**: Pets can visit each other across the local network via mDNS discovery
+- mDNS-based peer discovery using `mdns-sd` crate
+- `/visit` and `/visit-end` HTTP routes for cross-machine pet communication
+- `VisitorDog` component with slide-in animation for visiting pets
+- Right-click context menu to select which peer to visit
+- Nickname setting for peer identity in Settings
+- New "visiting" status type with purple dot indicator
+- Configurable HTTP port via `ANI_MIME_PORT` environment variable
+- Visitor watchdog for automatic cleanup of stale visits
+
+### Fixed
+- Handle hostname returning IP instead of proper hostname
+
+### Changed
+- Main window widened to accommodate visiting dogs
+
 ## [0.13.25] - 2026-04-07
 
 ### Added
