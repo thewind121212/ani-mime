@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTheme, type Theme } from "../hooks/useTheme";
 import { usePet } from "../hooks/usePet";
 import { useBubble } from "../hooks/useBubble";
+import { useNickname } from "../hooks/useNickname";
 import { pets } from "../constants/sprites";
 import "../styles/settings.css";
 
@@ -11,6 +12,7 @@ export function Settings() {
   const { theme, setTheme } = useTheme();
   const { pet, setPet } = usePet();
   const { enabled: bubbleEnabled, setEnabled: setBubbleEnabled } = useBubble();
+  const { nickname, setNickname } = useNickname();
   const [tab, setTab] = useState<Tab>("general");
 
   return (
@@ -33,6 +35,22 @@ export function Settings() {
         <h1 className="settings-title">{tab === "general" ? "General" : "About"}</h1>
         {tab === "general" && (
           <>
+          <div className="settings-section">
+            <div className="settings-section-title">Identity</div>
+            <div className="settings-card">
+              <div className="settings-row">
+                <span className="settings-row-label">Nickname</span>
+                <input
+                  type="text"
+                  className="settings-input"
+                  value={nickname}
+                  placeholder="Enter your name"
+                  maxLength={20}
+                  onChange={(e) => setNickname(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
           <div className="settings-section">
             <div className="settings-section-title">Appearance</div>
             <div className="settings-card">

@@ -240,3 +240,19 @@
 .about-link:hover {
   text-decoration: underline;
 }
+
+.settings-input {
+  background: var(--bg-pill);
+  border: 1px solid var(--border-pill);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  width: 160px;
+}
+
+.settings-input:focus {
+  border-color: #5e5ce6;
+}
