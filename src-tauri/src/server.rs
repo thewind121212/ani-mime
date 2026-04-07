@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
+use tauri::Emitter;
 
 use crate::helpers::{get_query_param, now_secs};
-use crate::state::{emit_if_changed, AppState, Session};
+use crate::state::{emit_if_changed, AppState, Session, TaskCompleted};
 
 pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
     std::thread::spawn(move || {
@@ -38,16 +39,26 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                             if cmd_type == "service" {
                                 session.ui_state = "service".to_string();
                                 session.service_since = now;
+                                session.busy_since = 0;
                             } else {
                                 session.ui_state = "busy".to_string();
                                 session.service_since = 0;
+                                session.busy_since = now;
                             }
 
                             emit_if_changed(&app_handle, &mut st);
                         } else if url.contains("state=idle") {
+                            // Emit task-completed if this session was busy
+                            let busy_since = session.busy_since;
+                            if busy_since > 0 {
+                                let duration = now.saturating_sub(busy_since);
+                                let _ = app_handle.emit("task-completed", TaskCompleted { duration_secs: duration });
+                            }
+
                             session.busy_type.clear();
                             session.ui_state = "idle".to_string();
                             session.service_since = 0;
+                            session.busy_since = 0;
                             emit_if_changed(&app_handle, &mut st);
                         }
                     }
@@ -60,12 +71,7 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                             .sessions
                             .entry(pid)
                             .or_insert_with(|| Session::new_idle(now));
-                        // Only refresh last_seen for idle sessions.
-                        // Busy sessions should NOT be kept alive by heartbeat —
-                        // let the watchdog clean them up if no status signal comes.
-                        if session.ui_state != "busy" {
-                            session.last_seen = now;
-                        }
+                        session.last_seen = now;
 
                         emit_if_changed(&app_handle, &mut st);
                     }

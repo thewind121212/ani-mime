@@ -1,5 +1,12 @@
 use std::collections::HashMap;
+use serde::Serialize;
 use tauri::Emitter;
+
+/// Payload emitted when a task finishes (busy → idle).
+#[derive(Clone, Serialize)]
+pub struct TaskCompleted {
+    pub duration_secs: u64,
+}
 
 /// Per-shell session state.
 #[derive(Clone)]
@@ -12,6 +19,8 @@ pub struct Session {
     pub last_seen: u64,
     /// When this session entered "service" state (0 = not in service).
     pub service_since: u64,
+    /// When this session entered "busy" state (0 = not busy).
+    pub busy_since: u64,
 }
 
 impl Session {
@@ -21,6 +30,7 @@ impl Session {
             ui_state: "idle".to_string(),
             last_seen: now,
             service_since: 0,
+            busy_since: 0,
         }
     }
 }
@@ -29,6 +39,10 @@ pub struct AppState {
     pub sessions: HashMap<u32, Session>,
     /// What the frontend is currently showing.
     pub current_ui: String,
+    /// When the UI entered "idle" state (0 = not idle).
+    pub idle_since: u64,
+    /// True when idle countdown triggered sleep. Only busy/service wakes up.
+    pub sleeping: bool,
 }
 
 /// Picks the "winning" UI state across all sessions.
@@ -57,7 +71,23 @@ pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
 
 pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
     let new_ui = resolve_ui_state(&state.sessions);
+
+    // If sleeping, only wake up for busy or service
+    if state.sleeping {
+        if new_ui == "busy" || new_ui == "service" {
+            state.sleeping = false;
+        } else {
+            return;
+        }
+    }
+
     if new_ui != state.current_ui {
+        // Track when UI enters idle for sleep countdown
+        if new_ui == "idle" {
+            state.idle_since = crate::helpers::now_secs();
+        } else {
+            state.idle_since = 0;
+        }
         let _ = app.emit("status-changed", new_ui);
         state.current_ui = new_ui.to_string();
     }

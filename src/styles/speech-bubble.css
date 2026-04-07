@@ -1,0 +1,48 @@
+.speech-bubble {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  margin-bottom: -46px;
+  z-index: 1;
+  border-radius: 12px;
+  background: var(--bg-bubble);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-pill);
+  cursor: pointer;
+  animation: bubble-pop-in 0.3s ease-out;
+  pointer-events: auto;
+}
+
+.speech-bubble-text {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-bubble);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.speech-bubble-tail {
+  position: absolute;
+  bottom: -6px;
+  right: 16px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--bg-bubble);
+  filter: drop-shadow(0 1px 0 var(--border-pill));
+}
+
+@keyframes bubble-pop-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

@@ -1,5 +1,6 @@
 /* --- Sprite animation --- */
 .sprite {
+  margin-bottom: 4px;
   image-rendering: pixelated;
   background-repeat: no-repeat;
   background-size: var(--sprite-width) 128px;

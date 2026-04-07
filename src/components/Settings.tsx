@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTheme, type Theme } from "../hooks/useTheme";
 import { usePet } from "../hooks/usePet";
+import { useBubble } from "../hooks/useBubble";
 import { pets } from "../constants/sprites";
 import "../styles/settings.css";
 
@@ -9,6 +10,7 @@ type Tab = "general" | "about";
 export function Settings() {
   const { theme, setTheme } = useTheme();
   const { pet, setPet } = usePet();
+  const { enabled: bubbleEnabled, setEnabled: setBubbleEnabled } = useBubble();
   const [tab, setTab] = useState<Tab>("general");
 
   return (
@@ -78,6 +80,20 @@ export function Settings() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+          <div className="settings-section">
+            <div className="settings-section-title">Behavior</div>
+            <div className="settings-card">
+              <div className="settings-row">
+                <span className="settings-row-label">Speech Bubbles</span>
+                <button
+                  className={`toggle-switch ${bubbleEnabled ? "active" : ""}`}
+                  onClick={() => setBubbleEnabled(!bubbleEnabled)}
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
             </div>
           </div>
           </>
