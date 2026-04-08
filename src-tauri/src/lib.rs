@@ -92,7 +92,8 @@ fn start_visit(
         "duration_secs": VISIT_DURATION_SECS,
     });
 
-    let url = format!("http://{}:{}/visit", ip, port);
+    let base = crate::helpers::format_http_host(&ip, port);
+    let url = format!("{}/visit", base);
     crate::app_log!("[visit] sending POST {}", url);
 
     let send_result = std::thread::spawn({
@@ -139,7 +140,8 @@ fn start_visit(
             st.peers.get(&peer_id).cloned().ok_or(())
         } {
             Ok(peer_info) => {
-                let end_url = format!("http://{}:{}/visit-end", peer_info.ip, peer_info.port);
+                let end_base = crate::helpers::format_http_host(&peer_info.ip, peer_info.port);
+                let end_url = format!("{}/visit-end", end_base);
                 crate::app_log!("[visit] sending visit-end to {}", end_url);
                 if let Err(e) = ureq::post(&end_url).send_json(&end_body) {
                     crate::app_error!("[visit] failed to send visit-end: {}", e);
@@ -229,6 +231,9 @@ pub fn run() {
                 peers: HashMap::new(),
                 visitors: Vec::new(),
                 visiting: None,
+                discovery_instance: String::new(),
+                discovery_addrs: Vec::new(),
+                discovery_port: 0,
             }));
 
             app.manage(app_state.clone());

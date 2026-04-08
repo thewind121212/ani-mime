@@ -244,18 +244,41 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 crate::app_log!("[http] debug endpoint hit");
                 let st = app_state.lock().unwrap();
                 let mut lines = Vec::new();
+
+                lines.push("=== Discovery ===".to_string());
+                lines.push(format!("instance: {}", st.discovery_instance));
+                lines.push(format!("registered_addrs: [{}]", st.discovery_addrs.join(", ")));
+                lines.push(format!("port: {}", st.discovery_port));
+
+                lines.push("=== State ===".to_string());
                 lines.push(format!("current_ui: {}", st.current_ui));
                 lines.push(format!("sleeping: {}", st.sleeping));
-                lines.push(format!("sessions: {}", st.sessions.len()));
+
+                lines.push(format!("=== Sessions ({}) ===", st.sessions.len()));
                 for (pid, s) in &st.sessions {
                     lines.push(format!(
                         "  pid={} ui={} type={} last_seen={}s_ago",
                         pid, s.ui_state, s.busy_type, now - s.last_seen
                     ));
                 }
-                lines.push(format!("peers: {}", st.peers.len()));
-                lines.push(format!("visitors: {}", st.visitors.len()));
+
+                lines.push(format!("=== Peers ({}) ===", st.peers.len()));
+                for (key, p) in &st.peers {
+                    lines.push(format!(
+                        "  {} -> {} ({}) at {}:{}", key, p.nickname, p.pet, p.ip, p.port
+                    ));
+                }
+
+                lines.push(format!("=== Visitors ({}) ===", st.visitors.len()));
+                for v in &st.visitors {
+                    lines.push(format!(
+                        "  {} ({}) arrived={}s_ago duration={}s",
+                        v.nickname, v.pet, now.saturating_sub(v.arrived_at), v.duration_secs
+                    ));
+                }
+
                 lines.push(format!("visiting: {:?}", st.visiting));
+
                 let body = lines.join("\n");
                 let resp = tiny_http::Response::from_string(body)
                     .with_status_code(200)

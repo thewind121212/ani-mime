@@ -66,6 +66,10 @@ pub struct AppState {
     pub peers: HashMap<String, PeerInfo>,
     pub visitors: Vec<VisitingDog>,
     pub visiting: Option<String>,
+    // --- Discovery diagnostics ---
+    pub discovery_instance: String,
+    pub discovery_addrs: Vec<String>,
+    pub discovery_port: u16,
 }
 
 /// Picks the "winning" UI state across all sessions.

@@ -15,6 +15,15 @@ pub fn get_port() -> u16 {
         .unwrap_or(1234)
 }
 
+/// Format an IP + port into a valid HTTP host. Wraps IPv6 in brackets.
+pub fn format_http_host(ip: &str, port: u16) -> String {
+    if ip.contains(':') {
+        format!("http://[{}]:{}", ip, port)
+    } else {
+        format!("http://{}:{}", ip, port)
+    }
+}
+
 pub fn get_query_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
     let query = url.split('?').nth(1)?;
     for pair in query.split('&') {
