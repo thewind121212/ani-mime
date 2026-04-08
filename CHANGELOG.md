@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.12] - 2026-04-08
+
+### Added
+- **Mime tab**: Dedicated settings tab for character selection with categorized grid (Pet, Character) and nickname input with save button
+- **Samurai & Hancock**: Two new character sprites with full animation sets
+- **Glow modes**: Glow effect upgraded from toggle to 3-mode selector (Off / Light / Dark)
+- **Contributors section**: About page now shows contributors with GitHub avatars and a thank-you message
+- `MimeCategory` type system for organizing mimes into extensible categories
+
+### Changed
+- Pet selection moved from General to its own Mime sidebar tab
+- Pet grid now displays 4 items per row with compact card sizing
+- Author and Twitter combined into a single row in About
+- Nickname input now requires explicit Save button instead of saving on every keystroke
+
+### Fixed
+- Hancock sleep sprite: use single-frame image instead of multi-frame reference
+- Peer discovery on macOS with enhanced diagnostic logging
+
 ## [0.14.3] - 2026-04-08
 
 ### Added
