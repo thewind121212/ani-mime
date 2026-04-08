@@ -102,25 +102,21 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
             let has_claude = shell::cmd_exists("claude");
             crate::app_log!("[setup] claude CLI installed: {}", has_claude);
 
-            let answer = if has_claude {
-                macos_dialog(
+            if has_claude {
+                let answer = macos_dialog(
                     "Ani-Mime Setup",
-                    "Claude Code detected! Ani-Mime can track when Claude is working.\n\nThis adds hooks to ~/.claude/settings.json.\n\nAllow setup?",
+                    "Ani-Mime also supports Claude Code! Your mascot can react in real-time when Claude is thinking or using tools.\n\nThis will add lightweight hooks to ~/.claude/settings.json.\n\nWould you like to enable it?",
                     &["Yes", "Skip"],
-                )
-            } else {
-                macos_dialog(
-                    "Ani-Mime",
-                    "Claude Code is not installed.\n\nThis is optional — Ani-Mime works without it.\nIf you install Claude Code later, restart Ani-Mime to set up tracking.\n\nWould you like to pre-configure the hooks now?",
-                    &["Yes", "Skip"],
-                )
-            };
+                );
 
-            crate::app_log!("[setup] user chose '{}' for Claude hooks", answer);
-            if answer == "Yes" {
-                setup_claude_hooks(&home);
+                crate::app_log!("[setup] user chose '{}' for Claude hooks", answer);
+                if answer == "Yes" {
+                    setup_claude_hooks(&home);
+                } else {
+                    crate::app_log!("[setup] user skipped Claude Code hooks setup");
+                }
             } else {
-                crate::app_log!("[setup] user skipped Claude Code hooks setup");
+                crate::app_log!("[setup] claude CLI not installed, skipping hooks setup");
             }
         }
 
