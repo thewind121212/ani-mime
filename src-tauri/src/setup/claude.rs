@@ -1,5 +1,58 @@
 use std::path::Path;
 
+/// Patch existing ani-mime hooks to add `|| true` so they don't error when the app is offline.
+/// Safe to run on every startup — only modifies hooks that need fixing.
+pub fn migrate_claude_hooks(home: &Path) {
+    let settings_path = home.join(".claude/settings.json");
+    if !settings_path.exists() {
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    // Only patch if we have ani-mime hooks missing `|| true`
+    if !content.contains("127.0.0.1:1234") || !content.contains("2>&1\"") {
+        return;
+    }
+
+    // Check if any hook needs patching (has our marker but no `|| true`)
+    let mut settings: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let mut patched = false;
+    if let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+        for (_event, entries) in hooks.iter_mut() {
+            if let Some(entries) = entries.as_array_mut() {
+                for entry in entries.iter_mut() {
+                    if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                        for hook in hks.iter_mut() {
+                            if let Some(cmd) = hook.get_mut("command").and_then(|c| c.as_str().map(String::from)) {
+                                if cmd.contains("127.0.0.1:1234") && !cmd.contains("|| true") {
+                                    hook["command"] = serde_json::Value::String(format!("{} || true", cmd));
+                                    patched = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if patched {
+        if let Ok(json_str) = serde_json::to_string_pretty(&settings) {
+            if std::fs::write(&settings_path, json_str).is_ok() {
+                crate::app_log!("[setup] migrated claude hooks: added || true for graceful offline handling");
+            }
+        }
+    }
+}
+
 pub fn setup_claude_hooks(home: &Path) {
     crate::app_log!("[setup] configuring Claude Code hooks");
 
@@ -37,8 +90,8 @@ pub fn setup_claude_hooks(home: &Path) {
         .entry("hooks")
         .or_insert(serde_json::json!({}));
 
-    let busy_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=busy&type=task' > /dev/null 2>&1";
-    let idle_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=idle' > /dev/null 2>&1";
+    let busy_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=busy&type=task' > /dev/null 2>&1 || true";
+    let idle_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=idle' > /dev/null 2>&1 || true";
     let ani_marker = "127.0.0.1:1234";
 
     let has_ani_hook = |arr: &serde_json::Value| -> bool {

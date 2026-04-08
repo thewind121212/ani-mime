@@ -4,7 +4,7 @@ mod shell;
 use std::path::PathBuf;
 use tauri::Emitter;
 
-use self::claude::setup_claude_hooks;
+use self::claude::{migrate_claude_hooks, setup_claude_hooks};
 use self::shell::{detect_shells, install_shell_hooks, ShellInfo};
 use crate::setup::shell::macos_dialog;
 
@@ -23,6 +23,9 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
                 return;
             }
         };
+        // Always run migrations for existing users
+        migrate_claude_hooks(&home);
+
         let setup_marker = home.join(".ani-mime/setup-done");
 
         // Already ran setup once — skip entirely
