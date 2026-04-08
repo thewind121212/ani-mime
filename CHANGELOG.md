@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.14.2] - 2026-04-08
+
+### Fixed
+- Peer discovery now advertises local IP and accepts external connections
+
 ## [0.14.1] - 2026-04-07
 
 ### Fixed
