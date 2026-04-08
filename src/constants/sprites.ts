@@ -1,9 +1,10 @@
-import type { Status, SpriteConfig, Pet, PetInfo } from "../types/status";
+import type { Status, SpriteConfig, Pet, PetInfo, MimeCategory } from "../types/status";
 
 export const pets: PetInfo[] = [
   {
     id: "rottweiler",
     name: "Rottweiler",
+    category: "pet",
     preview: "Sittiing.png",
     sprites: {
       disconnected: { file: "SleepDogg.png", frames: 8 },
@@ -18,6 +19,7 @@ export const pets: PetInfo[] = [
   {
     id: "dalmatian",
     name: "Dalmatian",
+    category: "pet",
     preview: "DalmatianSitting.png",
     sprites: {
       disconnected: { file: "DalmatianSleep.png", frames: 8 },
@@ -32,6 +34,7 @@ export const pets: PetInfo[] = [
   {
     id: "samurai",
     name: "Samurai",
+    category: "character",
     preview: "SamuraiSitting.png",
     sprites: {
       disconnected: { file: "SamuraiSleep.png", frames: 3 },
@@ -46,6 +49,7 @@ export const pets: PetInfo[] = [
   {
     id: "hancock",
     name: "Hancock",
+    category: "character",
     preview: "HancockSitting.png",
     sprites: {
       disconnected: { file: "HancockSleep.png", frames: 1 },
@@ -58,6 +62,15 @@ export const pets: PetInfo[] = [
     },
   },
 ];
+
+export const mimeCategories: { key: MimeCategory; label: string }[] = [
+  { key: "pet", label: "Pet" },
+  { key: "character", label: "Character" },
+];
+
+export function getMimesByCategory(category: MimeCategory): PetInfo[] {
+  return pets.filter((p) => p.category === category);
+}
 
 export function getSpriteMap(petId: Pet): Record<Status, SpriteConfig> {
   const pet = pets.find((p) => p.id === petId);
