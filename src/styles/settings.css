@@ -209,6 +209,12 @@
   font-size: 12px;
   opacity: 0.5;
   margin-bottom: 10px;
+  transition: color 0.2s;
+}
+
+.about-version.dev-active {
+  color: #5e5ce6;
+  opacity: 0.8;
 }
 
 .about-desc {

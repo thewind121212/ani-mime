@@ -12,9 +12,19 @@ const validStatuses = new Set<string>([
   "visiting",
 ]);
 
-export function useStatus(): Status {
+interface ScenarioOverride {
+  status: string;
+}
+
+interface UseStatusResult {
+  status: Status;
+  scenario: boolean;
+}
+
+export function useStatus(): UseStatusResult {
   const [status, setStatus] = useState<Status>("initializing");
   const [away, setAway] = useState(false);
+  const [scenarioStatus, setScenarioStatus] = useState<Status | null>(null);
 
   useEffect(() => {
     const unlistenStatus = listen<string>("status-changed", (e) => {
@@ -27,11 +37,23 @@ export function useStatus(): Status {
       setAway(e.payload);
     });
 
+    const unlistenScenario = listen<ScenarioOverride | null>("scenario-override", (e) => {
+      if (e.payload && typeof e.payload === "object" && "status" in e.payload && validStatuses.has(e.payload.status)) {
+        setScenarioStatus(e.payload.status as Status);
+      } else {
+        setScenarioStatus(null);
+      }
+    });
+
     return () => {
       unlistenStatus.then((fn) => fn());
       unlistenAway.then((fn) => fn());
+      unlistenScenario.then((fn) => fn());
     };
   }, []);
 
-  return away ? "visiting" : status;
+  if (scenarioStatus) {
+    return { status: scenarioStatus, scenario: true };
+  }
+  return { status: away ? "visiting" : status, scenario: false };
 }

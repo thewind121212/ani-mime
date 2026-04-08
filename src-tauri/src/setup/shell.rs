@@ -19,11 +19,17 @@ impl ShellInfo {
 }
 
 pub fn cmd_exists(name: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(name)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    match std::process::Command::new("which").arg(name).output() {
+        Ok(o) => {
+            let exists = o.status.success();
+            crate::app_log!("[setup] which {}: {}", name, if exists { "found" } else { "not found" });
+            exists
+        }
+        Err(e) => {
+            crate::app_error!("[setup] failed to run 'which {}': {}", name, e);
+            false
+        }
+    }
 }
 
 pub fn detect_shells(home: &Path) -> Vec<ShellInfo> {
@@ -64,22 +70,26 @@ pub fn macos_dialog(title: &str, message: &str, buttons: &[&str]) -> String {
         buttons_str
     );
 
-    let output = std::process::Command::new("osascript")
+    match std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
-        .output();
-
-    match output {
+        .output()
+    {
         Ok(o) => {
             let result = String::from_utf8_lossy(&o.stdout).to_string();
-            result
+            let button = result
                 .split("button returned:")
                 .nth(1)
                 .unwrap_or("")
                 .trim()
-                .to_string()
+                .to_string();
+            crate::app_log!("[setup] dialog '{}': user pressed '{}'", title, button);
+            button
         }
-        Err(_) => String::new(),
+        Err(e) => {
+            crate::app_error!("[setup] failed to show dialog '{}': {}", title, e);
+            String::new()
+        }
     }
 }
 
@@ -98,20 +108,25 @@ fn macos_choose_list(title: &str, message: &str, items: &[&str]) -> Vec<String> 
         message.replace('"', "\\\""),
     );
 
-    let output = std::process::Command::new("osascript")
+    match std::process::Command::new("osascript")
         .arg("-e")
         .arg(&script)
-        .output();
-
-    match output {
+        .output()
+    {
         Ok(o) => {
             let result = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if result == "false" || result.is_empty() {
+                crate::app_log!("[setup] choose list '{}': user cancelled", title);
                 return vec![];
             }
-            result.split(", ").map(|s| s.to_string()).collect()
+            let selected: Vec<String> = result.split(", ").map(|s| s.to_string()).collect();
+            crate::app_log!("[setup] choose list '{}': user selected {:?}", title, selected);
+            selected
         }
-        Err(_) => vec![],
+        Err(e) => {
+            crate::app_error!("[setup] failed to show choose list '{}': {}", title, e);
+            vec![]
+        }
     }
 }
 
@@ -157,32 +172,39 @@ pub fn install_shell_hooks(
 ) {
     for shell in needs_setup {
         if !chosen.iter().any(|c| c == shell.name) {
+            crate::app_log!("[setup] skipping {} (not selected)", shell.name);
             continue;
         }
         let script_path = resource_dir.join(format!("script/{}", shell.script_file));
         if !script_path.exists() {
-            eprintln!("[setup] script not found: {}", script_path.display());
+            crate::app_error!("[setup] script not found: {}", script_path.display());
             continue;
         }
 
         // Ensure parent directory exists (for fish)
         if let Some(parent) = shell.rc_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                crate::app_error!("[setup] failed to create dir {}: {}", parent.display(), e);
+            }
         }
 
         let line = format!(
             "\n# --- Ani-Mime Terminal Hook ---\nsource \"{}\"\n",
             script_path.display()
         );
-        let _ = std::fs::OpenOptions::new()
+
+        match std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&shell.rc_path)
-            .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
-        eprintln!(
-            "[setup] injected {} into {}",
-            shell.script_file,
-            shell.rc_path.display()
-        );
+            .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()))
+        {
+            Ok(_) => {
+                crate::app_log!("[setup] injected {} into {}", shell.script_file, shell.rc_path.display());
+            }
+            Err(e) => {
+                crate::app_error!("[setup] failed to write to {}: {}", shell.rc_path.display(), e);
+            }
+        }
     }
 }

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 use tauri::Emitter;
 
-/// Payload emitted when a task finishes (busy → idle).
+/// Payload emitted when a task finishes (busy -> idle).
 #[derive(Clone, Serialize)]
 pub struct TaskCompleted {
     pub duration_secs: u64,
@@ -98,6 +98,7 @@ pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
     // If sleeping, only wake up for busy or service
     if state.sleeping {
         if new_ui == "busy" || new_ui == "service" {
+            crate::app_log!("[state] waking from sleep for {}", new_ui);
             state.sleeping = false;
         } else {
             return;
@@ -105,13 +106,17 @@ pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
     }
 
     if new_ui != state.current_ui {
+        crate::app_log!("[state] ui transition: {} -> {}", state.current_ui, new_ui);
+
         // Track when UI enters idle for sleep countdown
         if new_ui == "idle" {
             state.idle_since = crate::helpers::now_secs();
         } else {
             state.idle_since = 0;
         }
-        let _ = app.emit("status-changed", new_ui);
+        if let Err(e) = app.emit("status-changed", new_ui) {
+            crate::app_error!("[state] failed to emit status-changed: {}", e);
+        }
         state.current_ui = new_ui.to_string();
     }
 }

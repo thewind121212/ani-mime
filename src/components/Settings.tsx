@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
+import { load } from "@tauri-apps/plugin-store";
+import { emit } from "@tauri-apps/api/event";
 import { useTheme, type Theme } from "../hooks/useTheme";
 import { usePet } from "../hooks/usePet";
 import { useBubble } from "../hooks/useBubble";
@@ -14,6 +16,34 @@ export function Settings() {
   const { enabled: bubbleEnabled, setEnabled: setBubbleEnabled } = useBubble();
   const { nickname, setNickname } = useNickname();
   const [tab, setTab] = useState<Tab>("general");
+  const [devMode, setDevMode] = useState(false);
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Dev mode is session-only: always starts off, cleared on app restart
+  useLayoutEffect(() => {
+    load("settings.json").then(async (store) => {
+      await store.set("devMode", false);
+      await store.save();
+    });
+  }, []);
+
+  const handleVersionClick = async () => {
+    if (devMode) return;
+
+    clickCountRef.current += 1;
+    clearTimeout(clickTimerRef.current);
+
+    if (clickCountRef.current >= 10) {
+      clickCountRef.current = 0;
+      setDevMode(true);
+      await emit("dev-mode-changed", true);
+    } else {
+      clickTimerRef.current = setTimeout(() => {
+        clickCountRef.current = 0;
+      }, 3000);
+    }
+  };
 
   return (
     <div className="settings">
@@ -121,7 +151,13 @@ export function Settings() {
             <div className="settings-card">
               <div className="about-info">
                 <div className="about-name">Ani-Mime</div>
-                <div className="about-version">Version 0.14.2</div>
+                <div
+                  className={`about-version ${devMode ? "dev-active" : ""}`}
+                  onClick={handleVersionClick}
+                  style={{ userSelect: "none" }}
+                >
+                  Version 0.14.2{devMode && " (Dev Mode)"}
+                </div>
                 <div className="about-desc">A floating macOS desktop mascot that reacts to terminal and Claude Code activity in real-time.</div>
               </div>
             </div>

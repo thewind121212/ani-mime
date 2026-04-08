@@ -1,0 +1,27 @@
+.dev-tag {
+  display: inline-block;
+  align-self: center;
+  padding: 3px 10px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  color: #fff;
+  background: #5e5ce6;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  pointer-events: auto;
+  line-height: 1;
+  box-shadow: 0 0 8px rgba(94, 92, 230, 0.5);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.dev-tag:hover {
+  background: #7a78f0;
+  box-shadow: 0 0 14px rgba(94, 92, 230, 0.7);
+}
+
+.dev-tag:active {
+  background: #4b49c9;
+}

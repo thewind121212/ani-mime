@@ -2,6 +2,7 @@ import { Mascot } from "./components/Mascot";
 import { StatusPill } from "./components/StatusPill";
 import { SpeechBubble } from "./components/SpeechBubble";
 import { VisitorDog } from "./components/VisitorDog";
+import { DevTag } from "./components/DevTag";
 import { useStatus } from "./hooks/useStatus";
 import { useDrag } from "./hooks/useDrag";
 import { useTheme } from "./hooks/useTheme";
@@ -10,19 +11,21 @@ import { useVisitors } from "./hooks/useVisitors";
 import { usePeers } from "./hooks/usePeers";
 import { useNickname } from "./hooks/useNickname";
 import { usePet } from "./hooks/usePet";
+import { useDevMode } from "./hooks/useDevMode";
 import { invoke } from "@tauri-apps/api/core";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import "./styles/theme.css";
 import "./styles/app.css";
 
 function App() {
-  const status = useStatus();
+  const { status, scenario } = useStatus();
   const { dragging, onMouseDown } = useDrag();
   const { visible, message, dismiss } = useBubble();
   const visitors = useVisitors();
   const peers = usePeers();
   const { nickname } = useNickname();
   const { pet } = usePet();
+  const devMode = useDevMode();
   useTheme();
 
   const onContextMenu = async (e: React.MouseEvent) => {
@@ -67,14 +70,16 @@ function App() {
 
   return (
     <div
-      className={`container ${dragging ? "dragging" : ""}`}
+      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""}`}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
     >
+      {scenario && <div className="scenario-badge">SCENARIO</div>}
       <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
       {status !== "visiting" && <Mascot status={status} />}
       {status === "visiting" && <div style={{ width: 128, height: 128 }} />}
       <StatusPill status={status} glow={visible} />
+      {devMode && !scenario && <DevTag />}
       {visitors.map((v, i) => (
         <VisitorDog key={v.nickname} pet={v.pet} nickname={v.nickname} index={i} />
       ))}

@@ -34,6 +34,18 @@
         "decorations": true,
         "transparent": false,
         "center": true
+      },
+      {
+        "label": "superpower",
+        "title": "Superpower Tool",
+        "url": "superpower.html",
+        "width": 800,
+        "height": 500,
+        "resizable": true,
+        "visible": false,
+        "decorations": true,
+        "transparent": false,
+        "center": true
       }
     ],
     "security": {
