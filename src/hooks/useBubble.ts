@@ -74,6 +74,19 @@ export function useBubble() {
     };
   }, [enabled]);
 
+  // Hide bubble when status changes to busy/service
+  useEffect(() => {
+    const unlisten = listen<string>("status-changed", (e) => {
+      if (e.payload === "busy" || e.payload === "service") {
+        clearTimeout(timerRef.current);
+        setVisible(false);
+      }
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // Listen for task-completed events
   useEffect(() => {
     const unlisten = listen<TaskCompleted>("task-completed", () => {

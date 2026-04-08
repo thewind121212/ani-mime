@@ -9,6 +9,7 @@ mod platform;
 mod server;
 mod setup;
 mod state;
+mod updater;
 mod watchdog;
 
 use std::collections::HashMap;
@@ -170,7 +171,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, scenario_override])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, scenario_override, updater::update_now, updater::skip_version])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -222,6 +223,9 @@ pub fn run() {
             let resource_dir = app.path().resource_dir().unwrap();
             crate::app_log!("[app] resource dir: {}", resource_dir.display());
             setup::auto_setup(resource_dir, setup_handle);
+
+            // Check for updates in background
+            updater::check_for_updates(app.handle().clone());
 
             let app_state = Arc::new(Mutex::new(AppState {
                 sessions: HashMap::new(),

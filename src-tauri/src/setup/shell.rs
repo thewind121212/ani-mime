@@ -56,7 +56,7 @@ pub fn detect_shells(home: &Path) -> Vec<ShellInfo> {
 }
 
 /// Show a native macOS dialog. Returns the button text the user clicked.
-pub fn macos_dialog(title: &str, message: &str, buttons: &[&str]) -> String {
+pub(crate) fn macos_dialog(title: &str, message: &str, buttons: &[&str]) -> String {
     let buttons_str = buttons
         .iter()
         .map(|b| format!("\"{}\"", b))
