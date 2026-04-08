@@ -6,6 +6,7 @@
   background-repeat: no-repeat;
   background-size: var(--sprite-width) 128px;
   animation: sprite-play var(--sprite-duration) steps(var(--sprite-steps), end) infinite;
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
 }
 
 .sprite.frozen {
