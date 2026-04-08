@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.15] - 2026-04-08
+
+### Added
+- **In-app update checker**: Background check for new GitHub releases with dismissible update banner
+- **Auto-dismiss speech bubble**: Bubble hides automatically when status transitions to busy or service
+
+### Changed
+- Claude Code setup dialog only appears when CLI is installed — no more prompt when Claude is not found
+- Friendlier Claude Code setup dialog copy describing real-time mascot reactions
+
+### Fixed
+- Claude Code hooks no longer error when Ani-Mime is not running (silent fail with `--max-time 1`)
+
 ## [0.14.12] - 2026-04-08
 
 ### Added
