@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.3] - 2026-04-08
+
+### Added
+- **Superpower Tool**: Hidden devtool (easter egg) with sidebar menu layout, activated by clicking version text 10 times in Settings > About
+- **Log viewer**: Real-time in-app log viewer with info/warn/error levels, text search, level filtering, color-coded module tags, and auto-scroll
+- **Scenarios**: Visual testing mode that overrides mascot state — Pet Status scenario with buttons for all 7 statuses
+- Global logger with `app_log!`/`app_warn!`/`app_error!` macros and 1000-entry ring buffer
+- Comprehensive error handling and logging across all backend modules (discovery, server, watchdog, setup, state, platform)
+- "SCENARIO" badge on mascot during test mode, "DEV" tag below status pill when dev mode is active
+- Dev mode is session-only — resets on app restart
+
 ## [0.14.2] - 2026-04-08
 
 ### Fixed
