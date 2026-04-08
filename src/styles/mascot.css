@@ -9,8 +9,12 @@
   filter: none;
 }
 
-.sprite.glow {
+.sprite.glow-light {
   filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.8)) drop-shadow(0 0 8px rgba(255, 255, 255, 0.5));
+}
+
+.sprite.glow-dark {
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 8px rgba(0, 0, 0, 0.5));
 }
 
 .sprite.frozen {

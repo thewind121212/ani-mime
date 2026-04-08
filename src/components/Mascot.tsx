@@ -11,7 +11,7 @@ interface MascotProps {
 
 export function Mascot({ status }: MascotProps) {
   const { pet } = usePet();
-  const { enabled: glowEnabled } = useGlow();
+  const { mode: glowMode } = useGlow();
   const [frozen, setFrozen] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -37,7 +37,7 @@ export function Mascot({ status }: MascotProps) {
 
   return (
     <div
-      className={`sprite ${frozen ? "frozen" : ""} ${glowEnabled ? "glow" : ""}`}
+      className={`sprite ${frozen ? "frozen" : ""} ${glowMode !== "off" ? `glow-${glowMode}` : ""}`}
       style={{
         backgroundImage: `url(${spriteUrl})`,
         width: 128,

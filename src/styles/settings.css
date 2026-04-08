@@ -116,9 +116,16 @@
   border-radius: 5px;
 }
 
+.mime-desc {
+  font-size: 13px;
+  opacity: 0.5;
+  margin: -8px 0 16px;
+}
+
 /* Pet selection */
 .pet-grid {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 
@@ -126,8 +133,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
+  gap: 4px;
+  padding: 6px 0;
   background: rgba(128, 128, 128, 0.1);
   border: 2px solid rgba(128, 128, 128, 0.15);
   border-radius: 10px;
@@ -146,8 +153,8 @@
 }
 
 .pet-preview {
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
 }
 
 .pet-name {
@@ -247,6 +254,39 @@
   text-decoration: underline;
 }
 
+.contributors {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.contributor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.contributor:hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.contributor-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.contributor-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #007aff;
+}
+
 .settings-input {
   background: var(--bg-pill);
   border: 1px solid var(--border-pill);
@@ -261,4 +301,35 @@
 
 .settings-input:focus {
   border-color: #5e5ce6;
+}
+
+.nickname-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nickname-save {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(128, 128, 128, 0.15);
+  opacity: 0.4;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.nickname-save.active {
+  background: #007aff;
+  color: #fff;
+  opacity: 1;
+  cursor: pointer;
+}
+
+.nickname-save.active:hover {
+  background: #0063d1;
 }
