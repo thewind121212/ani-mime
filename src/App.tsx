@@ -73,12 +73,19 @@ function App() {
 
   return (
     <div
+      data-testid="app-container"
       className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""}`}
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
     >
-      {scenario && <div className="scenario-badge">SCENARIO</div>}
-      <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
+      {scenario && <div data-testid="scenario-badge" className="scenario-badge">SCENARIO</div>}
+      {showUpdate && (
+        <UpdateBanner
+          latest={update.latest}
+          onDismiss={dismissUpdate}
+        />
+      )}
+      <SpeechBubble visible={visible && !showUpdate} message={message} onDismiss={dismiss} />
       {status !== "visiting" && <Mascot status={status} />}
       {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
       <StatusPill status={status} glow={visible} />
