@@ -43,7 +43,7 @@ function App() {
     if (peers.length === 0) {
       const item = await MenuItem.new({
         id: "no-peers",
-        text: "No peers nearby",
+        text: "No peers nearby \u2014 check Local Network permission",
         enabled: false,
       });
       items.push(item);
