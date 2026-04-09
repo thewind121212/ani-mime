@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.16] - 2026-04-09
+
+### Added
+- **New contributor**: thanh-dong added to the About page
+
+### Fixed
+- Peer detection not working in release mode on macOS (added Info.plist with Bonjour networking entitlements)
+- Unused variable in UpdateBanner causing CI build failure
+- Version display in Settings now shows correct version
+
 ## [0.14.15] - 2026-04-08
 
 ### Added
