@@ -1,14 +1,12 @@
 import { Mascot } from "./components/Mascot";
 import { StatusPill } from "./components/StatusPill";
 import { SpeechBubble } from "./components/SpeechBubble";
-import { UpdateBanner } from "./components/UpdateBanner";
 import { VisitorDog } from "./components/VisitorDog";
 import { DevTag } from "./components/DevTag";
 import { useStatus } from "./hooks/useStatus";
 import { useDrag } from "./hooks/useDrag";
 import { useTheme } from "./hooks/useTheme";
 import { useBubble } from "./hooks/useBubble";
-import { useUpdate } from "./hooks/useUpdate";
 import { useVisitors } from "./hooks/useVisitors";
 import { usePeers } from "./hooks/usePeers";
 import { useNickname } from "./hooks/useNickname";
@@ -27,11 +25,8 @@ function App() {
   const peers = usePeers();
   const { nickname } = useNickname();
   const { pet } = usePet();
-  const { update, dismiss: dismissUpdate } = useUpdate();
   const devMode = useDevMode();
   useTheme();
-
-  const showUpdate = update && status !== "busy" && status !== "service";
 
   const onContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -80,13 +75,7 @@ function App() {
       onContextMenu={onContextMenu}
     >
       {scenario && <div className="scenario-badge">SCENARIO</div>}
-      {showUpdate && (
-        <UpdateBanner
-          latest={update.latest}
-          onDismiss={dismissUpdate}
-        />
-      )}
-      <SpeechBubble visible={visible && !showUpdate} message={message} onDismiss={dismiss} />
+      <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
       {status !== "visiting" && <Mascot status={status} />}
       {status === "visiting" && <div style={{ width: 128, height: 128 }} />}
       <StatusPill status={status} glow={visible} />

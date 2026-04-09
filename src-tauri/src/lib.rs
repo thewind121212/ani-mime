@@ -171,7 +171,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, scenario_override, updater::update_now, updater::skip_version])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, scenario_override])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -183,6 +183,7 @@ pub fn run() {
                 .item(&PredefinedMenuItem::about(app, Some("About Ani-Mime"), None)?)
                 .separator()
                 .item(&MenuItemBuilder::with_id("settings", "Settings...").accelerator("Cmd+,").build(app)?)
+                .item(&MenuItemBuilder::with_id("check-update", "Check for Updates...").build(app)?)
                 .separator()
                 .item(&PredefinedMenuItem::quit(app, Some("Quit Ani-Mime"))?)
                 .build()?;
@@ -194,12 +195,19 @@ pub fn run() {
             // Handle menu events
             let handle = app.handle().clone();
             app.on_menu_event(move |_app, event| {
-                if event.id().as_ref() == "settings" {
-                    crate::app_log!("[app] settings menu clicked");
-                    if let Some(win) = handle.get_webview_window("settings") {
-                        let _ = win.show();
-                        let _ = win.set_focus();
+                match event.id().as_ref() {
+                    "settings" => {
+                        crate::app_log!("[app] settings menu clicked");
+                        if let Some(win) = handle.get_webview_window("settings") {
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
                     }
+                    "check-update" => {
+                        crate::app_log!("[app] check for updates menu clicked");
+                        updater::check_for_updates_manual(handle.clone());
+                    }
+                    _ => {}
                 }
             });
 
