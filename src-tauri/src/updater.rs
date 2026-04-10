@@ -10,6 +10,23 @@ pub fn check_for_updates(app_handle: tauri::AppHandle) {
         // Small delay so the app window appears first
         std::thread::sleep(std::time::Duration::from_secs(3));
 
+        // Check if auto-update is disabled in settings
+        let app_data_dir = match app_handle.path().app_data_dir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let store_path = app_data_dir.join("settings.json");
+        if let Ok(content) = std::fs::read_to_string(&store_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(auto_update) = json.get("autoUpdateEnabled").and_then(|v| v.as_bool()) {
+                    if !auto_update {
+                        crate::app_log!("[updater] auto-update check disabled by user");
+                        return;
+                    }
+                }
+            }
+        }
+
         let current = env!("CARGO_PKG_VERSION");
         crate::app_log!("[updater] checking for updates (current: v{})", current);
 
@@ -29,11 +46,6 @@ pub fn check_for_updates(app_handle: tauri::AppHandle) {
         }
 
         // Check if user previously skipped this version
-        let app_data_dir = match app_handle.path().app_data_dir() {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        let store_path = app_data_dir.join("settings.json");
         if let Ok(content) = std::fs::read_to_string(&store_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(skipped) = json.get("skippedVersion").and_then(|v| v.as_str()) {

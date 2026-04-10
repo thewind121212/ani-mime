@@ -8,6 +8,9 @@
     "core:window:allow-start-dragging",
     "core:event:default",
     "opener:default",
-    "store:default"
+    "store:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }
