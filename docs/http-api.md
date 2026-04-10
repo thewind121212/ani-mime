@@ -1,8 +1,8 @@
 # HTTP API Reference
 
-The backend runs an HTTP server on `127.0.0.1:1234`. All endpoints accept `GET` requests and return `200 OK` with CORS headers.
+The backend runs an HTTP server on `0.0.0.0:1234` (configurable via `ANI_MIME_PORT` env var). All responses return `200 OK` with `Access-Control-Allow-Origin: *`.
 
-## Endpoints
+## Status Endpoints
 
 ### POST/GET `/status`
 
@@ -32,7 +32,8 @@ curl "http://127.0.0.1:1234/status?pid=12345&state=idle"
 **Behavior:**
 - Creates session if PID doesn't exist
 - Updates `ui_state`, `busy_type`, `last_seen`, `service_since`
-- Triggers state resolution and UI event emission
+- On busy→idle transition: emits `task-completed` with duration
+- Triggers state resolution and `status-changed` event emission
 
 ---
 
@@ -46,12 +47,6 @@ Keep a shell session alive. Sent periodically (every 20s) by shell hooks.
 |-------|----------|-------------|
 | `pid` | Yes | Shell process ID |
 
-**Example:**
-
-```bash
-curl "http://127.0.0.1:1234/heartbeat?pid=12345"
-```
-
 **Behavior:**
 - Creates session if PID doesn't exist
 - Refreshes `last_seen` timestamp (only for non-busy sessions)
@@ -59,11 +54,53 @@ curl "http://127.0.0.1:1234/heartbeat?pid=12345"
 
 ---
 
+## Peer Visit Endpoints
+
+### POST `/visit`
+
+Incoming dog visit from a peer. Sent by the visiting machine's backend.
+
+**Request Body (JSON):**
+
+```json
+{
+  "pet": "rottweiler",
+  "nickname": "Alice",
+  "duration_secs": 15
+}
+```
+
+**Behavior:**
+- Adds visitor to `AppState.visitors`
+- Emits `visitor-arrived` event to frontend
+
+---
+
+### POST `/visit-end`
+
+Signal that a visiting dog is leaving.
+
+**Request Body (JSON):**
+
+```json
+{
+  "nickname": "Alice"
+}
+```
+
+**Behavior:**
+- Removes visitor by nickname from `AppState.visitors`
+- Emits `visitor-left` event to frontend
+
+---
+
+## Debug Endpoints
+
 ### GET `/debug`
 
 Dump current session state. For development only.
 
-**Response:**
+**Response (text):**
 
 ```
 current_ui: idle
@@ -74,13 +111,6 @@ sessions: 2
 
 ---
 
-## Response Format
-
-All endpoints return:
-- Status: `200 OK`
-- Body: `"ok"` (except `/debug`)
-- Header: `Access-Control-Allow-Origin: *`
-
 ## Integration Points
 
 | Client | Endpoint | Frequency |
@@ -90,3 +120,5 @@ All endpoints return:
 | Shell heartbeat loop | `/heartbeat` | Every 20s |
 | Claude Code PreToolUse hook | `/status?pid=0&state=busy` | Per tool use |
 | Claude Code Stop hook | `/status?pid=0&state=idle` | Per stop |
+| Peer visit (outgoing) | Peer's `/visit` | Per visit initiation |
+| Peer visit end (outgoing) | Peer's `/visit-end` | Per visit completion |

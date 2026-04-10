@@ -2,73 +2,68 @@
 
 A floating macOS desktop mascot (pixel dog) that reacts to terminal and Claude Code activity in real-time. Built with Tauri 2 + React 19.
 
-## Quick Reference
+## Commands
 
-- **Dev**: `bun run tauri dev`
-- **Build**: `bun run tauri build`
-- **Type check frontend**: `npx tsc --noEmit`
-- **Type check backend**: `cd src-tauri && cargo check`
-- **Package manager**: Bun (not npm/yarn)
+| Task | Command |
+|------|---------|
+| Dev | `bun run tauri dev` |
+| Build | `bun run tauri build` |
+| Type check frontend | `npx tsc --noEmit` |
+| Type check backend | `cd src-tauri && cargo check` |
+| Package manager | Bun (not npm/yarn) |
 
-## Architecture
-
-See `docs/ARCHITECTURE.md` for full details. Key data flow:
+## Data Flow
 
 ```
 Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 ```
 
-### Backend (`src-tauri/src/`)
+## Documentation Map
 
-| Module | Responsibility |
-|--------|---------------|
-| `lib.rs` | Tauri setup, plugin registration, composition root |
-| `state.rs` | `AppState`, `Session`, `resolve_ui_state()`, `emit_if_changed()` |
-| `server.rs` | HTTP server on `127.0.0.1:1234` (tiny_http) |
-| `watchdog.rs` | Background thread: service→idle transition, stale session cleanup |
-| `helpers.rs` | `now_secs()`, `get_query_param()` |
-| `setup/mod.rs` | First-launch auto-setup orchestrator |
-| `setup/shell.rs` | Shell detection, native dialogs, RC file injection |
-| `setup/claude.rs` | Claude Code hooks configuration |
-| `platform/macos.rs` | Cocoa/objc window transparency and workspace visibility |
+### "I want to understand..."
 
-### Frontend (`src/`)
+| Topic | Document |
+|-------|----------|
+| System overview, design decisions, request lifecycle | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Where files live and what they do | [docs/project-structure.md](docs/project-structure.md) |
+| How state flows (AppState, hooks, state machine, threading) | [docs/state-management.md](docs/state-management.md) |
+| All events and commands between backend and frontend | [docs/events-reference.md](docs/events-reference.md) |
+| HTTP endpoints (`/status`, `/heartbeat`, `/visit`) | [docs/http-api.md](docs/http-api.md) |
+| Sprite animation, CSS engine, frame timing | [docs/animation-system.md](docs/animation-system.md) |
+| Theme system, CSS variables, glow effects | [docs/theming.md](docs/theming.md) |
+| mDNS peer discovery and visit protocol | [docs/peer-discovery.md](docs/peer-discovery.md) |
+| Shell hooks (zsh/bash/fish), command classification | [docs/shell-integration.md](docs/shell-integration.md) |
+| First-launch auto-setup | [docs/setup-flow.md](docs/setup-flow.md) |
 
-| Module | Responsibility |
-|--------|---------------|
-| `App.tsx` | Root composition: layout + drag |
-| `components/Mascot.tsx` | Sprite animation with auto-freeze |
-| `components/StatusPill.tsx` | Colored dot + status label |
-| `hooks/useStatus.ts` | Tauri `"status-changed"` event listener |
-| `hooks/useDrag.ts` | Window drag via Tauri API |
-| `constants/sprites.ts` | Sprite file map, frame counts, auto-stop set |
-| `types/status.ts` | `Status` type, `SpriteConfig` interface |
+### "I want to build/change..."
 
-### Status Priority
+| Task | Start here |
+|------|-----------|
+| Add a new UI status | [docs/adding-features.md](docs/adding-features.md) → "New UI Status" |
+| Add a new HTTP endpoint | [docs/adding-features.md](docs/adding-features.md) → "New HTTP Endpoint" |
+| Add a new Tauri command | [docs/adding-features.md](docs/adding-features.md) → "New Tauri Command" |
+| Add a new component or hook | [docs/adding-features.md](docs/adding-features.md) → "New React Component" / "New Hook" |
+| Add a new character/pet | [docs/animation-system.md](docs/animation-system.md) → "Adding a New Character" |
+| Add a new shell | [docs/adding-features.md](docs/adding-features.md) → "New Shell Support" |
+| Add a new window | [docs/adding-features.md](docs/adding-features.md) → "New Window" |
+| Add a new theme | [docs/theming.md](docs/theming.md) → "Adding a New Theme" |
+| Add a new persistent setting | [docs/adding-features.md](docs/adding-features.md) → "New Persistent Setting" |
+| Add a new event | [docs/events-reference.md](docs/events-reference.md) → "Adding a New Event" |
 
-When multiple terminals are open, the UI shows one winner: `busy > service > idle > disconnected`
+### "I need to look up..."
 
-## Conventions
+| What | Document |
+|------|----------|
+| Timeouts, ports, magic numbers | [docs/constants-reference.md](docs/constants-reference.md) |
+| Naming rules, code patterns, git conventions | [docs/conventions.md](docs/conventions.md) |
+| Tauri Store keys and defaults | [docs/constants-reference.md](docs/constants-reference.md) → "Tauri Store Keys" |
+| Status colors and dot animations | [docs/theming.md](docs/theming.md) → "Status Colors" |
+| Window sizes and config | [docs/constants-reference.md](docs/constants-reference.md) → "Window Configuration" |
 
-- **Rust**: Modules are flat files or directories with `mod.rs`. Shared state uses `Arc<Mutex<AppState>>`.
-- **React**: Functional components, hooks for logic. No state management library — `useState` + Tauri events.
-- **CSS**: Split by component (`styles/app.css`, `styles/mascot.css`, `styles/status-pill.css`). Uses CSS custom properties for sprite animation.
-- **Types**: `Status` is the core shared type. Keep frontend and backend status strings in sync manually (no codegen yet).
-- **Shell scripts**: One per shell (`terminal-mirror.{zsh,bash,fish}`). All use `curl` to talk to `:1234`.
+## Critical Rules
 
-## Important Details
-
-- HTTP server runs on `127.0.0.1:1234` — this port is hardcoded in shell scripts, Claude hooks, and Rust server
-- pid=0 is reserved for Claude Code hooks (virtual session)
-- Heartbeats only refresh `last_seen` for non-busy sessions (prevents stuck commands from staying alive)
-- Service state auto-transitions to idle after 2 seconds (watchdog)
-- Sessions are removed after 40 seconds with no heartbeat
-- Setup marker file: `~/.ani-mime/setup-done`
-- macOS-only: uses `cocoa` + `objc` crates for window transparency (behind `#[cfg(target_os = "macos")]`)
-
-## Adding Features
-
-- **New UI state**: Update `Status` type → `sprites.ts` → `StatusPill.tsx` → `status-pill.css` → `resolve_ui_state()` in `state.rs`
-- **New HTTP endpoint**: Add route in `server.rs`, lock `AppState` if mutating, call `emit_if_changed()`
-- **New shell**: Add script in `src-tauri/script/`, add `ShellInfo` in `setup/shell.rs`, add to `tauri.conf.json` bundle resources
-- **Storage**: See `docs/storage.md` for the planned approach (tauri-plugin-store for prefs, SQLite for history)
+- **Port 1234** is hardcoded across shell scripts, Claude hooks, and Rust server (override via `ANI_MIME_PORT` env var)
+- **pid=0** is reserved for Claude Code hooks (virtual session, never times out)
+- **Status priority**: `busy > service > idle > disconnected` — always one winner across all terminals
+- **Three shells must stay in sync**: any change to shell hooks must be applied to zsh, bash, AND fish
+- **Frontend/backend status strings** are synced manually (no codegen) — update both sides

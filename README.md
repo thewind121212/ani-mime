@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="960" alt="Ani-Mime Demo" />
+  <img src="docs/assets/demo.gif" width="960" alt="Ani-Mime Demo" />
 </p>
 
 ---
@@ -27,7 +27,7 @@ A tiny always-on-top pixel dog that reacts to what your terminal is doing. It sn
 It also integrates with **Claude Code** — the dog knows when Claude is thinking vs waiting for you.
 
 <p align="center">
-  <img src="docs/design.png" width="800" alt="Ani-Mime Mascot States" />
+  <img src="docs/assets/design.png" width="800" alt="Ani-Mime Mascot States" />
 </p>
 
 ## Mascot States
