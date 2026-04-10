@@ -34,11 +34,13 @@ _tm_heartbeat() {
 
 # Start heartbeat only once per shell session
 if [[ -z "$_TM_HEARTBEAT_PID" ]]; then
-  _tm_heartbeat &
+  { _tm_heartbeat & disown; } 2>/dev/null
   _TM_HEARTBEAT_PID=$!
-  disown $_TM_HEARTBEAT_PID 2>/dev/null
   trap "kill $_TM_HEARTBEAT_PID 2>/dev/null" EXIT
 fi
+
+# Helper: run a command in background without job notifications
+_tm_bg() { { "$@" & disown; } 2>/dev/null; }
 
 # --- Preexec via DEBUG trap ---
 _tm_preexec() {
@@ -55,13 +57,13 @@ _tm_preexec() {
   _tm_is_claude "$cmd" && return
 
   local cmd_type=$(_tm_classify "$cmd")
-  (curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=busy&type=${cmd_type}" > /dev/null 2>&1 &) 2>/dev/null
+  _tm_bg curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=busy&type=${cmd_type}" > /dev/null 2>&1
 }
 trap '_tm_preexec' DEBUG
 
 # --- Precmd via PROMPT_COMMAND ---
 _tm_precmd() {
   _TM_CMD_RUNNING=0
-  (curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=idle" > /dev/null 2>&1 &) 2>/dev/null
+  _tm_bg curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=idle" > /dev/null 2>&1
 }
 PROMPT_COMMAND="_tm_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"

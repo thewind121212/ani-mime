@@ -38,9 +38,8 @@ _tm_heartbeat() {
 
 # Start heartbeat only once per shell session
 if [[ -z "$_TM_HEARTBEAT_PID" ]]; then
-  _tm_heartbeat &
+  _tm_heartbeat &!
   _TM_HEARTBEAT_PID=$!
-  disown $_TM_HEARTBEAT_PID 2>/dev/null
   trap "kill $_TM_HEARTBEAT_PID 2>/dev/null" EXIT
 fi
 
@@ -49,11 +48,11 @@ _tm_preexec() {
   # Claude Code has its own hooks — skip entirely
   _tm_is_claude "$1" && return
   local cmd_type=$(_tm_classify "$1")
-  (curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=busy&type=${cmd_type}" > /dev/null 2>&1 &) 2>/dev/null
+  curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=busy&type=${cmd_type}" > /dev/null 2>&1 &!
 }
 
 _tm_precmd() {
-  (curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=idle" > /dev/null 2>&1 &) 2>/dev/null
+  curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=idle" > /dev/null 2>&1 &!
 }
 
 autoload -Uz add-zsh-hook
