@@ -24,12 +24,12 @@ const VISIT_DURATION_SECS: u64 = 15;
 
 #[tauri::command]
 fn get_logs() -> Vec<logger::LogEntry> {
-    logger::get_all_logs()
+    logger::read_log_file(1000)
 }
 
 #[tauri::command]
 fn clear_logs() {
-    logger::clear_logs();
+    logger::clear_log_file();
 }
 
 #[tauri::command]
@@ -318,6 +318,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
+
+            // Tell our log reader where to find the log file
+            if let Ok(log_dir) = app.path().app_log_dir() {
+                logger::set_log_path(log_dir.join("ani-mime.log"));
+            }
 
             platform::macos::setup_macos_window(app);
             crate::app_log!("[app] macOS window configured");
