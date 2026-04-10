@@ -7,6 +7,7 @@ import { useBubble } from "../hooks/useBubble";
 import { useGlow, type GlowMode } from "../hooks/useGlow";
 import { useNickname } from "../hooks/useNickname";
 import { useAutoStart } from "../hooks/useAutoStart";
+import { useAutoUpdate } from "../hooks/useAutoUpdate";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import "../styles/settings.css";
 
@@ -25,6 +26,7 @@ export function Settings() {
   const { mode: glowMode, setMode: setGlowMode } = useGlow();
   const { nickname, setNickname } = useNickname();
   const { enabled: autoStartEnabled, setEnabled: setAutoStartEnabled } = useAutoStart();
+  const { enabled: autoUpdateEnabled, setEnabled: setAutoUpdateEnabled } = useAutoUpdate();
   const [tab, setTab] = useState<Tab>("general");
   const [draftNickname, setDraftNickname] = useState(nickname);
   const nicknameChanged = draftNickname !== nickname;
@@ -119,6 +121,18 @@ export function Settings() {
                 <button
                   className={`toggle-switch ${autoStartEnabled ? "active" : ""}`}
                   onClick={() => setAutoStartEnabled(!autoStartEnabled)}
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Automatically Check for Updates</span>
+                  <span className="settings-row-hint">We recommend keeping this on. Updates include improvements and bug fixes for a better experience.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${autoUpdateEnabled ? "active" : ""}`}
+                  onClick={() => setAutoUpdateEnabled(!autoUpdateEnabled)}
                 >
                   <span className="toggle-knob" />
                 </button>

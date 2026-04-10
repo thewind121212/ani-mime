@@ -10,6 +10,23 @@ pub fn check_for_updates(app_handle: tauri::AppHandle) {
         // Small delay so the app window appears first
         std::thread::sleep(std::time::Duration::from_secs(3));
 
+        // Check if auto-update is disabled in settings
+        let app_data_dir = match app_handle.path().app_data_dir() {
+            Ok(d) => d,
+            Err(_) => return,
+        };
+        let store_path = app_data_dir.join("settings.json");
+        if let Ok(content) = std::fs::read_to_string(&store_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(auto_update) = json.get("autoUpdateEnabled").and_then(|v| v.as_bool()) {
+                    if !auto_update {
+                        crate::app_log!("[updater] auto-update check disabled by user");
+                        return;
+                    }
+                }
+            }
+        }
+
         let current = env!("CARGO_PKG_VERSION");
         crate::app_log!("[updater] checking for updates (current: v{})", current);
 
@@ -29,11 +46,6 @@ pub fn check_for_updates(app_handle: tauri::AppHandle) {
         }
 
         // Check if user previously skipped this version
-        let app_data_dir = match app_handle.path().app_data_dir() {
-            Ok(d) => d,
-            Err(_) => return,
-        };
-        let store_path = app_data_dir.join("settings.json");
         if let Ok(content) = std::fs::read_to_string(&store_path) {
             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(skipped) = json.get("skippedVersion").and_then(|v| v.as_str()) {
@@ -111,7 +123,7 @@ fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str
 
                 match button.as_str() {
                     "Update Now" => {
-                        update_now();
+                        update_now(app_handle);
                         break;
                     }
                     "Changelog" => {
@@ -159,16 +171,24 @@ fn is_newer(latest: &str, current: &str) -> bool {
     l > c
 }
 
-fn update_now() {
-    crate::app_log!("[updater] user chose: Update");
+fn update_now(app_handle: &tauri::AppHandle) {
+    crate::app_log!("[updater] user chose: Update — quitting app for upgrade");
+
+    // Terminal script: wait for app to quit, run brew upgrade, then reopen
     let script = r#"tell application "Terminal"
     activate
-    do script "brew update && brew upgrade --cask ani-mime"
+    do script "echo '🐕 Updating Ani-Mime...' && sleep 1 && brew update && brew upgrade --cask ani-mime && echo '✅ Update complete! Reopening Ani-Mime...' && open -a 'Ani-Mime'"
 end tell"#;
+
+    // Spawn the Terminal command first, then quit the app
     let _ = std::process::Command::new("osascript")
         .arg("-e")
         .arg(script)
         .spawn();
+
+    // Give Terminal a moment to launch before we quit
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app_handle.exit(0);
 }
 
 

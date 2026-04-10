@@ -90,6 +90,29 @@
   font-weight: 400;
 }
 
+.settings-row.with-hint {
+  align-items: flex-start;
+}
+
+.settings-row.with-hint > div:first-child {
+  flex: 1;
+  min-width: 0;
+  padding-right: 12px;
+}
+
+.settings-row.with-hint > .toggle-switch {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.settings-row-hint {
+  display: block;
+  font-size: 11px;
+  opacity: 0.45;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
 /* Theme toggle */
 .theme-toggle {
   display: flex;
