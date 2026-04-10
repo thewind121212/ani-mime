@@ -111,7 +111,7 @@ fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str
 
                 match button.as_str() {
                     "Update Now" => {
-                        update_now();
+                        update_now(app_handle);
                         break;
                     }
                     "Changelog" => {
@@ -159,16 +159,24 @@ fn is_newer(latest: &str, current: &str) -> bool {
     l > c
 }
 
-fn update_now() {
-    crate::app_log!("[updater] user chose: Update");
+fn update_now(app_handle: &tauri::AppHandle) {
+    crate::app_log!("[updater] user chose: Update — quitting app for upgrade");
+
+    // Terminal script: wait for app to quit, run brew upgrade, then reopen
     let script = r#"tell application "Terminal"
     activate
-    do script "brew update && brew upgrade --cask ani-mime"
+    do script "echo '🐕 Updating Ani-Mime...' && sleep 1 && brew update && brew upgrade --cask ani-mime && echo '✅ Update complete! Reopening Ani-Mime...' && open -a 'Ani-Mime'"
 end tell"#;
+
+    // Spawn the Terminal command first, then quit the app
     let _ = std::process::Command::new("osascript")
         .arg("-e")
         .arg(script)
         .spawn();
+
+    // Give Terminal a moment to launch before we quit
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app_handle.exit(0);
 }
 
 
