@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.15.0] - 2026-04-12
+
+### Added
+- **Custom Mime Creator** — create your own mimes with per-status PNG sprites, frame range expressions (e.g. `1-5`, `41-55,57,58`), and auto frame detection from image dimensions
+- **Smart Import** — auto-split sprite sheets into individual frames, assign frames to statuses, with chroma key background removal
+- **Custom Mime Editing** — edit button on hover to rename or change sprites/frame ranges on existing custom mimes
+- **Animation Preview** — click Preview to see animated sprite in a popup instead of static thumbnails
+- **.animime Export/Import** — export custom mimes as self-contained `.animime` files for sharing; import to restore them locally
+- **Display Scale** — Tiny / Normal / Large / XL size presets for the mascot sprite
+- **Auto-resize Window** — window boundary matches visible content (sprite + pill + bubble)
+- **Start at Login** — toggle in Settings to launch Ani-Mime on macOS login
+- **Auto Update** — toggle in Settings, auto close and relaunch after update
+- **Persistent File Logging** — logs written to disk via tauri-plugin-log with rotation (3 files, 1MB max)
+- **Bubble Test Scenario** — "Free + Bubble" and "Long Bubble" in Pet Status scenario with persistent bubbles
+- **DEV Tag Toggle** — toggle in Superpower toolbar to show/hide the DEV tag
+- **Guide PDF** — "Read the guide" link in Create Your Own section
+- **New contributor** — setnsail added to the About page
+- **E2E tests** — Playwright test suite for app startup, statuses, bubbles, scenarios, settings, and custom sprites
+- **Unit tests** — Vitest tests for all hooks and components with full Tauri mock layer
+- **C3 architecture docs** — system context, container breakdowns, and component details
+
+### Changed
+- Removed Genjuro from built-in sprite roster
+- Save button in custom mime forms always enabled — shows red validation errors instead of being disabled
+- Refactored documentation: consolidated guides, added new references
+
+### Fixed
+- Zsh and bash job notifications from terminal-mirror hook
+- Visible window boundary at large sprite scales
+- Sprite sheets read via FS plugin instead of asset protocol
+- Status pill glow shadow no longer clipped by window auto-resize
+
 ## [0.14.19] - 2026-04-10
 
 ### Added
