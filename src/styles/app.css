@@ -30,6 +30,7 @@ body {
   -webkit-user-select: none;
   position: relative;
   padding-left: 20px;
+  padding-bottom: 6px;
 }
 
 .container.dragging {

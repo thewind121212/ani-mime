@@ -87,7 +87,7 @@ function App() {
       {status !== "visiting" && <Mascot status={status} />}
       {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
       <StatusPill status={status} glow={visible} />
-      {devMode && !scenario && <DevTag />}
+      {devMode && <DevTag />}
       {visitors.map((v, i) => (
         <VisitorDog key={v.nickname} pet={v.pet} nickname={v.nickname} index={i} />
       ))}

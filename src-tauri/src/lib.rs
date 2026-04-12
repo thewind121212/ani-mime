@@ -32,6 +32,12 @@ fn clear_logs() {
 }
 
 #[tauri::command]
+fn set_dev_mode(enabled: bool, app: tauri::AppHandle) {
+    crate::app_log!("[dev] dev-mode-changed -> {}", enabled);
+    let _ = app.emit("dev-mode-changed", enabled);
+}
+
+#[tauri::command]
 fn scenario_override(status: Option<String>, app: tauri::AppHandle) {
     match &status {
         Some(s) => {
@@ -134,6 +140,12 @@ fn preview_dialog(dialog_id: String, app: tauri::AppHandle) {
             }
             "bubble_discovery_hint" => {
                 let _ = app.emit("discovery-hint", "no_peers");
+            }
+
+            // --- Persistent bubbles for scenario testing (no auto-hide) ---
+            id if id.starts_with("bubble_persist:") => {
+                let message = id.strip_prefix("bubble_persist:").unwrap_or("Hello!");
+                let _ = app.emit("bubble-preview", message);
             }
 
             _ => {
@@ -289,7 +301,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, scenario_override, preview_dialog])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, set_dev_mode, scenario_override, preview_dialog])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
