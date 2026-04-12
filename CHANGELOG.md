@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.15.1] - 2026-04-12
+## [0.15.2] - 2026-04-12
 
 ### Fixed
 - **Peer discovery broken in release builds** — added macOS entitlements (`Entitlements.plist`) for network access; Tauri's ad-hoc signing doesn't embed entitlements, so a post-build re-sign step is now required
