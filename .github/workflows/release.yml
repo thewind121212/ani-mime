@@ -49,4 +49,20 @@ jobs:
 
       - name: Re-sign with entitlements (ad-hoc builds)
         if: ${{ !env.APPLE_SIGNING_IDENTITY }}
-        run: bash src-tauri/script/post-build-sign.sh
+        run: bash src-tauri/script/post-build-sign.sh ${{ matrix.target }}
+
+      - name: Upload re-signed DMG
+        if: ${{ !env.APPLE_SIGNING_IDENTITY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${{ matrix.target }}" == *"aarch64"* ]]; then
+            ARCH="aarch64"
+          else
+            ARCH="x64"
+          fi
+          DMG="src-tauri/target/${{ matrix.target }}/release/bundle/dmg/ani-mime_${VERSION}_${ARCH}.dmg"
+          if [ -f "$DMG" ]; then
+            gh release upload "$GITHUB_REF_NAME" "$DMG" --clobber
+          fi
