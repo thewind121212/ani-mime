@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -42,22 +42,34 @@ pub fn read_log_file(last_n: usize) -> Vec<LogEntry> {
     let Some(path) = get_log_path() else {
         return Vec::new();
     };
-    let Ok(file) = std::fs::File::open(&path) else {
+    let Ok(mut file) = std::fs::File::open(&path) else {
         return Vec::new();
     };
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if file_size == 0 {
+        return Vec::new();
+    }
+
+    // Read only the tail of the file — estimate ~256 bytes per log line.
+    // If we seek past the start, the first line is likely partial;
+    // parse_log_line returns None for it, so it's filtered automatically.
+    let chunk = (last_n as u64).saturating_mul(256).min(file_size);
+    if chunk < file_size {
+        let _ = file.seek(SeekFrom::Start(file_size - chunk));
+    }
+
     let reader = BufReader::new(file);
-    let entries: Vec<LogEntry> = reader
+    let mut entries: Vec<LogEntry> = reader
         .lines()
         .filter_map(|line| line.ok())
         .filter_map(|line| parse_log_line(&line))
         .collect();
 
-    // Return only the last N entries
-    if entries.len() > last_n {
-        entries[entries.len() - last_n..].to_vec()
-    } else {
-        entries
+    let drain = entries.len().saturating_sub(last_n);
+    if drain > 0 {
+        entries.drain(..drain);
     }
+    entries
 }
 
 pub fn clear_log_file() {

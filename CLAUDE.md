@@ -31,6 +31,7 @@ Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 | `setup/mod.rs` | First-launch auto-setup orchestrator |
 | `setup/shell.rs` | Shell detection, native dialogs, RC file injection |
 | `setup/claude.rs` | Claude Code hooks configuration |
+| `logger.rs` | Log file tail-reader, `app_log!`/`app_warn!`/`app_error!` macros |
 | `platform/macos.rs` | Cocoa/objc window transparency, workspace visibility, dock visibility |
 
 ### Frontend (`src/`)
@@ -69,6 +70,16 @@ When multiple terminals are open, the UI shows one winner: `busy > service > idl
 - macOS-only: uses `cocoa` + `objc` crates for window transparency (behind `#[cfg(target_os = "macos")]`)
 - Tray icon is always present; left-click toggles main window, right-click shows menu (Show, Settings, Quit)
 - "Hide from Dock" preference stored as `hideDock` in `settings.json`; applied at startup via `ActivationPolicy::Accessory`
+
+## Logging
+
+- **Writer**: `tauri-plugin-log` appends structured lines to `ani-mime.log` inside the Tauri log dir (`~/Library/Logs/<bundle-id>/`)
+- **Reader**: `logger.rs` reads the tail of that same file to display in the Superpower Tool UI
+- **Rotation**: Configured as `KeepSome(3)` with 1MB max per file — do not increase without reason
+- **Tail-read**: `read_log_file()` seeks to the end of the file and reads only the last ~N×256 bytes. Never load the entire log file into memory.
+- **Macros**: Use `app_log!()`, `app_warn!()`, `app_error!()` for app-level logging — these route through the `log` crate so the plugin writes them to file
+- **Levels**: `debug` for dev diagnostics, `info` for state changes, `warn`/`error` for problems. Third-party crate noise is filtered in `lib.rs` (e.g. `mdns_sd` set to `Warn`)
+- **Don't truncate the log file externally** — `tauri-plugin-log` holds its own file handle; truncating causes stale size tracking and premature rotation
 
 ## Testing
 
