@@ -104,8 +104,10 @@ Every interactive or observable UI element must be locatable by automated tests 
 
 - **Unit tests** (Vitest + React Testing Library): `src/**/*.test.{ts,tsx}`
 - **E2E tests** (Playwright): `e2e/*.spec.ts`
-- **Run e2e**: `bunx playwright test`
+- **Run e2e**: `bunx playwright test -c e2e/playwright.config.ts --project=chromium`
 - **Playwright config**: `e2e/playwright.config.ts` — chromium + webkit, trace on failure
+- **When to run e2e**: Before pushing. No pre-commit or pre-push hook is configured — run manually. E2e takes ~7s on Chromium; too slow for a commit hook.
+- **Tauri mock**: `e2e/tauri-mock.ts` — injects fake `__TAURI_INTERNALS__` for store, dialog, FS, window, and event plugins. Supports `__MOCK_DIALOG_RESULT__`, `__MOCK_READ_FILE_BYTES__`, `__MOCK_READ_FILE_MAP__`, `__MOCK_SAVE_DIALOG_RESULT__`, `__MOCK_WRITTEN_FILES__`, `__MOCK_WINDOW_SIZES__` for test assertions.
 
 ## Adding Features
 
