@@ -51,6 +51,7 @@ Claude Code ←stdio→ MCP server (Node.js) ←HTTP→ :1234 → Tauri event �
 | `hooks/useStatus.ts` | Tauri `"status-changed"` + `"mcp-react"` event listener |
 | `hooks/useDrag.ts` | Window drag via Tauri API |
 | `hooks/useBubble.ts` | Speech bubbles: task-completed, welcome, `"mcp-say"` |
+| `hooks/useDockVisible.ts` | Toggle dock visibility via `set_dock_visible` command |
 | `constants/sprites.ts` | Sprite file map, frame counts, auto-stop set |
 | `types/status.ts` | `Status` type, `SpriteConfig` interface |
 
@@ -75,6 +76,8 @@ When multiple terminals are open, the UI shows one winner: `busy > service > idl
 - Sessions are removed after 40 seconds with no heartbeat
 - Setup marker file: `~/.ani-mime/setup-done`
 - macOS-only: uses `cocoa` + `objc` crates for window transparency (behind `#[cfg(target_os = "macos")]`)
+- Tray icon is always present; left-click toggles main window, right-click shows menu (Show, Settings, Quit)
+- "Hide from Dock" preference stored as `hideDock` in `settings.json`; applied at startup via `ActivationPolicy::Accessory`
 - MCP server (`server.mjs`) is installed to `~/.ani-mime/mcp/` on every startup; registered in `~/.claude.json` during first-launch setup
 - MCP endpoints: `/mcp/say` (speech bubble), `/mcp/react` (temp animation), `/mcp/pet-status` (JSON status)
 - MCP reactions map to existing statuses: celebrate/excited→service, nervous→busy, confused→searching, sleep→disconnected
@@ -112,3 +115,36 @@ Every interactive or observable UI element must be locatable by automated tests 
 - **New MCP tool**: Add tool definition in `mcp-server/server.mjs`, add HTTP endpoint in `server.rs`, emit Tauri event for frontend
 - **New shell**: Add script in `src-tauri/script/`, add `ShellInfo` in `setup/shell.rs`, add to `tauri.conf.json` bundle resources
 - **Storage**: See `docs/storage.md` for the planned approach (tauri-plugin-store for prefs, SQLite for history)
+
+## Releasing a New Version
+
+Every version bump must update **all 4 files** — missing one causes the app to show stale version info:
+
+| File | Field |
+|------|-------|
+| `package.json` | `"version"` |
+| `src-tauri/Cargo.toml` | `version` |
+| `src-tauri/tauri.conf.json` | `"version"` |
+| `src/components/Settings.tsx` | Hardcoded `Version X.Y.Z` string in About section |
+
+After editing `Cargo.toml`, run `cargo check` in `src-tauri/` to regenerate `Cargo.lock`.
+
+### Release checklist
+
+1. **Bump version** in all 4 files above + update `CHANGELOG.md` header
+2. **Commit**: `chore: release vX.Y.Z`
+3. **PR → merge to main** (branch protection requires PR)
+4. **Tag on main**: `git tag vX.Y.Z && git push origin vX.Y.Z`
+5. **CI builds automatically** — triggered by `v*` tag push, builds aarch64 + x86_64 DMGs
+6. **Update Homebrew cask** after CI publishes DMG artifacts:
+   - Download both DMGs: `gh release download vX.Y.Z --pattern "*.dmg"`
+   - Compute hashes: `shasum -a 256 *.dmg`
+   - Update `Casks/ani-mime.rb` in `vietnguyenhoangw/homebrew-ani-mime` with new version + SHA256s
+
+### Naming conventions
+
+- **Branch**: `release/vX.Y.Z`
+- **Tag**: `vX.Y.Z`
+- **Commit message**: `chore: release vX.Y.Z`
+- **DMG artifacts**: `ani-mime_X.Y.Z_aarch64.dmg`, `ani-mime_X.Y.Z_x64.dmg`
+- **Homebrew tap**: `vietnguyenhoangw/homebrew-ani-mime` → `Casks/ani-mime.rb`

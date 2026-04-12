@@ -8,6 +8,7 @@ import { useGlow, type GlowMode } from "../hooks/useGlow";
 import { useNickname } from "../hooks/useNickname";
 import { useAutoStart } from "../hooks/useAutoStart";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
+import { useDockVisible } from "../hooks/useDockVisible";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
 import { useCustomMimes, ALL_STATUSES } from "../hooks/useCustomMimes";
@@ -72,6 +73,7 @@ export function Settings() {
   const { nickname, setNickname } = useNickname();
   const { enabled: autoStartEnabled, setEnabled: setAutoStartEnabled } = useAutoStart();
   const { enabled: autoUpdateEnabled, setEnabled: setAutoUpdateEnabled } = useAutoUpdate();
+  const { hidden: dockHidden, setHidden: setDockHidden } = useDockVisible();
   const { scale, setScale, SCALE_PRESETS } = useScale();
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, deleteMime, exportMime, importMime } = useCustomMimes();
   const [tab, setTab] = useState<Tab>("general");
@@ -368,6 +370,19 @@ export function Settings() {
                   <span className="toggle-knob" />
                 </button>
               </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Hide from Dock</span>
+                  <span className="settings-row-hint">Hide the app from Dock and Cmd+Tab. Access via the menu bar icon instead.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${dockHidden ? "active" : ""}`}
+                  onClick={() => setDockHidden(!dockHidden)}
+                  data-testid="hide-dock-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
             </div>
           </div>
           </>
@@ -645,7 +660,7 @@ export function Settings() {
                   onClick={handleVersionClick}
                   style={{ userSelect: "none" }}
                 >
-                  Version 0.15.0{devMode && " (Dev Mode)"}
+                  Version 0.15.2{devMode && " (Dev Mode)"}
                 </div>
                 <div className="about-desc">A floating macOS desktop mascot that reacts to terminal and Claude Code activity in real-time.</div>
               </div>
