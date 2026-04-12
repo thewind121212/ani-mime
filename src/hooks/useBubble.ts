@@ -126,6 +126,18 @@ export function useBubble() {
     };
   }, []);
 
+  // Listen for bubble-preview: persistent bubble from scenario (no auto-hide, dismiss manually)
+  useEffect(() => {
+    const unlisten = listen<string>("bubble-preview", (e) => {
+      clearTimeout(timerRef.current);
+      setMessage(e.payload);
+      setVisible(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   const dismiss = useCallback(() => {
     clearTimeout(timerRef.current);
     setVisible(false);

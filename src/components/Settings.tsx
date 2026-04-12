@@ -138,14 +138,14 @@ export function Settings() {
   }, []);
 
   const handleVersionClick = async () => {
-    if (devMode) return;
-
     clickCountRef.current += 1;
     clearTimeout(clickTimerRef.current);
 
     if (clickCountRef.current >= 10) {
       clickCountRef.current = 0;
-      setDevMode(true);
+      if (!devMode) {
+        setDevMode(true);
+      }
       await emit("dev-mode-changed", true);
     } else {
       clickTimerRef.current = setTimeout(() => {
@@ -654,6 +654,7 @@ export function Settings() {
                     { login: "thnh-dng", avatar: "https://avatars.githubusercontent.com/u/213000297?v=4" },
                     { login: "yanmad27", avatar: "https://avatars.githubusercontent.com/u/38394675?v=4" },
                     { login: "thanh-dong", avatar: "https://avatars.githubusercontent.com/u/15724923?v=4" },
+                    { login: "setnsail", avatar: "https://avatars.githubusercontent.com/u/213003653?v=4" },
                   ].map((c) => (
                     <a
                       key={c.login}

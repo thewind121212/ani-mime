@@ -162,7 +162,14 @@ function LogViewer() {
 
 export function SuperpowerTool() {
   const [activeMenu, setActiveMenu] = useState<MenuItem>("logs");
+  const [devTagVisible, setDevTagVisible] = useState(true);
   useTheme();
+
+  const handleDevTagToggle = () => {
+    const next = !devTagVisible;
+    setDevTagVisible(next);
+    invoke("set_dev_mode", { enabled: next });
+  };
 
   return (
     <div className="superpower">
@@ -184,6 +191,19 @@ export function SuperpowerTool() {
         </button>
       </nav>
       <main className="superpower-content">
+        <div className="superpower-toolbar">
+          <div className="superpower-toolbar-item">
+            <span className="superpower-toolbar-label">DEV Tag</span>
+            <button
+              className={`toggle-switch ${devTagVisible ? "active" : ""}`}
+              onClick={handleDevTagToggle}
+              data-testid="dev-tag-toggle"
+              aria-label="Toggle DEV tag visibility"
+            >
+              <span className="toggle-knob" />
+            </button>
+          </div>
+        </div>
         {activeMenu === "logs" && <LogViewer />}
         {activeMenu === "scenarios" && <ScenarioViewer />}
       </main>
