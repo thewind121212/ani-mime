@@ -179,7 +179,7 @@ fn start_visit(
 ) -> Result<(), String> {
     crate::app_log!("[visit] starting visit to peer={} as {} ({})", peer_id, nickname, pet);
 
-    let (ip, port) = {
+    let (ip, port, my_instance) = {
         let st = state.lock().unwrap();
 
         if st.visiting.is_some() {
@@ -187,10 +187,12 @@ fn start_visit(
             return Err("Already visiting someone".to_string());
         }
 
+        let instance = st.discovery_instance.clone();
+
         match st.peers.get(&peer_id) {
             Some(peer) => {
                 crate::app_log!("[visit] target peer: {} at {}:{}", peer.nickname, peer.ip, peer.port);
-                (peer.ip.clone(), peer.port)
+                (peer.ip.clone(), peer.port, instance)
             }
             None => {
                 crate::app_error!("[visit] peer not found: {}", peer_id);
@@ -200,6 +202,7 @@ fn start_visit(
     };
 
     let body = serde_json::json!({
+        "instance_name": my_instance,
         "pet": pet,
         "nickname": nickname,
         "duration_secs": VISIT_DURATION_SECS,
@@ -246,8 +249,12 @@ fn start_visit(
         crate::app_log!("[visit] dog away, returning in {}s", VISIT_DURATION_SECS);
         std::thread::sleep(std::time::Duration::from_secs(VISIT_DURATION_SECS));
 
-        // Send visit-end to peer
-        let end_body = serde_json::json!({ "nickname": nickname_clone });
+        // Send visit-end to peer — use instance_name as stable identifier
+        let my_instance_clone = {
+            let st = state_clone.lock().unwrap();
+            st.discovery_instance.clone()
+        };
+        let end_body = serde_json::json!({ "instance_name": my_instance_clone, "nickname": nickname_clone });
         match {
             let st = state_clone.lock().unwrap();
             st.peers.get(&peer_id).cloned().ok_or(())

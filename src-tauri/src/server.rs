@@ -153,14 +153,16 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
 
                 match serde_json::from_str::<serde_json::Value>(&body) {
                     Ok(payload) => {
+                        let instance_name = payload["instance_name"].as_str().unwrap_or("unknown").to_string();
                         let pet = payload["pet"].as_str().unwrap_or("rottweiler").to_string();
                         let nickname = payload["nickname"].as_str().unwrap_or("Unknown").to_string();
                         let duration_secs = payload["duration_secs"].as_u64().unwrap_or(15);
 
-                        crate::app_log!("[visit] {} ({}) arrived for {}s", nickname, pet, duration_secs);
+                        crate::app_log!("[visit] {} ({}) [{}] arrived for {}s", nickname, pet, instance_name, duration_secs);
 
                         let mut st = app_state.lock().unwrap();
                         st.visitors.push(crate::state::VisitingDog {
+                            instance_name: instance_name.clone(),
                             pet: pet.clone(),
                             nickname: nickname.clone(),
                             arrived_at: now,
@@ -172,6 +174,7 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                         crate::app_log!("[visit] total visitors: {}", visitor_count);
 
                         if let Err(e) = app_handle.emit("visitor-arrived", serde_json::json!({
+                            "instance_name": instance_name,
                             "pet": pet,
                             "nickname": nickname,
                             "duration_secs": duration_secs,
@@ -211,17 +214,24 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
 
                 match serde_json::from_str::<serde_json::Value>(&body) {
                     Ok(payload) => {
+                        let instance_name = payload["instance_name"].as_str().unwrap_or("").to_string();
                         let nickname = payload["nickname"].as_str().unwrap_or("").to_string();
 
                         let mut st = app_state.lock().unwrap();
                         let before = st.visitors.len();
-                        st.visitors.retain(|v| v.nickname != nickname);
+                        if !instance_name.is_empty() {
+                            st.visitors.retain(|v| v.instance_name != instance_name);
+                        } else {
+                            // Fallback for older peers that don't send instance_name
+                            st.visitors.retain(|v| v.nickname != nickname);
+                        }
                         let after = st.visitors.len();
                         drop(st);
 
-                        crate::app_log!("[visit] {} left (visitors: {} -> {})", nickname, before, after);
+                        crate::app_log!("[visit] {} [{}] left (visitors: {} -> {})", nickname, instance_name, before, after);
 
                         if let Err(e) = app_handle.emit("visitor-left", serde_json::json!({
+                            "instance_name": instance_name,
                             "nickname": nickname,
                         })) {
                             crate::app_error!("[visit] failed to emit visitor-left: {}", e);
@@ -272,8 +282,8 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 lines.push(format!("=== Visitors ({}) ===", st.visitors.len()));
                 for v in &st.visitors {
                     lines.push(format!(
-                        "  {} ({}) arrived={}s_ago duration={}s",
-                        v.nickname, v.pet, now.saturating_sub(v.arrived_at), v.duration_secs
+                        "  {} ({}) [{}] arrived={}s_ago duration={}s",
+                        v.nickname, v.pet, v.instance_name, now.saturating_sub(v.arrived_at), v.duration_secs
                     ));
                 }
 

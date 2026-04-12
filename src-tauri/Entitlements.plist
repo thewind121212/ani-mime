@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Hardened Runtime: allow JIT for WebView -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Hardened Runtime: required by macOSPrivateApi (Cocoa private frameworks) -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+  <!-- Network: mDNS multicast + HTTP server on :1234 -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <!-- Network: outgoing HTTP (ureq visit requests) + UDP (IP detection) -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+</dict>
+</plist>

@@ -25,14 +25,15 @@ User interaction → invoke() command → Rust handler → app.emit() → React 
 |-------|---------|--------|----------|
 | `peers-changed` | `Vec<PeerInfo>` | `discovery.rs` (resolve/remove) | `usePeers` |
 | `discovery-hint` | `string` ("no_peers") | `discovery.rs` (30s heartbeat) | `useBubble` |
+| `discovery-error` | `string` (error message) | `discovery.rs` (daemon/register/browse failure) | — |
 
 ### Visiting
 
 | Event | Payload | Source | Listener |
 |-------|---------|--------|----------|
 | `dog-away` | `bool` | `start_visit` command / visit thread | `useStatus` |
-| `visitor-arrived` | `{ pet, nickname, duration_secs }` | `/visit` route | `useVisitors` |
-| `visitor-left` | `{ nickname }` | `/visit-end` route / watchdog | `useVisitors` |
+| `visitor-arrived` | `{ instance_name, pet, nickname, duration_secs }` | `/visit` route | `useVisitors` |
+| `visitor-left` | `{ instance_name, nickname }` | `/visit-end` route / watchdog | `useVisitors` |
 
 ### Dev/Testing
 

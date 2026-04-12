@@ -46,6 +46,7 @@ It also integrates with **Claude Code** — the dog knows when Claude is thinkin
 - **Custom Sprites** — upload your own PNG sprite sheets via manual import or smart extraction with chroma-key background removal
 - **Frame Range Expressions** — specify frames as ranges like `1-5` or `41-55,57,58` when importing custom sprites
 - **Display Scale** — resize your mascot with Tiny / Normal / Large / XL presets
+- **Peer Visits** — discover other Ani-Mime users on your local network via Bonjour/mDNS; right-click to send your pet to visit theirs
 - **Manual Tagging** — zsh hooks classify commands as `task` or `service`
 - **Heartbeat Architecture** — no process tree scanning, no time-based guessing
 - **Claude Code Hooks** — tracks when Claude is actively working vs waiting
@@ -116,6 +117,55 @@ npx playwright test --config=e2e/playwright.config.ts
 ```
 
 The e2e suite covers app startup, status transitions, speech bubbles, scenario mode, settings, custom sprite upload (including frame range expressions), sprite display sizing, and custom sprite editing.
+
+---
+
+## Peer Visits
+
+Ani-Mime instances on the same local network automatically discover each other via mDNS (Bonjour). Right-click your mascot to see nearby peers and send your pet to visit them.
+
+### Requirements
+
+- Both machines on the **same WiFi / LAN subnet**
+- **macOS Local Network permission** — allow when prompted on first launch (or enable in System Settings > Privacy & Security > Local Network)
+
+### Troubleshooting
+
+If peers can't find each other:
+
+1. Check that both machines are on the same network (`192.168.x.x` subnet)
+2. Verify Local Network permission is enabled for ani-mime on both machines
+3. Run `dns-sd -B _ani-mime._tcp local.` in Terminal — you should see both instances
+4. Run `curl http://127.0.0.1:1234/debug` to check the registered IP and peer list
+5. If sharing the app via DMG without a Developer ID, the recipient must run:
+   ```bash
+   xattr -cr /Applications/ani-mime.app
+   ```
+
+See [docs/peer-discovery.md](docs/peer-discovery.md) for the full protocol reference.
+
+---
+
+## Building for Release
+
+```bash
+# Build the Tauri app
+bun run tauri build
+
+# Re-sign with entitlements and re-create the DMG
+# (required because Tauri doesn't embed entitlements for ad-hoc signing)
+bash src-tauri/script/post-build-sign.sh
+```
+
+The signed DMG is output to `src-tauri/target/release/bundle/dmg/`.
+
+**Without the post-build sign step**, the app will run on the build machine but peer discovery (mDNS) and the HTTP server will silently fail on other machines due to missing network entitlements.
+
+If the recipient sees "app is damaged", they need to remove the quarantine attribute:
+
+```bash
+xattr -cr /Applications/ani-mime.app
+```
 
 ---
 

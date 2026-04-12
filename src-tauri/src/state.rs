@@ -21,6 +21,7 @@ pub struct PeerInfo {
 /// A dog currently visiting this screen.
 #[derive(Clone, Serialize)]
 pub struct VisitingDog {
+    pub instance_name: String,
     pub pet: String,
     pub nickname: String,
     pub arrived_at: u64,

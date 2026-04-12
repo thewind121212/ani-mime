@@ -59,15 +59,16 @@ pub fn start_watchdog(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppStat
         }
 
         // Remove expired visitors
-        let expired_visitors: Vec<String> = st.visitors
+        let expired_visitors: Vec<(String, String)> = st.visitors
             .iter()
             .filter(|v| now - v.arrived_at >= v.duration_secs)
-            .map(|v| v.nickname.clone())
+            .map(|v| (v.instance_name.clone(), v.nickname.clone()))
             .collect();
 
-        for nickname in &expired_visitors {
-            crate::app_log!("[watchdog] visitor {} expired", nickname);
+        for (instance_name, nickname) in &expired_visitors {
+            crate::app_log!("[watchdog] visitor {} [{}] expired", nickname, instance_name);
             if let Err(e) = app_handle.emit("visitor-left", serde_json::json!({
+                "instance_name": instance_name,
                 "nickname": nickname,
             })) {
                 crate::app_error!("[watchdog] failed to emit visitor-left: {}", e);

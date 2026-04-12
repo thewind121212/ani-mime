@@ -5,10 +5,11 @@ A floating macOS desktop mascot (pixel dog) that reacts to terminal and Claude C
 ## Quick Reference
 
 - **Dev**: `bun run tauri dev`
-- **Build**: `bun run tauri build`
+- **Build**: `bun run tauri build && bash src-tauri/script/post-build-sign.sh`
 - **Type check frontend**: `npx tsc --noEmit`
 - **Type check backend**: `cd src-tauri && cargo check`
 - **Package manager**: Bun (not npm/yarn)
+- **Entitlements**: `src-tauri/Entitlements.plist` (network + Hardened Runtime); post-build re-sign is required for ad-hoc builds
 
 ## Architecture
 

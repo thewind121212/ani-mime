@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.15.1] - 2026-04-12
+
+### Fixed
+- **Peer discovery broken in release builds** — added macOS entitlements (`Entitlements.plist`) for network access; Tauri's ad-hoc signing doesn't embed entitlements, so a post-build re-sign step is now required
+- **Visitor collision when peers share a nickname** — visitors are now keyed by `instance_name` (unique per process) instead of `nickname`
+- **Silent discovery failure** — mDNS daemon, registration, and browse errors now emit a `discovery-error` event to the frontend instead of failing silently
+
+### Added
+- `src-tauri/Entitlements.plist` — macOS Hardened Runtime entitlements for network client/server, JIT, and library validation
+- `bundle.macOS` config in `tauri.conf.json` — explicit entitlements and Info.plist references
+- `src-tauri/script/post-build-sign.sh` — re-signs the .app with entitlements and re-creates the DMG after `tauri build`
+- `src-tauri/script/install-mac.sh` — installer script for users receiving the app without notarization (removes quarantine)
+- Peer visit troubleshooting section in README
+
+### Changed
+- Visit protocol now includes `instance_name` field in `/visit` and `/visit-end` request bodies (backward-compatible: falls back to `nickname` for older peers)
+- `VisitingDog` struct has new `instance_name` field
+- `visitor-arrived` and `visitor-left` events include `instance_name`
+- Release workflow updated with post-build entitlement signing step
+
 ## [0.15.0] - 2026-04-12
 
 ### Added

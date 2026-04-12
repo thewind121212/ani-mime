@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
 export interface Visitor {
+  instance_name: string;
   pet: string;
   nickname: string;
   duration_secs: number;
@@ -15,8 +16,14 @@ export function useVisitors() {
       setVisitors((prev) => [...prev, e.payload]);
     });
 
-    const unlistenLeft = listen<{ nickname: string }>("visitor-left", (e) => {
-      setVisitors((prev) => prev.filter((v) => v.nickname !== e.payload.nickname));
+    const unlistenLeft = listen<{ instance_name: string; nickname: string }>("visitor-left", (e) => {
+      setVisitors((prev) => {
+        if (e.payload.instance_name) {
+          return prev.filter((v) => v.instance_name !== e.payload.instance_name);
+        }
+        // Fallback for older peers
+        return prev.filter((v) => v.nickname !== e.payload.nickname);
+      });
     });
 
     return () => {

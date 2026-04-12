@@ -59,6 +59,7 @@ pub fn start_discovery(
             }
             Err(e) => {
                 crate::app_error!("[discovery] failed to create mDNS daemon: {}", e);
+                let _ = app_handle.emit("discovery-error", format!("mDNS daemon failed: {}", e));
                 return;
             }
         };
@@ -104,6 +105,7 @@ pub fn start_discovery(
             Ok(info) => info.enable_addr_auto(),
             Err(e) => {
                 crate::app_error!("[discovery] failed to create ServiceInfo: {}", e);
+                let _ = app_handle.emit("discovery-error", format!("ServiceInfo failed: {}", e));
                 return;
             }
         };
@@ -122,6 +124,7 @@ pub fn start_discovery(
             Ok(_) => crate::app_log!("[discovery] registered as {} on {} (port={})", instance_name, host_name, port),
             Err(e) => {
                 crate::app_error!("[discovery] failed to register mDNS service: {}", e);
+                let _ = app_handle.emit("discovery-error", format!("mDNS register failed: {}", e));
                 return;
             }
         }
@@ -142,6 +145,7 @@ pub fn start_discovery(
             }
             Err(e) => {
                 crate::app_error!("[discovery] failed to start mDNS browse: {}", e);
+                let _ = app_handle.emit("discovery-error", format!("mDNS browse failed: {}", e));
                 return;
             }
         };

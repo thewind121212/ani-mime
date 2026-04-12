@@ -68,7 +68,7 @@ A background thread checks every 30 seconds. If no peers are found after the fir
    - Sets `AppState.visiting = Some(peer_id)`
    - Sends `POST /visit` to peer's HTTP server with JSON body:
      ```json
-     { "pet": "rottweiler", "nickname": "Alice", "duration_secs": 15 }
+     { "instance_name": "Alice-12345", "pet": "rottweiler", "nickname": "Alice", "duration_secs": 15 }
      ```
    - Emits `dog-away: true` (hides local mascot)
    - Spawns thread: sleeps for `VISIT_DURATION_SECS` (15s)
@@ -76,7 +76,7 @@ A background thread checks every 30 seconds. If no peers are found after the fir
 ### Receiving a Visit
 
 1. `/visit` route receives POST with visitor info
-2. Creates `VisitingDog { pet, nickname, arrived_at, duration_secs }`
+2. Creates `VisitingDog { instance_name, pet, nickname, arrived_at, duration_secs }`
 3. Adds to `AppState.visitors`
 4. Emits `visitor-arrived` event → frontend shows visitor sprite
 
@@ -84,12 +84,12 @@ A background thread checks every 30 seconds. If no peers are found after the fir
 
 After the visit duration:
 1. Spawned thread wakes up
-2. Sends `POST /visit-end` to peer with `{ "nickname": "Alice" }`
+2. Sends `POST /visit-end` to peer with `{ "instance_name": "Alice-12345", "nickname": "Alice" }`
 3. Clears `AppState.visiting`
 4. Emits `dog-away: false` (shows local mascot again)
 
 Peer side:
-1. `/visit-end` removes visitor by nickname
+1. `/visit-end` removes visitor by `instance_name` (falls back to `nickname` for older peers)
 2. Emits `visitor-left` event → frontend removes visitor sprite
 
 ### Visit Expiration
@@ -126,23 +126,50 @@ When the local dog is visiting someone:
 
 ## macOS Permissions
 
-Peer discovery requires Bonjour entitlements for release builds:
+Peer discovery requires entitlements for release builds. These are defined in `src-tauri/Entitlements.plist`:
 
-```xml
-<!-- In entitlements -->
-<key>com.apple.security.network.client</key>
-<true/>
-<key>com.apple.security.network.server</key>
-<true/>
+| Entitlement | Purpose |
+|-------------|---------|
+| `com.apple.security.cs.allow-jit` | WebView JIT under Hardened Runtime |
+| `com.apple.security.cs.disable-library-validation` | Required by `macOSPrivateApi` (window transparency) |
+| `com.apple.security.network.server` | mDNS multicast sockets + HTTP server on :1234 |
+| `com.apple.security.network.client` | Outgoing HTTP (visit requests) + UDP (IP detection) |
+
+Additionally, `src-tauri/Info.plist` declares:
+- `NSBonjourServices`: `_ani-mime._tcp` — triggers the macOS Local Network permission dialog
+- `NSLocalNetworkUsageDescription` — explains why the app needs network access
+
+**Important**: Tauri does not embed entitlements for ad-hoc (no Developer ID) builds. The post-build script `src-tauri/script/post-build-sign.sh` re-signs the app with entitlements and re-creates the DMG. See the release build section in the README.
+
+## Troubleshooting
+
+### Peers not finding each other
+
+1. **Both machines must be on the same WiFi/LAN subnet** — mDNS doesn't cross subnets
+2. **macOS Local Network permission** — on first launch, macOS asks to allow local network access. If denied, go to **System Settings > Privacy & Security > Local Network** and enable ani-mime
+3. **Verify registration** — run in Terminal: `dns-sd -B _ani-mime._tcp local.` — you should see your instance name within seconds
+4. **Check debug endpoint** — run `curl http://127.0.0.1:1234/debug` to see registered IP and discovered peers
+5. **Entitlements missing** — if shared via DMG without the post-build sign step, mDNS silently fails. Re-build with `bun run tauri build && bash src-tauri/script/post-build-sign.sh`
+6. **Quarantine attribute** — apps transferred between Macs get quarantined. Run `xattr -cr /Applications/ani-mime.app` on the receiving machine
+
+### Verify mDNS is working
+
+```bash
+# See all ani-mime instances on the network
+dns-sd -B _ani-mime._tcp local.
+
+# See details of a specific instance
+dns-sd -L "InstanceName" "_ani-mime._tcp" "local."
+
+# Test with a fake peer (appears in context menu)
+dns-sd -R "TestBuddy-9999" "_ani-mime._tcp" "local." 1235 nickname=Buddy pet=dalmatian
 ```
-
-Without these, mDNS registration silently fails in sandboxed builds.
 
 ## Limitations
 
-- **LAN only** - mDNS doesn't cross subnet boundaries (no WAN discovery)
-- **No authentication** - any Ani-Mime instance on the network can visit
-- **No rejection** - visits are automatically accepted
-- **No encryption** - HTTP traffic is plaintext
-- **Single visit** - can only visit one peer at a time
-- **Fixed duration** - visits last exactly 15 seconds, not configurable by user
+- **LAN only** — mDNS doesn't cross subnet boundaries (no WAN discovery)
+- **No authentication** — any Ani-Mime instance on the network can visit
+- **No rejection** — visits are automatically accepted
+- **No encryption** — HTTP traffic is plaintext
+- **Single visit** — can only visit one peer at a time
+- **Fixed duration** — visits last exactly 15 seconds, not configurable by user

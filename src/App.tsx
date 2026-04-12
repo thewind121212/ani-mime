@@ -89,7 +89,7 @@ function App() {
       <StatusPill status={status} glow={visible} />
       {devMode && <DevTag />}
       {visitors.map((v, i) => (
-        <VisitorDog key={v.nickname} pet={v.pet} nickname={v.nickname} index={i} />
+        <VisitorDog key={v.instance_name || v.nickname} pet={v.pet} nickname={v.nickname} index={i} />
       ))}
     </div>
   );

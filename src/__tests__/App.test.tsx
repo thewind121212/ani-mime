@@ -27,7 +27,7 @@ vi.mock("../hooks/useTheme", () => ({
   useTheme: () => ({ theme: "dark", setTheme: vi.fn(), loaded: true }),
 }));
 
-const mockUseVisitors = vi.fn(() => [] as Array<{ pet: string; nickname: string; duration_secs: number }>);
+const mockUseVisitors = vi.fn(() => [] as Array<{ instance_name: string; pet: string; nickname: string; duration_secs: number }>);
 vi.mock("../hooks/useVisitors", () => ({
   useVisitors: () => mockUseVisitors(),
 }));
@@ -133,8 +133,8 @@ describe("App", () => {
 
   it("renders VisitorDog components for each visitor", () => {
     mockUseVisitors.mockReturnValue([
-      { pet: "dalmatian", nickname: "Buddy", duration_secs: 30 },
-      { pet: "rottweiler", nickname: "Rex", duration_secs: 60 },
+      { instance_name: "Buddy-1234", pet: "dalmatian", nickname: "Buddy", duration_secs: 30 },
+      { instance_name: "Rex-5678", pet: "rottweiler", nickname: "Rex", duration_secs: 60 },
     ]);
 
     render(<App />);

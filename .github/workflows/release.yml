@@ -46,3 +46,7 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}
+
+      - name: Re-sign with entitlements (ad-hoc builds)
+        if: ${{ !env.APPLE_SIGNING_IDENTITY }}
+        run: bash src-tauri/script/post-build-sign.sh
