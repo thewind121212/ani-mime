@@ -617,6 +617,7 @@ export function Settings() {
                             className="delete-mime-btn"
                             onClick={(e) => { e.stopPropagation(); handleDeleteCustom(m.id); }}
                             title="Delete"
+                            data-testid={`delete-mime-${m.id}`}
                           >
                             x
                           </button>

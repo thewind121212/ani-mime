@@ -594,3 +594,93 @@ test('export Charlotte mime as .animime file', async ({ page }) => {
     expect(exported.json.sprites[status].data.length).toBeGreaterThan(0);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 15. Delete Charlotte then re-import from .animime file
+// ---------------------------------------------------------------------------
+test('delete Charlotte then re-import from .animime file', async ({ page }) => {
+  await loadWithMock(page, '/settings.html');
+
+  const mimeId = 'custom-1776007930810';
+  const charlotte = {
+    id: mimeId,
+    name: 'Charlotte',
+    sprites: {
+      idle:          { fileName: `${mimeId}-idle.png`,          frames: 12 },
+      busy:          { fileName: `${mimeId}-busy.png`,          frames: 38 },
+      service:       { fileName: `${mimeId}-service.png`,       frames: 11 },
+      disconnected:  { fileName: `${mimeId}-disconnected.png`,  frames: 7 },
+      searching:     { fileName: `${mimeId}-searching.png`,     frames: 8 },
+      initializing:  { fileName: `${mimeId}-initializing.png`,  frames: 5 },
+      visiting:      { fileName: `${mimeId}-visiting.png`,      frames: 24 },
+    },
+  };
+
+  // Navigate to Mime tab
+  await page.click('.sidebar-item:nth-child(2)');
+  await expect(page.locator('.settings-title')).toHaveText('Mime');
+
+  // Inject Charlotte into custom mimes
+  await page.evaluate((data) => {
+    (window as any).__TEST_EMIT__('custom-mimes-changed', [data]);
+  }, charlotte);
+  await expect(page.locator('.pet-card-wrapper .pet-name', { hasText: 'Charlotte' })).toBeVisible();
+
+  // --- Delete Charlotte ---
+  const charlotteWrapper = page.locator('.pet-card-wrapper', {
+    has: page.locator('.pet-name', { hasText: 'Charlotte' }),
+  });
+  await charlotteWrapper.hover();
+  await page.click(`[data-testid="delete-mime-${mimeId}"]`);
+
+  // Charlotte should be gone
+  await expect(page.locator('.pet-card-wrapper .pet-name', { hasText: 'Charlotte' })).not.toBeVisible();
+
+  // --- Build .animime payload from real sprite files ---
+  const spritesDir = path.resolve(
+    os.homedir(),
+    'Library/Application Support/com.vietnguyenwsilentium.ani-mime/custom-sprites',
+  );
+  const animimeSprites: Record<string, { frames: number; data: string }> = {};
+  for (const [status, info] of Object.entries(charlotte.sprites)) {
+    const filePath = path.join(spritesDir, (info as any).fileName);
+    const b64 = readFileSync(filePath).toString('base64');
+    animimeSprites[status] = { frames: (info as any).frames, data: b64 };
+  }
+  const animimePayload = JSON.stringify({ version: 1, name: 'Charlotte', sprites: animimeSprites });
+
+  // Set up mocks: dialog returns .animime path, readFile returns the payload bytes
+  await page.evaluate((payload: string) => {
+    (window as any).__MOCK_DIALOG_RESULT__ = '/mock/import/Charlotte.animime';
+    const encoder = new TextEncoder();
+    (window as any).__MOCK_READ_FILE_BYTES__ = encoder.encode(payload);
+  }, animimePayload);
+
+  // --- Import via .animime button ---
+  await page.click('[data-testid="import-animime-btn"]');
+
+  // Charlotte should reappear in the mime list
+  await expect(page.locator('.pet-card-wrapper .pet-name', { hasText: 'Charlotte' })).toBeVisible();
+
+  // Verify the imported mime was stored with correct frame counts
+  const storedMimes = await page.evaluate(() => {
+    return (window as any).__TEST_EMIT__ && new Promise<any>((resolve) => {
+      // Read from the mock store
+      const stores = (window as any).__TAURI_INTERNALS__.invoke('plugin:store|load', { path: 'settings.json' })
+        .then((rid: number) => (window as any).__TAURI_INTERNALS__.invoke('plugin:store|get', { rid, key: 'customMimes' }))
+        .then((val: any) => resolve(val ? val[0] : null));
+    });
+  });
+
+  expect(storedMimes).toBeTruthy();
+  expect(storedMimes.length).toBe(1);
+  expect(storedMimes[0].name).toBe('Charlotte');
+
+  const expectedFrames: Record<string, number> = {
+    idle: 12, busy: 38, service: 11, disconnected: 7,
+    searching: 8, initializing: 5, visiting: 24,
+  };
+  for (const [status, frames] of Object.entries(expectedFrames)) {
+    expect(storedMimes[0].sprites[status].frames).toBe(frames);
+  }
+});
