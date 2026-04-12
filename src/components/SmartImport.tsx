@@ -81,11 +81,18 @@ export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportPr
   const [showModal, setShowModal] = useState(false);
   const [allFramePreviews, setAllFramePreviews] = useState<string[]>([]);
   const [animPreview, setAnimPreview] = useState<{ url: string; frames: number; label: string } | null>(null);
+  const [frameThumbs, setFrameThumbs] = useState<Record<Status, { src: string; num: number }[]>>(() => {
+    const init: Record<string, { src: string; num: number }[]> = {};
+    for (const s of ALL_STATUSES) init[s] = [];
+    return init as Record<Status, { src: string; num: number }[]>;
+  });
 
   const processFile = useCallback(async (filePath: string) => {
     setError(null);
     try {
-      setFileName(filePath.split("/").pop() ?? "");
+      const rawName = filePath.split("/").pop() ?? "";
+      setFileName(rawName);
+      setName(rawName.replace(/\.[^.]+$/, ""));
       const bytes = await readFile(filePath);
       const ext = filePath.split(".").pop()?.toLowerCase() ?? "png";
       const mime = ext === "gif" ? "image/gif" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
@@ -116,6 +123,14 @@ export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportPr
         autoInputs[ALL_STATUSES[si]] = `${start}-${end}`;
       }
       setFrameInputs(autoInputs as Record<Status, string>);
+
+      // Generate initial thumbnails for auto-assigned frames
+      const initThumbs: Record<string, { src: string; num: number }[]> = {};
+      for (const s of ALL_STATUSES) {
+        const indices = parseFrameInput(autoInputs[s], allFrames.length);
+        initThumbs[s] = indices.map((i) => ({ src: getFramePreview(prepared, allFrames[i], 72), num: i + 1 }));
+      }
+      setFrameThumbs(initThumbs as Record<Status, { src: string; num: number }[]>);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load image";
       logError(`[smart-import] processFile failed: ${msg}`);
@@ -140,10 +155,19 @@ export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportPr
     }
   }, [initialFilePath, processFile]);
 
+  const updateThumbs = useCallback((status: Status, inputValue?: string) => {
+    if (!canvas || frames.length === 0) return;
+    const value = inputValue ?? frameInputs[status];
+    const indices = parseFrameInput(value, frames.length);
+    const previews = indices.map((i) => ({ src: getFramePreview(canvas, frames[i], 72), num: i + 1 }));
+    setFrameThumbs((prev) => ({ ...prev, [status]: previews }));
+  }, [canvas, frames, frameInputs]);
+
   const handlePreview = useCallback(async (status: Status, inputValue?: string) => {
     if (!canvas || frames.length === 0) return;
     const value = inputValue ?? frameInputs[status];
     const indices = parseFrameInput(value, frames.length);
+    updateThumbs(status, value);
     if (indices.length === 0) return;
 
     const strip = await createStripFromFrames(canvas, frames, indices);
@@ -151,7 +175,7 @@ export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportPr
     const url = URL.createObjectURL(blob);
     if (animPreview?.url) URL.revokeObjectURL(animPreview.url);
     setAnimPreview({ url, frames: strip.frames, label: STATUS_LABELS[status] });
-  }, [canvas, frames, frameInputs, animPreview]);
+  }, [canvas, frames, frameInputs, animPreview, updateThumbs]);
 
 
 
@@ -264,11 +288,21 @@ export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportPr
                       value={frameInputs[status]}
                       placeholder="1-5"
                       onChange={(e) => setFrameInputs((prev) => ({ ...prev, [status]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") handlePreview(status, e.currentTarget.value); }}
-                      onBlur={(e) => handlePreview(status, e.currentTarget.value)}
+                      onBlur={(e) => updateThumbs(status, e.currentTarget.value)}
                     />
+                    <button className="smart-import-preview-btn" onClick={() => handlePreview(status)}>Preview</button>
                   </div>
                 </div>
+                {frameThumbs[status]?.length > 0 && (
+                  <div className="smart-import-frame-previews">
+                    {frameThumbs[status].map((thumb, i) => (
+                      <div key={i} className="smart-import-frame-thumb-item">
+                        <img src={thumb.src} alt={`Frame ${thumb.num}`} className="smart-import-frame-thumb" />
+                        <span className="smart-import-frame-num">{thumb.num}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
