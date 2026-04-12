@@ -53,6 +53,8 @@ It also integrates with **Claude Code** — the dog knows when Claude is thinkin
 - **Multi-Session** — handles multiple terminals, priority: busy > service > idle
 - **Auto-Setup** — first launch configures zsh hooks and Claude Code hooks via native macOS dialogs
 - **All Workspaces** — visible on every macOS Space/desktop
+- **Menu Bar Tray Icon** — always-visible tray icon with right-click menu; left-click toggles mascot visibility
+- **Hide from Dock** — optional setting to remove the app from Dock and Cmd+Tab, running as a menu bar-only app
 - **Low Footprint** — Rust + Tauri, minimal CPU and RAM
 
 ---

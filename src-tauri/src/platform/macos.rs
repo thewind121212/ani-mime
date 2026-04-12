@@ -1,5 +1,17 @@
 use tauri::Manager;
 
+/// Toggle dock icon visibility at runtime.
+/// `visible = false` → Accessory (no dock, no Cmd+Tab)
+/// `visible = true`  → Regular (normal dock app)
+pub fn set_dock_visibility(app: &tauri::AppHandle, visible: bool) {
+    if visible {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+    } else {
+        let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+    }
+    crate::app_log!("[platform] dock visibility -> {}", if visible { "visible" } else { "hidden" });
+}
+
 /// Apply macOS-specific window customizations:
 /// - Transparent background
 /// - No shadow

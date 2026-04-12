@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem, MenuItemBuilder};
+use tauri::tray::TrayIconBuilder;
 
 use crate::state::AppState;
 
@@ -155,6 +156,12 @@ fn preview_dialog(dialog_id: String, app: tauri::AppHandle) {
 
         crate::app_log!("[preview] triggered dialog: {}", dialog_id);
     });
+}
+
+#[tauri::command]
+fn set_dock_visible(visible: bool, app: tauri::AppHandle) {
+    crate::app_log!("[app] set_dock_visible -> {}", visible);
+    platform::macos::set_dock_visibility(&app, visible);
 }
 
 #[tauri::command]
@@ -308,7 +315,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, set_dev_mode, scenario_override, preview_dialog])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -347,6 +354,82 @@ pub fn run() {
                     _ => {}
                 }
             });
+
+            // Build system tray icon
+            let tray_show = MenuItemBuilder::with_id("tray-show", "Show Ani-Mime").build(app)?;
+            let tray_settings = MenuItemBuilder::with_id("tray-settings", "Settings...").build(app)?;
+            let tray_quit = PredefinedMenuItem::quit(app, Some("Quit Ani-Mime"))?;
+
+            let tray_menu = MenuBuilder::new(app)
+                .item(&tray_show)
+                .item(&tray_settings)
+                .separator()
+                .item(&tray_quit)
+                .build()?;
+
+            let tray_icon = app.default_window_icon().cloned()
+                .expect("default window icon missing");
+
+            TrayIconBuilder::with_id("main-tray")
+                .icon(tray_icon)
+                .tooltip("Ani-Mime")
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| {
+                    match event.id().as_ref() {
+                        "tray-show" => {
+                            crate::app_log!("[app] tray: show clicked");
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                        "tray-settings" => {
+                            crate::app_log!("[app] tray: settings clicked");
+                            if let Some(win) = app.get_webview_window("settings") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let tauri::tray::TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        button_state: tauri::tray::MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(win) = app.get_webview_window("main") {
+                            if win.is_visible().unwrap_or(false) {
+                                let _ = win.hide();
+                            } else {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+            crate::app_log!("[app] tray icon created");
+
+            // Apply saved dock visibility preference
+            {
+                let app_data_dir = app.path().app_data_dir()?;
+                let store_path = app_data_dir.join("settings.json");
+                if store_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&store_path) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if json.get("hideDock").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                crate::app_log!("[app] restoring dock-hidden preference");
+                                platform::macos::set_dock_visibility(app.handle(), false);
+                            }
+                        }
+                    }
+                }
+            }
 
             // Hide settings and superpower windows on close instead of destroying them
             for label in &["settings", "superpower"] {

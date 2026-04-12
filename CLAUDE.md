@@ -23,7 +23,7 @@ Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 
 | Module | Responsibility |
 |--------|---------------|
-| `lib.rs` | Tauri setup, plugin registration, composition root |
+| `lib.rs` | Tauri setup, plugin registration, tray icon, composition root |
 | `state.rs` | `AppState`, `Session`, `resolve_ui_state()`, `emit_if_changed()` |
 | `server.rs` | HTTP server on `127.0.0.1:1234` (tiny_http) |
 | `watchdog.rs` | Background thread: service→idle transition, stale session cleanup |
@@ -31,7 +31,7 @@ Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 | `setup/mod.rs` | First-launch auto-setup orchestrator |
 | `setup/shell.rs` | Shell detection, native dialogs, RC file injection |
 | `setup/claude.rs` | Claude Code hooks configuration |
-| `platform/macos.rs` | Cocoa/objc window transparency and workspace visibility |
+| `platform/macos.rs` | Cocoa/objc window transparency, workspace visibility, dock visibility |
 
 ### Frontend (`src/`)
 
@@ -42,6 +42,7 @@ Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 | `components/StatusPill.tsx` | Colored dot + status label |
 | `hooks/useStatus.ts` | Tauri `"status-changed"` event listener |
 | `hooks/useDrag.ts` | Window drag via Tauri API |
+| `hooks/useDockVisible.ts` | Toggle dock visibility via `set_dock_visible` command |
 | `constants/sprites.ts` | Sprite file map, frame counts, auto-stop set |
 | `types/status.ts` | `Status` type, `SpriteConfig` interface |
 
@@ -66,6 +67,8 @@ When multiple terminals are open, the UI shows one winner: `busy > service > idl
 - Sessions are removed after 40 seconds with no heartbeat
 - Setup marker file: `~/.ani-mime/setup-done`
 - macOS-only: uses `cocoa` + `objc` crates for window transparency (behind `#[cfg(target_os = "macos")]`)
+- Tray icon is always present; left-click toggles main window, right-click shows menu (Show, Settings, Quit)
+- "Hide from Dock" preference stored as `hideDock` in `settings.json`; applied at startup via `ActivationPolicy::Accessory`
 
 ## Testing
 
