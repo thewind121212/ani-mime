@@ -705,3 +705,44 @@ test('import Charlotte from .animime file', async ({ page }) => {
     expect(storedMimes[0].sprites[status].frames).toBe(frames);
   }
 });
+
+// ---------------------------------------------------------------------------
+// 17. Window auto-resizes to fit sprite content
+// ---------------------------------------------------------------------------
+test('window resizes to match sprite content, not fixed 500x220', async ({ page }) => {
+  await loadWithMock(page);
+
+  // Wait for initial render and auto-size
+  await expect(page.locator('[data-testid="app-container"]')).toBeVisible();
+
+  // Wait for at least one setSize call from the ResizeObserver
+  await page.waitForFunction(() => {
+    const sizes = (window as any).__MOCK_WINDOW_SIZES__;
+    return sizes && sizes.length > 0;
+  });
+
+  const lastSize = await page.evaluate(() => {
+    const sizes = (window as any).__MOCK_WINDOW_SIZES__;
+    const last = sizes[sizes.length - 1];
+    // Serialize through JSON to flatten class instances
+    const parsed = JSON.parse(JSON.stringify(last.value));
+    const logical = parsed.Logical ?? parsed;
+    return { width: logical.width, height: logical.height };
+  });
+
+  // Window should NOT be the old hardcoded 500x220
+  const isOldFixed = lastSize.width === 500 && lastSize.height === 220;
+  expect(isOldFixed).toBe(false);
+
+  // Window size should be positive and reasonable (content-driven)
+  expect(lastSize.width).toBeGreaterThan(0);
+  expect(lastSize.height).toBeGreaterThan(0);
+
+  // The container's actual size should match what was sent to setSize
+  const containerSize = await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="app-container"]') as HTMLElement;
+    return { width: el.offsetWidth, height: el.offsetHeight };
+  });
+  expect(lastSize.width).toBe(containerSize.width);
+  expect(lastSize.height).toBe(containerSize.height);
+});

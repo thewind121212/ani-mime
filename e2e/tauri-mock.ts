@@ -134,7 +134,11 @@ export const tauriMockScript = `
 
     // Window plugin  -------------------------------------------------------
     if (cmd === 'plugin:window|start_dragging') return null;
-    if (cmd === 'plugin:window|set_size')       return null;
+    if (cmd === 'plugin:window|set_size') {
+      window.__MOCK_WINDOW_SIZES__ = window.__MOCK_WINDOW_SIZES__ || [];
+      window.__MOCK_WINDOW_SIZES__.push(args);
+      return null;
+    }
     if (cmd === 'plugin:window|inner_size')     return { width: 500, height: 220 };
     if (cmd === 'plugin:window|outer_size')     return { width: 500, height: 220 };
     if (cmd === 'plugin:window|inner_position') return { x: 0, y: 0 };
