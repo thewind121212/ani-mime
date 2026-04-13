@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.15.3] - 2026-04-13
+
+### Added
+- **Log file reader** — replace in-memory log buffer with log file tail-reader; LogViewer updated for file-based format with source and debug level
+- **SmartImport UX improvements** — direct file picker, auto-preview on blur, frame thumbnails with numbered overlays
+- **Reveal in Finder** button in Superpower log toolbar to open the log directory
+- **Show in Menu Bar** toggle in Settings to control tray icon visibility
+
+### Changed
+- Log level filter buttons replaced with compact dropdown select in Superpower toolbar
+
+### Performance
+- Tail-read log file instead of loading entirely — seeks to end and reads only the last N x 256 bytes
+
+### Fixed
+- Orphaned CSS block in `superpower.css` causing PostCSS parse error
+
+### Tests
+- SmartImport Charlotte flow with frame selection (e2e)
+- Charlotte export with real sprite fixtures (e2e)
+- Delete and re-import Charlotte via `.animime` file (e2e)
+- Window auto-resize to fit sprite content (e2e)
+- Split delete and import mime into separate tests (e2e)
+
+### Docs
+- Add e2e run guidance and tauri mock reference to CLAUDE.md
+
 ## [0.15.2] - 2026-04-12
 
 ### Fixed
