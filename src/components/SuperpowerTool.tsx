@@ -93,6 +93,10 @@ function LogViewer() {
     setLogs([]);
   };
 
+  const handleOpenDir = () => {
+    invoke("open_log_dir");
+  };
+
   const warnCount = logs.filter((l) => l.level === "warn").length;
   const errorCount = logs.filter((l) => l.level === "error").length;
 
@@ -108,19 +112,21 @@ function LogViewer() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="log-filter-group">
-            {(["all", "info", "debug", "warn", "error"] as LogFilter[]).map((f) => (
-              <button
-                key={f}
-                className={`log-filter-btn ${filter === f ? "active" : ""} ${f === "warn" && warnCount > 0 ? "has-warn" : ""} ${f === "error" && errorCount > 0 ? "has-error" : ""}`}
-                onClick={() => setFilter(f)}
-              >
-                {f === "all" ? "All" : f === "info" ? "Info" : f === "debug" ? "Debug" : f === "warn" ? `Warn${warnCount > 0 ? ` (${warnCount})` : ""}` : `Error${errorCount > 0 ? ` (${errorCount})` : ""}`}
-              </button>
-            ))}
-          </div>
+          <select
+            className="log-filter-select"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as LogFilter)}
+            data-testid="log-filter-select"
+          >
+            <option value="all">All</option>
+            <option value="info">Info</option>
+            <option value="debug">Debug</option>
+            <option value="warn">{`Warn${warnCount > 0 ? ` (${warnCount})` : ""}`}</option>
+            <option value="error">{`Error${errorCount > 0 ? ` (${errorCount})` : ""}`}</option>
+          </select>
           <span className="log-count">{filtered.length}/{logs.length}</span>
-          <button className="log-btn" onClick={handleClear}>Clear</button>
+          <button className="log-btn" onClick={handleOpenDir} data-testid="log-open-dir-btn">Reveal in Finder</button>
+          <button className="log-btn" onClick={handleClear} data-testid="log-clear-btn">Clear</button>
         </div>
       </div>
       <div

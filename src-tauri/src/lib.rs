@@ -33,6 +33,13 @@ fn clear_logs() {
 }
 
 #[tauri::command]
+fn open_log_dir(app: tauri::AppHandle) {
+    if let Ok(log_dir) = app.path().app_log_dir() {
+        let _ = std::process::Command::new("open").arg(&log_dir).spawn();
+    }
+}
+
+#[tauri::command]
 fn set_dev_mode(enabled: bool, app: tauri::AppHandle) {
     crate::app_log!("[dev] dev-mode-changed -> {}", enabled);
     let _ = app.emit("dev-mode-changed", enabled);
@@ -315,7 +322,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 

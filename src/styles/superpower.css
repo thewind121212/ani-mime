@@ -178,45 +178,32 @@
   opacity: 0.4;
 }
 
-.log-filter-group {
-  display: flex;
-  border-radius: 5px;
-  overflow: hidden;
-  border: 1px solid rgba(128, 128, 128, 0.3);
-}
-
-.log-filter-btn {
-  padding: 3px 8px;
-  font-size: 10px;
+.log-filter-select {
+  padding: 3px 6px;
+  font-size: 11px;
   font-weight: 500;
   font-family: inherit;
-  border: none;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 5px;
   background: transparent;
   color: var(--text-primary);
   cursor: pointer;
-  opacity: 0.5;
-  transition: background 0.15s, opacity 0.15s;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23888' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 20px;
 }
 
-.log-filter-btn:not(:last-child) {
-  border-right: 1px solid rgba(128, 128, 128, 0.2);
+.log-filter-select:hover {
+  background-color: rgba(128, 128, 128, 0.1);
 }
 
-.log-filter-btn:hover {
-  opacity: 0.8;
-}
-
-.log-filter-btn.active {
-  opacity: 1;
-  background: rgba(128, 128, 128, 0.15);
-}
-
-.log-filter-btn.has-warn {
-  color: #ff9f0a;
-}
-
-.log-filter-btn.has-error {
-  color: #ff3b30;
+.log-filter-select option {
+  background: var(--bg-primary, #1c1c1e);
+  color: var(--text-primary);
 }
 
 .log-count {
@@ -572,12 +559,6 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
-}
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
 }
 
 .bubble-test-row {
