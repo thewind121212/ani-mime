@@ -134,7 +134,11 @@ export const tauriMockScript = `
 
     // Window plugin  -------------------------------------------------------
     if (cmd === 'plugin:window|start_dragging') return null;
-    if (cmd === 'plugin:window|set_size')       return null;
+    if (cmd === 'plugin:window|set_size') {
+      window.__MOCK_WINDOW_SIZES__ = window.__MOCK_WINDOW_SIZES__ || [];
+      window.__MOCK_WINDOW_SIZES__.push(args);
+      return null;
+    }
     if (cmd === 'plugin:window|inner_size')     return { width: 500, height: 220 };
     if (cmd === 'plugin:window|outer_size')     return { width: 500, height: 220 };
     if (cmd === 'plugin:window|inner_position') return { x: 0, y: 0 };
@@ -146,13 +150,29 @@ export const tauriMockScript = `
 
     // Dialog plugin  ------------------------------------------------------
     if (cmd === 'plugin:dialog|open') return window.__MOCK_DIALOG_RESULT__ ?? null;
+    if (cmd === 'plugin:dialog|save') return window.__MOCK_SAVE_DIALOG_RESULT__ ?? null;
 
     // FS plugin (in-memory no-ops)  ---------------------------------------
     if (cmd === 'plugin:fs|exists')     return false;
     if (cmd === 'plugin:fs|mkdir')      return null;
     if (cmd === 'plugin:fs|copy_file')  return null;
-    if (cmd === 'plugin:fs|read_file')  return new Uint8Array(0);
-    if (cmd === 'plugin:fs|write_file') return null;
+    if (cmd === 'plugin:fs|read_file') {
+      // Support per-file map (keyed by filename suffix)
+      const p = (args && args.path) || '';
+      if (window.__MOCK_READ_FILE_MAP__) {
+        for (const [key, bytes] of Object.entries(window.__MOCK_READ_FILE_MAP__)) {
+          if (p.endsWith(key)) return bytes;
+        }
+      }
+      return window.__MOCK_READ_FILE_BYTES__ ?? new Uint8Array(0);
+    }
+    if (cmd === 'plugin:fs|write_file') {
+      // Tauri v2 FS sends data as args, path in _options.headers.path
+      if (!window.__MOCK_WRITTEN_FILES__) window.__MOCK_WRITTEN_FILES__ = [];
+      const filePath = _options?.headers?.path ? decodeURIComponent(_options.headers.path) : null;
+      window.__MOCK_WRITTEN_FILES__.push({ path: filePath, contents: args });
+      return null;
+    }
     if (cmd === 'plugin:fs|remove')     return null;
 
     // Log plugin  ---------------------------------------------------------

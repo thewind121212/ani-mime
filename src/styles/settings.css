@@ -772,6 +772,35 @@
   background: rgba(94, 92, 230, 0.3);
 }
 
+.smart-import-frame-previews {
+  display: flex;
+  gap: 3px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.smart-import-frame-thumb-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.smart-import-frame-thumb {
+  width: 36px;
+  height: 36px;
+  image-rendering: pixelated;
+  object-fit: contain;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.smart-import-frame-num {
+  font-size: 9px;
+  color: #8e8e93;
+  font-family: monospace;
+}
+
 /* All Frames Modal */
 .smart-import-modal-overlay {
   position: fixed;

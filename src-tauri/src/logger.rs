@@ -1,45 +1,93 @@
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-const MAX_LOG_ENTRIES: usize = 1000;
-
 #[derive(Clone, Serialize)]
 pub struct LogEntry {
-    pub timestamp: u64,
-    pub level: &'static str,
+    pub timestamp: String,
+    pub level: String,
+    pub source: String,
     pub message: String,
 }
 
-static LOG_BUFFER: Mutex<Vec<LogEntry>> = Mutex::new(Vec::new());
+/// Cache the resolved log file path so we don't re-derive it on every poll.
+static LOG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+pub fn set_log_path(path: PathBuf) {
+    *LOG_PATH.lock().unwrap() = Some(path);
+}
+
+fn get_log_path() -> Option<PathBuf> {
+    LOG_PATH.lock().unwrap().clone()
+}
+
+fn parse_log_line(line: &str) -> Option<LogEntry> {
+    // Format: [date][time][module][LEVEL] message
+    let rest = line.strip_prefix('[')?;
+    let (date, rest) = rest.split_once("][")?;
+    let (time, rest) = rest.split_once("][")?;
+    let (source, rest) = rest.split_once("][")?;
+    let (level_raw, message) = rest.split_once("] ")?;
+    Some(LogEntry {
+        timestamp: format!("{} {}", date, time),
+        level: level_raw.trim().to_lowercase(),
+        source: source.to_string(),
+        message: message.to_string(),
+    })
+}
+
+pub fn read_log_file(last_n: usize) -> Vec<LogEntry> {
+    let Some(path) = get_log_path() else {
+        return Vec::new();
+    };
+    let Ok(mut file) = std::fs::File::open(&path) else {
+        return Vec::new();
+    };
+    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    if file_size == 0 {
+        return Vec::new();
+    }
+
+    // Read only the tail of the file — estimate ~256 bytes per log line.
+    // If we seek past the start, the first line is likely partial;
+    // parse_log_line returns None for it, so it's filtered automatically.
+    let chunk = (last_n as u64).saturating_mul(256).min(file_size);
+    if chunk < file_size {
+        let _ = file.seek(SeekFrom::Start(file_size - chunk));
+    }
+
+    let reader = BufReader::new(file);
+    let mut entries: Vec<LogEntry> = reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .filter_map(|line| parse_log_line(&line))
+        .collect();
+
+    let drain = entries.len().saturating_sub(last_n);
+    if drain > 0 {
+        entries.drain(..drain);
+    }
+    entries
+}
+
+pub fn clear_log_file() {
+    let Some(path) = get_log_path() else { return };
+    // Note: tauri-plugin-log holds its own file handle with a cached current_size.
+    // After truncation, its size tracker will be stale, which may cause an early
+    // rotation on the next write. Acceptable for a dev-only tool.
+    if let Ok(file) = std::fs::OpenOptions::new().write(true).open(&path) {
+        let _ = file.set_len(0);
+    }
+}
 
 pub fn push_log(level: &'static str, msg: String) {
-    // Forward to log crate (tauri-plugin-log picks this up → file + stdout + webview)
     match level {
         "error" => log::error!("{}", msg),
         "warn" => log::warn!("{}", msg),
         _ => log::info!("{}", msg),
     }
-
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let mut buf = LOG_BUFFER.lock().unwrap();
-    buf.push(LogEntry { timestamp, level, message: msg });
-    let len = buf.len();
-    if len > MAX_LOG_ENTRIES {
-        buf.drain(..len - MAX_LOG_ENTRIES);
-    }
-}
-
-pub fn get_all_logs() -> Vec<LogEntry> {
-    LOG_BUFFER.lock().unwrap().clone()
-}
-
-pub fn clear_logs() {
-    LOG_BUFFER.lock().unwrap().clear();
 }
 
 #[macro_export]

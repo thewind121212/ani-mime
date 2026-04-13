@@ -289,6 +289,15 @@
   background: rgba(255, 59, 48, 0.12);
 }
 
+.log-entry-debug {
+  opacity: 0.6;
+}
+
+.log-level-debug {
+  color: #636366;
+  background: rgba(99, 99, 102, 0.15);
+}
+
 .log-time {
   color: var(--text-primary);
   opacity: 0.35;

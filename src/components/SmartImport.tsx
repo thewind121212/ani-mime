@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { info, error as logError } from "@tauri-apps/plugin-log";
@@ -18,6 +18,7 @@ import { AnimationPreview } from "./AnimationPreview";
 interface SmartImportProps {
   onSave: (name: string, blobs: Record<Status, { blob: Uint8Array; frames: number }>) => Promise<void>;
   onCancel: () => void;
+  initialFilePath?: string;
 }
 
 const STATUS_LABELS: Record<Status, string> = {
@@ -65,7 +66,7 @@ function parseFrameInput(input: string, maxFrame: number): number[] {
   return [...indices].sort((a, b) => a - b);
 }
 
-export function SmartImport({ onSave, onCancel }: SmartImportProps) {
+export function SmartImport({ onSave, onCancel, initialFilePath }: SmartImportProps) {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [frameInputs, setFrameInputs] = useState<Record<Status, string>>(() => {
@@ -80,19 +81,20 @@ export function SmartImport({ onSave, onCancel }: SmartImportProps) {
   const [showModal, setShowModal] = useState(false);
   const [allFramePreviews, setAllFramePreviews] = useState<string[]>([]);
   const [animPreview, setAnimPreview] = useState<{ url: string; frames: number; label: string } | null>(null);
+  const [frameThumbs, setFrameThumbs] = useState<Record<Status, { src: string; num: number }[]>>(() => {
+    const init: Record<string, { src: string; num: number }[]> = {};
+    for (const s of ALL_STATUSES) init[s] = [];
+    return init as Record<Status, { src: string; num: number }[]>;
+  });
 
-  const handlePickSheet = useCallback(async () => {
+  const processFile = useCallback(async (filePath: string) => {
     setError(null);
     try {
-      const result = await open({
-        multiple: false,
-        filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
-      });
-      if (!result) return;
-
-      setFileName(result.split("/").pop() ?? "");
-      const bytes = await readFile(result);
-      const ext = result.split(".").pop()?.toLowerCase() ?? "png";
+      const rawName = filePath.split("/").pop() ?? "";
+      setFileName(rawName);
+      setName(rawName.replace(/\.[^.]+$/, ""));
+      const bytes = await readFile(filePath);
+      const ext = filePath.split(".").pop()?.toLowerCase() ?? "png";
       const mime = ext === "gif" ? "image/gif" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
       const blob = new Blob([bytes], { type: mime });
       const src = URL.createObjectURL(blob);
@@ -121,16 +123,51 @@ export function SmartImport({ onSave, onCancel }: SmartImportProps) {
         autoInputs[ALL_STATUSES[si]] = `${start}-${end}`;
       }
       setFrameInputs(autoInputs as Record<Status, string>);
+
+      // Generate initial thumbnails for auto-assigned frames
+      const initThumbs: Record<string, { src: string; num: number }[]> = {};
+      for (const s of ALL_STATUSES) {
+        const indices = parseFrameInput(autoInputs[s], allFrames.length);
+        initThumbs[s] = indices.map((i) => ({ src: getFramePreview(prepared, allFrames[i], 72), num: i + 1 }));
+      }
+      setFrameThumbs(initThumbs as Record<Status, { src: string; num: number }[]>);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load image";
-      logError(`[smart-import] handlePickSheet failed: ${msg}`);
+      logError(`[smart-import] processFile failed: ${msg}`);
       setError(msg);
     }
   }, []);
 
-  const handlePreview = useCallback(async (status: Status) => {
+  const handlePickSheet = useCallback(async () => {
+    const result = await open({
+      multiple: false,
+      filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
+    });
+    if (!result) return;
+    await processFile(result);
+  }, [processFile]);
+
+  const didAutoLoad = useRef(false);
+  useEffect(() => {
+    if (initialFilePath && !didAutoLoad.current) {
+      didAutoLoad.current = true;
+      processFile(initialFilePath);
+    }
+  }, [initialFilePath, processFile]);
+
+  const updateThumbs = useCallback((status: Status, inputValue?: string) => {
     if (!canvas || frames.length === 0) return;
-    const indices = parseFrameInput(frameInputs[status], frames.length);
+    const value = inputValue ?? frameInputs[status];
+    const indices = parseFrameInput(value, frames.length);
+    const previews = indices.map((i) => ({ src: getFramePreview(canvas, frames[i], 72), num: i + 1 }));
+    setFrameThumbs((prev) => ({ ...prev, [status]: previews }));
+  }, [canvas, frames, frameInputs]);
+
+  const handlePreview = useCallback(async (status: Status, inputValue?: string) => {
+    if (!canvas || frames.length === 0) return;
+    const value = inputValue ?? frameInputs[status];
+    const indices = parseFrameInput(value, frames.length);
+    updateThumbs(status, value);
     if (indices.length === 0) return;
 
     const strip = await createStripFromFrames(canvas, frames, indices);
@@ -138,7 +175,9 @@ export function SmartImport({ onSave, onCancel }: SmartImportProps) {
     const url = URL.createObjectURL(blob);
     if (animPreview?.url) URL.revokeObjectURL(animPreview.url);
     setAnimPreview({ url, frames: strip.frames, label: STATUS_LABELS[status] });
-  }, [canvas, frames, frameInputs, animPreview]);
+  }, [canvas, frames, frameInputs, animPreview, updateThumbs]);
+
+
 
   const handleShowAllFrames = useCallback(() => {
     if (!canvas || frames.length === 0) return;
@@ -249,16 +288,21 @@ export function SmartImport({ onSave, onCancel }: SmartImportProps) {
                       value={frameInputs[status]}
                       placeholder="1-5"
                       onChange={(e) => setFrameInputs((prev) => ({ ...prev, [status]: e.target.value }))}
-                      onKeyDown={(e) => { if (e.key === "Enter") handlePreview(status); }}
+                      onBlur={(e) => updateThumbs(status, e.currentTarget.value)}
                     />
-                    <button
-                      className="smart-import-preview-btn"
-                      onClick={() => handlePreview(status)}
-                    >
-                      Preview
-                    </button>
+                    <button className="smart-import-preview-btn" onClick={() => handlePreview(status)}>Preview</button>
                   </div>
                 </div>
+                {frameThumbs[status]?.length > 0 && (
+                  <div className="smart-import-frame-previews">
+                    {frameThumbs[status].map((thumb, i) => (
+                      <div key={i} className="smart-import-frame-thumb-item">
+                        <img src={thumb.src} alt={`Frame ${thumb.num}`} className="smart-import-frame-thumb" />
+                        <span className="smart-import-frame-num">{thumb.num}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import "../styles/settings.css";
 
 interface AnimationPreviewProps {
@@ -18,6 +19,12 @@ interface AnimationPreviewProps {
 export function AnimationPreview({ spriteUrl, frames, label, onClose }: AnimationPreviewProps) {
   const size = 96;
   const duration = frames * 100; // slightly slower than mascot for easier viewing
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
 
   return (
     <div className="anim-preview-overlay" onClick={onClose} data-testid="animation-preview">

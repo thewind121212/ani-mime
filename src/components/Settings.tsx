@@ -18,6 +18,7 @@ import type { Status } from "../types/status";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join, resourceDir } from "@tauri-apps/api/path";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { open } from "@tauri-apps/plugin-dialog";
 import { error as logError } from "@tauri-apps/plugin-log";
 import "../styles/settings.css";
 
@@ -78,6 +79,7 @@ export function Settings() {
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, deleteMime, exportMime, importMime } = useCustomMimes();
   const [tab, setTab] = useState<Tab>("general");
   const [creating, setCreating] = useState<false | "manual" | "smart">(false);
+  const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
   const [editingMime, setEditingMime] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -563,12 +565,14 @@ export function Settings() {
                 </div>
               ) : creating === "smart" ? (
                 <SmartImport
+                  initialFilePath={smartImportPath ?? undefined}
                   onSave={async (mimeName, blobs) => {
                     const id = await addMimeFromBlobs(mimeName, blobs);
                     setPet(id);
                     setCreating(false);
+                    setSmartImportPath(null);
                   }}
-                  onCancel={handleCancelCreate}
+                  onCancel={() => { handleCancelCreate(); setSmartImportPath(null); }}
                 />
               ) : (
                 <>
@@ -613,6 +617,7 @@ export function Settings() {
                             className="delete-mime-btn"
                             onClick={(e) => { e.stopPropagation(); handleDeleteCustom(m.id); }}
                             title="Delete"
+                            data-testid={`delete-mime-${m.id}`}
                           >
                             x
                           </button>
@@ -625,7 +630,15 @@ export function Settings() {
                       <div className="add-icon">+</div>
                       <span className="pet-name">Manual</span>
                     </button>
-                    <button className="pet-card add-card" onClick={() => setCreating("smart")}>
+                    <button className="pet-card add-card" onClick={async () => {
+                      const result = await open({
+                        multiple: false,
+                        filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
+                      });
+                      if (!result) return;
+                      setSmartImportPath(result);
+                      setCreating("smart");
+                    }}>
                       <div className="add-icon">*</div>
                       <span className="pet-name">Import Sheet</span>
                     </button>

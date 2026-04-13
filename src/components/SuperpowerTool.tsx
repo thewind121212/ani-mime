@@ -6,17 +6,18 @@ import "../styles/theme.css";
 import "../styles/superpower.css";
 
 interface LogEntry {
-  timestamp: number;
+  timestamp: string;
   level: string;
+  source: string;
   message: string;
 }
 
-type LogFilter = "all" | "info" | "warn" | "error";
+type LogFilter = "all" | "info" | "debug" | "warn" | "error";
 type MenuItem = "logs" | "scenarios";
 
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp * 1000);
-  return date.toLocaleTimeString("en-US", { hour12: false });
+function formatTime(timestamp: string): string {
+  const parts = timestamp.split(" ");
+  return parts.length > 1 ? parts[1] : timestamp;
 }
 
 const tagColorMap: Record<string, string> = {
@@ -40,10 +41,11 @@ function LogLevel({ level }: { level: string }) {
   return <span className={`log-level log-level-${level}`}>{level.toUpperCase()}</span>;
 }
 
-function parseLogTag(message: string): { tag: string; rest: string } {
+function parseLogTag(message: string, source: string): { tag: string; rest: string } {
   const match = message.match(/^\[(\w+)]\s*(.*)/);
   if (match) return { tag: match[1], rest: match[2] };
-  return { tag: "", rest: message };
+  const modName = source.split("::").pop() || source;
+  return { tag: modName, rest: message };
 }
 
 function LogViewer() {
@@ -107,13 +109,13 @@ function LogViewer() {
             onChange={(e) => setSearch(e.target.value)}
           />
           <div className="log-filter-group">
-            {(["all", "info", "warn", "error"] as LogFilter[]).map((f) => (
+            {(["all", "info", "debug", "warn", "error"] as LogFilter[]).map((f) => (
               <button
                 key={f}
                 className={`log-filter-btn ${filter === f ? "active" : ""} ${f === "warn" && warnCount > 0 ? "has-warn" : ""} ${f === "error" && errorCount > 0 ? "has-error" : ""}`}
                 onClick={() => setFilter(f)}
               >
-                {f === "all" ? "All" : f === "info" ? "Info" : f === "warn" ? `Warn${warnCount > 0 ? ` (${warnCount})` : ""}` : `Error${errorCount > 0 ? ` (${errorCount})` : ""}`}
+                {f === "all" ? "All" : f === "info" ? "Info" : f === "debug" ? "Debug" : f === "warn" ? `Warn${warnCount > 0 ? ` (${warnCount})` : ""}` : `Error${errorCount > 0 ? ` (${errorCount})` : ""}`}
               </button>
             ))}
           </div>
@@ -134,7 +136,7 @@ function LogViewer() {
           </div>
         )}
         {filtered.map((entry, i) => {
-          const { tag, rest } = parseLogTag(entry.message);
+          const { tag, rest } = parseLogTag(entry.message, entry.source);
           return (
             <div key={i} className={`log-entry log-entry-${entry.level}`}>
               <span className="log-time">{formatTime(entry.timestamp)}</span>
