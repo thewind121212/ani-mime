@@ -176,6 +176,9 @@ export function useCustomMimes() {
         id,
         name,
         sprites: sprites as Record<Status, { fileName: string; frames: number }>,
+        // Preserve smartImportMeta if present so the Manual editor path doesn't
+        // silently drop it (and orphan the source sheet) for a smart-import mime.
+        ...(existing.smartImportMeta ? { smartImportMeta: existing.smartImportMeta } : {}),
       };
 
       await saveMimes(mimes.map((m) => (m.id === id ? updated : m)));
