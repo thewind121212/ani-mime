@@ -581,8 +581,11 @@ test('smart-import mime can be edited via Smart Import and keeps its meta', asyn
   // Name is pre-filled with the saved name
   await expect(page.locator('.smart-import .settings-input')).toHaveValue('RoundTrip');
 
-  // --- Step D: change the first status's frame range (idle) and save -------
+  // Frame inputs should be pre-filled with the saved values before the user edits them
   const frameInputs = page.locator('.smart-import-frame-input');
+  await expect(frameInputs.nth(0)).toHaveValue(originalFrameInputs.idle);
+
+  // --- Step D: change the first status's frame range (idle) and save -------
   const idleInput = frameInputs.nth(0); // statusOrder[0] = idle
   await idleInput.clear();
   await idleInput.fill('3-4');
