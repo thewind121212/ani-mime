@@ -1,11 +1,9 @@
-/* --- Sprite animation --- */
+/* --- Sprite (animation driven by JS rAF in Mascot.tsx) --- */
 .sprite {
   margin-bottom: 4px;
   align-self: center;
   image-rendering: pixelated;
   background-repeat: no-repeat;
-  background-size: var(--sprite-width) var(--sprite-height);
-  animation: sprite-play var(--sprite-duration) steps(var(--sprite-steps), end) infinite;
   filter: none;
 }
 
@@ -15,13 +13,4 @@
 
 .sprite.glow-dark {
   filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 8px rgba(0, 0, 0, 0.5));
-}
-
-.sprite.frozen {
-  animation: none;
-}
-
-@keyframes sprite-play {
-  from { background-position: 0 0; }
-  to { background-position: calc(-1 * var(--sprite-width)) 0; }
 }

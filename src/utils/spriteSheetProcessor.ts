@@ -1,4 +1,13 @@
 const FRAME_SIZE = 128;
+// WebKit downsamples textures wider than ~8192px, breaking pixel-aligned frame
+// stepping. Cap each row at 4096px (32 frames) and wrap into a 2D grid.
+const MAX_SHEET_WIDTH = 4096;
+
+function gridLayout(frameCount: number) {
+  const cols = Math.max(1, Math.floor(MAX_SHEET_WIDTH / FRAME_SIZE));
+  const rows = Math.max(1, Math.ceil(frameCount / cols));
+  return { cols, rows, width: cols * FRAME_SIZE, height: rows * FRAME_SIZE };
+}
 const BG_TOLERANCE = 30;
 const ALPHA_THRESHOLD = 10;
 const MIN_GAP = 5;
@@ -280,9 +289,10 @@ export async function createStripFromFrames(
     throw new Error("No frames selected");
   }
 
+  const { cols, width, height } = gridLayout(selected.length);
   const stripCanvas = document.createElement("canvas");
-  stripCanvas.width = FRAME_SIZE * selected.length;
-  stripCanvas.height = FRAME_SIZE;
+  stripCanvas.width = width;
+  stripCanvas.height = height;
   const stripCtx = stripCanvas.getContext("2d")!;
   stripCtx.imageSmoothingEnabled = false;
 
@@ -301,11 +311,13 @@ export async function createStripFromFrames(
     const scaledH = Math.round(cropH * scale);
     const ox = Math.round((FRAME_SIZE - scaledW) / 2);
     const oy = Math.round((FRAME_SIZE - scaledH) / 2);
+    const cellX = (i % cols) * FRAME_SIZE;
+    const cellY = Math.floor(i / cols) * FRAME_SIZE;
 
     stripCtx.drawImage(
       canvas,
       f.x1 + bbox.x1, f.y1 + bbox.y1, cropW, cropH,
-      i * FRAME_SIZE + ox, oy, scaledW, scaledH
+      cellX + ox, cellY + oy, scaledW, scaledH
     );
   }
 
@@ -332,10 +344,11 @@ export async function createStrip(
     throw new Error("No sprites found in selected rows");
   }
 
-  // Create output strip canvas
+  // Create output sheet canvas (grid layout to stay under WebKit texture limit)
+  const { cols, width, height } = gridLayout(sprites.length);
   const stripCanvas = document.createElement("canvas");
-  stripCanvas.width = FRAME_SIZE * sprites.length;
-  stripCanvas.height = FRAME_SIZE;
+  stripCanvas.width = width;
+  stripCanvas.height = height;
   const stripCtx = stripCanvas.getContext("2d")!;
   stripCtx.imageSmoothingEnabled = false; // pixelated scaling
 
@@ -356,12 +369,14 @@ export async function createStrip(
     const scaledH = Math.round(cropH * scale);
     const ox = Math.round((FRAME_SIZE - scaledW) / 2);
     const oy = Math.round((FRAME_SIZE - scaledH) / 2);
+    const cellX = (i % cols) * FRAME_SIZE;
+    const cellY = Math.floor(i / cols) * FRAME_SIZE;
 
-    // Draw the cropped sprite scaled into the frame
+    // Draw the cropped sprite scaled into the cell
     stripCtx.drawImage(
       canvas,
       s.x1 + bbox.x1, s.y1 + bbox.y1, cropW, cropH,
-      i * FRAME_SIZE + ox, oy, scaledW, scaledH
+      cellX + ox, cellY + oy, scaledW, scaledH
     );
   }
 
