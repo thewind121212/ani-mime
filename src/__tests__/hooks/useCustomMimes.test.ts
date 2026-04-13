@@ -254,6 +254,79 @@ describe("useCustomMimes", () => {
     expect(result.current.mimes[0].smartImportMeta).toBeUndefined();
   });
 
+  it("updateMimeFromSmartImport overwrites strips + source sheet and updates meta", async () => {
+    const existing: CustomMimeData = {
+      id: "custom-777",
+      name: "OldName",
+      sprites: makeSpriteRecord("custom-777"),
+      smartImportMeta: {
+        sheetFileName: "custom-777-source.png",
+        frameInputs: ALL_STATUSES.reduce<Record<string, string>>((acc, s) => {
+          acc[s] = "1-2";
+          return acc;
+        }, {}),
+      },
+    } as any;
+    mockStoreValue("settings.json", "customMimes", [existing]);
+    vi.mocked(exists).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+    vi.mocked(writeFile).mockClear();
+
+    const newInputs: Record<string, string> = {};
+    for (const status of ALL_STATUSES) newInputs[status] = "3-6";
+
+    await act(async () => {
+      await result.current.updateMimeFromSmartImport(
+        "custom-777",
+        "NewName",
+        makeBlobsRecord() as any,
+        new Uint8Array([5, 5, 5]),
+        newInputs as Record<import("../../types/status").Status, string>
+      );
+    });
+
+    // 7 strips + 1 sheet overwritten
+    expect(writeFile).toHaveBeenCalledTimes(ALL_STATUSES.length + 1);
+
+    // All writes target filenames prefixed with the existing id (no new id generated)
+    for (const call of vi.mocked(writeFile).mock.calls) {
+      expect(call[0]).toMatch(/\/custom-777-/);
+    }
+
+    const updated = result.current.mimes.find((m) => m.id === "custom-777")!;
+    expect(updated.name).toBe("NewName");
+    expect(updated.smartImportMeta!.frameInputs).toEqual(newInputs);
+    expect(updated.smartImportMeta!.sheetFileName).toBe("custom-777-source.png");
+
+    // Sprite frame counts reflect the new blobs (4 from makeBlobsRecord)
+    for (const status of ALL_STATUSES) {
+      expect(updated.sprites[status].frames).toBe(4);
+    }
+  });
+
+  it("updateMimeFromSmartImport is a no-op if id is unknown", async () => {
+    mockStoreValue("settings.json", "customMimes", []);
+    vi.mocked(exists).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+    vi.mocked(writeFile).mockClear();
+
+    await act(async () => {
+      await result.current.updateMimeFromSmartImport(
+        "custom-does-not-exist",
+        "x",
+        makeBlobsRecord() as any,
+        new Uint8Array([1]),
+        ALL_STATUSES.reduce<Record<string, string>>((a, s) => { a[s] = "1"; return a; }, {}) as any
+      );
+    });
+
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
   it("cleans up listener on unmount", async () => {
     const { result, unmount } = renderHook(() => useCustomMimes());
     await act(async () => {});
