@@ -163,6 +163,97 @@ describe("useCustomMimes", () => {
     expect(result.current.mimes).toEqual(eventMimes);
   });
 
+  it("addMimeFromBlobs writes source sheet + stores meta when smartImportMeta provided", async () => {
+    vi.mocked(exists).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+
+    const frameInputs: Record<string, string> = {};
+    for (const status of ALL_STATUSES) frameInputs[status] = "1-3";
+
+    let returnedId: string | undefined;
+    await act(async () => {
+      returnedId = await result.current.addMimeFromBlobs(
+        "SmartMime",
+        makeBlobsRecord() as any,
+        {
+          sheetBlob: new Uint8Array([9, 9, 9]),
+          frameInputs: frameInputs as Record<
+            import("../../types/status").Status,
+            string
+          >,
+        }
+      );
+    });
+
+    // 7 status strips + 1 source sheet = 8 writes
+    expect(writeFile).toHaveBeenCalledTimes(ALL_STATUSES.length + 1);
+
+    // Exactly one of the writes targets the <id>-source.png path
+    const sheetCall = vi
+      .mocked(writeFile)
+      .mock.calls.find((c) => /\/custom-\d+-source\.png$/.test(c[0] as string));
+    expect(sheetCall).toBeDefined();
+    expect(sheetCall![1]).toEqual(new Uint8Array([9, 9, 9]));
+
+    // Persisted mime carries smartImportMeta with the correct sheetFileName
+    expect(result.current.mimes[0].smartImportMeta).toBeDefined();
+    expect(result.current.mimes[0].smartImportMeta!.sheetFileName).toMatch(
+      /^custom-\d+-source\.png$/
+    );
+    expect(result.current.mimes[0].smartImportMeta!.frameInputs).toEqual(
+      frameInputs
+    );
+    expect(returnedId).toMatch(/^custom-\d+$/);
+  });
+
+  it("addMimeFromBlobs omits smartImportMeta when not provided (backward compatible)", async () => {
+    vi.mocked(exists).mockResolvedValue(true);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.addMimeFromBlobs(
+        "NoMetaMime",
+        makeBlobsRecord() as any
+      );
+    });
+
+    // Only 7 writes (no source sheet)
+    expect(writeFile).toHaveBeenCalledTimes(ALL_STATUSES.length);
+    expect(result.current.mimes[0].smartImportMeta).toBeUndefined();
+  });
+
+  it("loads a legacy-shaped store entry (no smartImportMeta field) cleanly", async () => {
+    // Simulate a mime persisted by a pre-feature build: the JSON has no
+    // smartImportMeta key at all (not even undefined). This guards against
+    // code paths that would crash on a missing field or add one spuriously.
+    const legacyEntry = {
+      id: "custom-legacy-001",
+      name: "FromOldBuild",
+      sprites: {
+        idle: { fileName: "custom-legacy-001-idle.png", frames: 4 },
+        busy: { fileName: "custom-legacy-001-busy.png", frames: 4 },
+        service: { fileName: "custom-legacy-001-service.png", frames: 4 },
+        disconnected: { fileName: "custom-legacy-001-disconnected.png", frames: 4 },
+        searching: { fileName: "custom-legacy-001-searching.png", frames: 4 },
+        initializing: { fileName: "custom-legacy-001-initializing.png", frames: 4 },
+        visiting: { fileName: "custom-legacy-001-visiting.png", frames: 4 },
+      },
+    };
+    mockStoreValue("settings.json", "customMimes", [legacyEntry]);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+
+    expect(result.current.mimes).toHaveLength(1);
+    expect(result.current.mimes[0].id).toBe("custom-legacy-001");
+    // Key assertion: missing field is exposed as `undefined`, not throwing.
+    expect(result.current.mimes[0].smartImportMeta).toBeUndefined();
+  });
+
   it("cleans up listener on unmount", async () => {
     const { result, unmount } = renderHook(() => useCustomMimes());
     await act(async () => {});
