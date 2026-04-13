@@ -327,6 +327,35 @@ describe("useCustomMimes", () => {
     expect(writeFile).not.toHaveBeenCalled();
   });
 
+  it("deleteMime removes the source sheet when smartImportMeta is present", async () => {
+    const mime: CustomMimeData = {
+      id: "custom-888",
+      name: "SmartToDelete",
+      sprites: makeSpriteRecord("custom-888"),
+      smartImportMeta: {
+        sheetFileName: "custom-888-source.png",
+        frameInputs: ALL_STATUSES.reduce<Record<string, string>>((a, s) => { a[s] = "1"; return a; }, {}),
+      },
+    } as any;
+    mockStoreValue("settings.json", "customMimes", [mime]);
+    vi.mocked(exists).mockResolvedValue(true);
+    vi.mocked(remove).mockResolvedValue(undefined);
+
+    const { result } = renderHook(() => useCustomMimes());
+    await act(async () => {});
+
+    await act(async () => {
+      await result.current.deleteMime("custom-888");
+    });
+
+    // 7 strips + 1 source sheet = 8 removes
+    expect(remove).toHaveBeenCalledTimes(ALL_STATUSES.length + 1);
+    const sheetRemove = vi
+      .mocked(remove)
+      .mock.calls.find((c) => /custom-888-source\.png$/.test(c[0] as string));
+    expect(sheetRemove).toBeDefined();
+  });
+
   it("cleans up listener on unmount", async () => {
     const { result, unmount } = renderHook(() => useCustomMimes());
     await act(async () => {});

@@ -237,6 +237,13 @@ export function useCustomMimes() {
           }
         }
       }
+      if (mime.smartImportMeta?.sheetFileName) {
+        try {
+          await remove(`${dir}/${mime.smartImportMeta.sheetFileName}`);
+        } catch {
+          /* ok if missing */
+        }
+      }
 
       await saveMimes(mimes.filter((m) => m.id !== id));
     },
