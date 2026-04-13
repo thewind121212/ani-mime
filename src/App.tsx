@@ -3,6 +3,7 @@ import { StatusPill } from "./components/StatusPill";
 import { SpeechBubble } from "./components/SpeechBubble";
 import { VisitorDog } from "./components/VisitorDog";
 import { DevTag } from "./components/DevTag";
+import { EffectOverlay } from "./effects";
 import { useStatus } from "./hooks/useStatus";
 import { useDrag } from "./hooks/useDrag";
 import { useTheme } from "./hooks/useTheme";
@@ -14,7 +15,7 @@ import { usePet } from "./hooks/usePet";
 import { useScale } from "./hooks/useScale";
 import { useDevMode } from "./hooks/useDevMode";
 import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Menu, MenuItem } from "@tauri-apps/api/menu";
 import "./styles/theme.css";
@@ -31,8 +32,9 @@ function App() {
   const { scale } = useScale();
   const devMode = useDevMode();
   const containerRef = useRef<HTMLDivElement>(null);
+  const [effectActive, setEffectActive] = useState(false);
   useTheme();
-  useWindowAutoSize(containerRef);
+  useWindowAutoSize(containerRef, effectActive);
 
   const onContextMenu = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -83,6 +85,7 @@ function App() {
       onContextMenu={onContextMenu}
     >
       {scenario && <div data-testid="scenario-badge" className="scenario-badge">SCENARIO</div>}
+      <EffectOverlay onActiveChange={setEffectActive} />
       <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
       {status !== "visiting" && <Mascot status={status} />}
       {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}

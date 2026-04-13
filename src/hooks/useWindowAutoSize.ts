@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 
 /**
@@ -7,15 +7,26 @@ import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
  * boundary matches the visible content (sprite + pill + bubble etc.)
  */
 export function useWindowAutoSize(
-  contentRef: React.RefObject<HTMLElement | null>
+  contentRef: React.RefObject<HTMLElement | null>,
+  paused = false
 ) {
+  // Ref is updated synchronously during render, so observers
+  // created in a previous effect can check it immediately —
+  // even before useEffect cleanup runs and disconnects them.
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+
   useEffect(() => {
+    if (paused) return;
+
     const el = contentRef.current;
     if (!el) return;
 
     const win = getCurrentWindow();
 
     const updateSize = () => {
+      if (pausedRef.current) return;
+
       const el = contentRef.current;
       if (!el) return;
 
@@ -40,5 +51,5 @@ export function useWindowAutoSize(
       resizeObs.disconnect();
       mutationObs.disconnect();
     };
-  }, [contentRef]);
+  }, [contentRef, paused]);
 }

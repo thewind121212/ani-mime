@@ -1,0 +1,106 @@
+/* --- Shadow Clone (Kage Bunshin) effect --- */
+.shadow-clone-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 800px;
+  height: 800px;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+  -webkit-mask-image: radial-gradient(circle 380px at center, black 60%, transparent 95%);
+  mask-image: radial-gradient(circle 380px at center, black 60%, transparent 95%);
+}
+
+.shadow-clone-origin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+}
+
+.shadow-clone-wrapper {
+  position: absolute;
+  top: -20px;
+  left: 10px;
+  transform: translate(-50%, -50%);
+  animation: clone-burst var(--clone-duration) ease-out forwards;
+  animation-delay: var(--clone-delay);
+}
+
+.shadow-clone-sprite {
+  image-rendering: pixelated;
+  background-repeat: no-repeat;
+  animation: clone-sprite-play var(--clone-sprite-duration) steps(var(--clone-sprite-steps), end) infinite;
+}
+
+@keyframes clone-sprite-play {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: calc(-1 * var(--clone-sprite-width)) 0;
+  }
+}
+
+.shadow-clone-smoke {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  z-index: 20;
+  background:
+    radial-gradient(ellipse 60% 50% at 30% 40%, rgba(255, 255, 255, 0.7) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 60% at 70% 50%, rgba(240, 240, 240, 0.6) 0%, transparent 65%),
+    radial-gradient(ellipse 70% 55% at 50% 60%, rgba(220, 220, 220, 0.5) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, rgba(200, 200, 200, 0.3) 0%, transparent 70%);
+  opacity: 0;
+  animation: smoke-poof 0.7s ease-out forwards;
+  animation-delay: calc(var(--clone-delay) + 1000ms);
+  filter: blur(2px);
+}
+
+@keyframes clone-burst {
+  0% {
+    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(0.8);
+    opacity: 1;
+  }
+  5% {
+    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(1);
+    opacity: 1;
+  }
+  15% {
+    transform: translate(-50%, -50%) translate(var(--clone-x), var(--clone-y)) rotate(var(--clone-rotation)) scale(0.9);
+    opacity: 1;
+  }
+  60% {
+    transform: translate(-50%, -50%) translate(var(--clone-x), var(--clone-y)) rotate(var(--clone-rotation)) scale(0.85);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes smoke-poof {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
+  }
+  20% {
+    opacity: 0.8;
+    transform: translate(-50%, -55%) scale(0.8) rotate(5deg);
+  }
+  50% {
+    opacity: 0.5;
+    transform: translate(-50%, -65%) scale(1.2) rotate(-3deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -80%) scale(1.6) rotate(8deg);
+  }
+}

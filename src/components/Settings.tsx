@@ -12,6 +12,7 @@ import { useDockVisible } from "../hooks/useDockVisible";
 import { useTrayVisible } from "../hooks/useTrayVisible";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
+import { effects, useEffectEnabled } from "../effects";
 import { useCustomMimes, ALL_STATUSES } from "../hooks/useCustomMimes";
 import { SmartImport } from "./SmartImport";
 import { AnimationPreview } from "./AnimationPreview";
@@ -339,6 +340,9 @@ export function Settings() {
                   ))}
                 </div>
               </div>
+              {effects.map((effect) => (
+                <EffectToggle key={effect.id} effectId={effect.id} name={effect.name} />
+              ))}
             </div>
           </div>
           <div className="settings-section">
@@ -751,6 +755,22 @@ export function Settings() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+function EffectToggle({ effectId, name }: { effectId: string; name: string }) {
+  const { enabled, setEnabled } = useEffectEnabled(effectId);
+  return (
+    <div className="settings-row">
+      <span className="settings-row-label">{name}</span>
+      <button
+        data-testid={`effect-toggle-${effectId}`}
+        className={`toggle-switch ${enabled ? "active" : ""}`}
+        onClick={() => setEnabled(!enabled)}
+      >
+        <span className="toggle-knob" />
+      </button>
     </div>
   );
 }
