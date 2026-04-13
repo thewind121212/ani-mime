@@ -55,11 +55,11 @@ describe("Mascot", () => {
     expect(sprite).not.toHaveClass("frozen");
   });
 
-  it("sets CSS custom properties for sprite animation", () => {
+  it("sets backgroundSize to the full sheet (frames × frame size) before image loads", () => {
     const { container } = render(<Mascot status="idle" />);
     const sprite = container.querySelector(".sprite") as HTMLElement;
-    // The idle rottweiler has 8 frames
-    expect(sprite.style.getPropertyValue("--sprite-steps")).toBe("8");
+    // The idle rottweiler has 8 frames at 128px — fallback before naturalWidth is known
+    expect(sprite.style.backgroundSize).toBe("1024px 128px");
   });
 
   describe("auto-freeze timer", () => {

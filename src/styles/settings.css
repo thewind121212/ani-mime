@@ -946,14 +946,8 @@
   background: repeating-conic-gradient(rgba(0,0,0,0.04) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
 }
 
+/* Animation driven by JS rAF in AnimationPreview.tsx */
 .anim-preview-sprite {
   image-rendering: pixelated;
   background-repeat: no-repeat;
-  background-size: var(--sprite-width) var(--sprite-height);
-  animation: anim-preview-play var(--sprite-duration) steps(var(--sprite-steps), end) infinite;
-}
-
-@keyframes anim-preview-play {
-  from { background-position: 0 0; }
-  to { background-position: calc(-1 * var(--sprite-width)) 0; }
 }
