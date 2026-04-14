@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.15.5] - 2026-04-14
 
 ### Added
 - **MCP Server** — Claude Code can now interact with your desktop pet via Model Context Protocol (MCP) tools
@@ -14,6 +14,11 @@
 - New HTTP endpoints: `POST /mcp/say`, `POST /mcp/react`, `GET /mcp/pet-status`
 - New Tauri events: `mcp-say` (speech bubble), `mcp-react` (temporary animation override)
 - `pet`, `nickname`, `started_at` fields added to `AppState` for MCP status reporting
+- **Smart Import frame selection** — preserve frame order and support directional ranges
+- **Local Network permission** — request button in Settings for network access
+
+### Fixed
+- Shadow clone effect now works on custom mascots
 
 ## [0.15.4] - 2026-04-14
 
