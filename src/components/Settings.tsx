@@ -21,6 +21,7 @@ import { readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join, resourceDir } from "@tauri-apps/api/path";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { error as logError } from "@tauri-apps/plugin-log";
 import "../styles/settings.css";
 
@@ -412,6 +413,19 @@ export function Settings() {
                   data-testid="show-tray-toggle"
                 >
                   <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Local Network Access</span>
+                  <span className="settings-row-hint">Required for peer visits. Grant permission so nearby pets can discover each other.</span>
+                </div>
+                <button
+                  className="settings-action-btn"
+                  data-testid="request-local-network-btn"
+                  onClick={() => invoke("request_local_network").catch((e) => logError(`[settings] request_local_network failed: ${e}`))}
+                >
+                  Request Permission
                 </button>
               </div>
             </div>

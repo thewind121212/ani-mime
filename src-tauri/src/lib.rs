@@ -166,6 +166,30 @@ fn preview_dialog(dialog_id: String, app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn request_local_network() {
+    crate::app_log!("[app] request_local_network permission trigger");
+    // Attempt an mDNS browse — this triggers the macOS Local Network permission prompt
+    // if the user hasn't been asked yet. If already denied, open System Preferences.
+    std::thread::spawn(|| {
+        match mdns_sd::ServiceDaemon::new() {
+            Ok(mdns) => {
+                let _ = mdns.browse("_ani-mime._tcp.local.");
+                // Keep daemon alive briefly so the OS has time to show the prompt
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = mdns.shutdown();
+                crate::app_log!("[app] local network permission probe completed");
+            }
+            Err(e) => {
+                crate::app_warn!("[app] mDNS probe failed ({}), opening System Preferences", e);
+                let _ = std::process::Command::new("open")
+                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
+                    .spawn();
+            }
+        }
+    });
+}
+
+#[tauri::command]
 fn set_dock_visible(visible: bool, app: tauri::AppHandle) {
     crate::app_log!("[app] set_dock_visible -> {}", visible);
     platform::macos::set_dock_visibility(&app, visible);
@@ -330,7 +354,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
