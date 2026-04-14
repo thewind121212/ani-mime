@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.15.4] - 2026-04-14
+
+### Added
+- **Pluggable effect system** — modular architecture for visual effects on the mascot
+- **Shadow Clone animation** — Naruto-style kage bunshin effect triggered on busy status
+- **Editable Smart Import** — re-edit previously imported custom mimes instead of starting from scratch
+- **Smart Import metadata persistence** — source sheet and frame inputs saved for later editing
+- **Source sheet cleanup** — deleting a custom mime also removes its source sheet file
+
+### Changed
+- Sprite animation engine upgraded from strip-only to 2D grid sheet support via `requestAnimationFrame`
+
+### Fixed
+- Dark outline artifact on transparent window after shadow-clone effect restores window shadow
+- `smartImportMeta` preserved through manual editor path
+- `arrayBuffer` rejection properly propagated in Smart Import canvas encoder
+
+### Tests
+- Smart Import edit-mode smoke tests and e2e round-trip assertions
+
 ## [0.15.3] - 2026-04-13
 
 ### Added
