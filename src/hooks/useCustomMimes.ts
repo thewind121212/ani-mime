@@ -267,7 +267,22 @@ export function useCustomMimes() {
       sprites[status] = { frames, data: btoa(binary) };
     }
 
-    const payload = JSON.stringify({ version: 1, name: mime.name, sprites }, null, 2);
+    let smartImportExport: { sourceSheet: string; frameInputs: Record<Status, string> } | undefined;
+    if (mime.smartImportMeta) {
+      const sheetBytes = await readFile(`${dir}/${mime.smartImportMeta.sheetFileName}`);
+      const sheetBinary = Array.from(sheetBytes).map((b) => String.fromCharCode(b)).join("");
+      smartImportExport = {
+        sourceSheet: btoa(sheetBinary),
+        frameInputs: mime.smartImportMeta.frameInputs,
+      };
+    }
+
+    const payload = JSON.stringify({
+      version: 1,
+      name: mime.name,
+      sprites,
+      ...(smartImportExport ? { smartImportMeta: smartImportExport } : {}),
+    }, null, 2);
     const date = new Date().toISOString().slice(0, 10);
     const safeName = mime.name.replace(/[^a-zA-Z0-9_-]/g, "-");
     const defaultName = `animime-${safeName}-${date}`;
@@ -318,14 +333,26 @@ export function useCustomMimes() {
       sprites[status] = { fileName, frames: entry.frames };
     }
 
+    let metaRecord: CustomMimeData["smartImportMeta"];
+    if (payload.smartImportMeta?.sourceSheet && payload.smartImportMeta?.frameInputs) {
+      const sheetBinary = atob(payload.smartImportMeta.sourceSheet);
+      const sheetBlob = new Uint8Array(sheetBinary.length);
+      for (let i = 0; i < sheetBinary.length; i++) sheetBlob[i] = sheetBinary.charCodeAt(i);
+
+      const sheetFileName = `${id}-source.png`;
+      await writeFile(`${dir}/${sheetFileName}`, sheetBlob);
+      metaRecord = { sheetFileName, frameInputs: payload.smartImportMeta.frameInputs };
+    }
+
     const newMime: CustomMimeData = {
       id,
       name: payload.name,
       sprites: sprites as Record<Status, { fileName: string; frames: number }>,
+      ...(metaRecord ? { smartImportMeta: metaRecord } : {}),
     };
 
     await saveMimes([...mimes, newMime]);
-    info(`[custom-mimes] imported "${payload.name}" as ${id}`);
+    info(`[custom-mimes] imported "${payload.name}" as ${id}, hasSmartMeta=${!!metaRecord}`);
     return id;
   }, [mimes, saveMimes, ensureSpritesDir]);
 

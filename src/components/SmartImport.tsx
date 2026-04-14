@@ -122,7 +122,18 @@ export function SmartImport({
       const src = URL.createObjectURL(blob);
       const img = await loadImage(src);
       URL.revokeObjectURL(src);
-      const { canvas: prepared } = prepareCanvas(img);
+
+      let prepared: HTMLCanvasElement;
+      if (initialFrameInputs) {
+        // Edit mode: source sheet is already background-removed — skip prepareCanvas
+        // to avoid degrading quality on each edit cycle.
+        prepared = document.createElement("canvas");
+        prepared.width = img.width;
+        prepared.height = img.height;
+        prepared.getContext("2d")!.drawImage(img, 0, 0);
+      } else {
+        prepared = prepareCanvas(img).canvas;
+      }
       setCanvas(prepared);
 
       const detected = detectRows(prepared);
@@ -309,7 +320,7 @@ export function SmartImport({
           <div className="settings-card">
             <div className="smart-import-rows-header">
               <span className="settings-row-label">Assign frames to states</span>
-              <span className="smart-import-hint">e.g. 1-5 or 1,2,3,5,6</span>
+              <span className="smart-import-hint">e.g. 1-5, 3-1, or 1,3,5</span>
             </div>
             {ALL_STATUSES.map((status) => (
               <div className="smart-import-frame-assign" key={status}>
