@@ -1,100 +1,38 @@
 ---
 id: c3-201
 c3-version: 4
+c3-seal: 0348d992c223506fcda74f661410fc497d40d7e12fd8f4eb88765d8e5fb9154e
 title: Hooks Layer
 type: component
 category: foundation
 parent: c3-2
-goal: Bridge Tauri backend events and persistent store into React state for UI rendering
+goal: Bridge the Tauri backend (events + invoked commands) and the Tauri persistent store into React state through one hook per concern, so components can compose useStatus, usePeers, useVisitors, useBubble, useTheme, usePet, useNickname, useGlow, useDrag, useDevMode, and friends without touching the plugin layer directly.
 summary: Custom React hooks (useStatus, usePeers, useVisitors, useBubble, useTheme, usePet, useNickname, useGlow, useDrag, useDevMode) that listen to Tauri events and manage frontend state
+uses:
+    - ref-cross-window-sync
+    - ref-status-priority
+    - ref-tauri-events
+    - ref-theming
 ---
-
-# Hooks Layer
 
 ## Goal
 
-Bridge Tauri backend events and the persistent Tauri Store into React state, providing a clean API for UI components to consume status, peer, visitor, and preference data.
-
-## Container Connection
-
-All UI components depend on hooks for their data. Without this layer, there is no connection between backend events and React rendering.
-
-## Hook Inventory
-
-```mermaid
-graph LR
-  subgraph "Tauri Events"
-    E1[status-changed]
-    E2[task-completed]
-    E3[visitor-arrived]
-    E4[visitor-left]
-    E5[peers-changed]
-    E6[dog-away]
-    E7[discovery-hint]
-    E8[scenario-override]
-  end
-
-  subgraph "Hooks"
-    H1[useStatus]
-    H2[useBubble]
-    H3[useVisitors]
-    H4[usePeers]
-  end
-
-  E1 --> H1
-  E6 --> H1
-  E8 --> H1
-  E2 --> H2
-  E7 --> H2
-  E3 --> H3
-  E4 --> H3
-  E5 --> H4
-
-  subgraph "Store Hooks"
-    H5[useTheme]
-    H6[usePet]
-    H7[useNickname]
-    H8[useGlow]
-  end
-
-  STORE[(Tauri Store)] --> H5
-  STORE --> H6
-  STORE --> H7
-  STORE --> H8
-```
-
-| Hook | Source | Returns | Used By |
-|------|--------|---------|---------|
-| `useStatus()` | `status-changed`, `dog-away`, `scenario-override` events | Current display status string | Mascot, StatusPill |
-| `usePeers()` | `peers-changed` event | Array of discovered peers | Context menu |
-| `useVisitors()` | `visitor-arrived`, `visitor-left` events | Array of visiting dogs | VisitorDog components |
-| `useBubble()` | `task-completed`, `discovery-hint` events | { visible, message } | SpeechBubble |
-| `useTheme()` | Tauri Store + `theme-changed` event | [theme, setTheme] | Settings, CSS variables |
-| `usePet()` | Tauri Store + `pet-changed` event | [pet, setPet] | Mascot sprite selection |
-| `useNickname()` | Tauri Store + `nickname-changed` event | [nickname, setNickname] | Settings, visit protocol |
-| `useGlow()` | Tauri Store + `glow-changed` event | [glowMode, setGlowMode] | CSS glow effects |
-| `useDrag()` | Native Tauri `startDragging()` | onMouseDown handler | Main window |
-| `useDevMode()` | Session state (10× version click) | boolean | Superpower access |
+Bridge the Tauri backend (events + invoked commands) and the Tauri persistent store into React state through one hook per concern, so components can compose useStatus, usePeers, useVisitors, useBubble, useTheme, usePet, useNickname, useGlow, useDrag, useDevMode, and friends without touching the plugin layer directly.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Tauri events | c3-1 Rust Backend (event bus) |
-| IN (uses) | Persistent settings | Tauri Store (settings.json on disk) |
-| OUT (provides) | Reactive state | c3-210 Mascot UI, c3-211 Settings |
+| --- | --- | --- |
+| IN | status-changed, task-completed events | c3-101 |
+| IN | Resolved UI state | c3-102 |
+| IN | Watchdog status transitions | c3-110 |
+| IN | peers-changed, visitor-arrived, visitor-left, dog-away, discovery-hint events | c3-111 |
+| OUT | React state consumed by Mascot UI | c3-210 |
+| OUT | React state consumed by Settings | c3-211 |
+| OUT | React state consumed by Superpower Tool | c3-212 |
+| OUT | React state consumed by Smart Import | c3-213 |
+| OUT | React state consumed by Visitor Dogs | c3-214 |
+| OUT | Status transitions driving Effects System | c3-203 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src/hooks/useStatus.ts` | Status resolution from events |
-| `src/hooks/usePeers.ts` | Peer list management |
-| `src/hooks/useVisitors.ts` | Visitor tracking |
-| `src/hooks/useBubble.ts` | Speech bubble trigger logic |
-| `src/hooks/useTheme.ts` | Theme persistence |
-| `src/hooks/usePet.ts` | Pet selection persistence |
-| `src/hooks/useNickname.ts` | Nickname persistence |
-| `src/hooks/useGlow.ts` | Glow mode persistence |
-| `src/hooks/useDrag.ts` | Window drag handler |
-| `src/hooks/useDevMode.ts` | Dev mode toggle |
+Every hook cleans up its Tauri listener in a useEffect return, uses the shared Store("settings.json") for persistence, and follows the useSetting pattern — load on mount, subscribe to the broadcast event, persist + broadcast on change. Persisted values (theme, pet, nickname, glowMode, bubbleEnabled, hideDock, effect enabled flags, skipped updater version) all flow through this layer. Cross-window broadcasts like theme-changed, pet-changed, bubble-changed, glow-changed, nickname-changed, dev-mode-changed keep the main, settings, and superpower windows in sync.

@@ -1,73 +1,34 @@
 ---
 id: c3-102
 c3-version: 4
+c3-seal: 1ddda7a7cc338f2a802495a0df22c92d848b3b86e94851e3600a18c5479867b7
 title: State Management
 type: component
 category: foundation
 parent: c3-1
-goal: Track per-terminal sessions and resolve a single display status from multiple concurrent sources using priority rules
+goal: Hold the backend's single source of truth — terminal sessions, peers, visitors, discovery metadata, and the resolved UI state — behind one `Arc<Mutex<AppState>>` and resolve the winning status using a fixed priority (`busy > service > idle > disconnected`).
 summary: Arc<Mutex<AppState>> holding session map (by PID), peer registry, visitor list, and current UI state with priority-based resolution and change-driven event emission
+uses:
+    - ref-status-priority
+    - ref-tauri-events
+    - rule-app-log-macros
+    - rule-pid-zero-reserved
 ---
-
-# State Management
 
 ## Goal
 
-Track per-terminal sessions and resolve a single display status from multiple concurrent sources using priority rules, emitting Tauri events only when the resolved status actually changes.
-
-## Container Connection
-
-The central nervous system of the backend. Every other component reads or writes AppState. Without it, there is no way to aggregate multiple terminal sessions into a single mascot state.
-
-## State Resolution
-
-```mermaid
-graph TD
-  S1[Session 1: idle] --> RESOLVE[resolve_ui_state]
-  S2[Session 2: busy] --> RESOLVE
-  S3[Session 3: service] --> RESOLVE
-  S0["Session 0 (Claude): busy"] --> RESOLVE
-
-  RESOLVE --> PRIORITY{Priority Check}
-  PRIORITY -->|"Any busy?"| BUSY[Return 'busy']
-  PRIORITY -->|"Any service?"| SERVICE[Return 'service']
-  PRIORITY -->|"Any idle?"| IDLE[Return 'idle']
-  PRIORITY -->|"No sessions"| DISC[Return 'disconnected']
-
-  BUSY --> EMIT{Changed?}
-  SERVICE --> EMIT
-  IDLE --> EMIT
-  DISC --> EMIT
-
-  EMIT -->|Yes| EVENT["emit('status-changed', new_status)"]
-  EMIT -->|No| SKIP[No event]
-```
-
-## Key Structures
-
-| Structure | Purpose |
-|-----------|---------|
-| `AppState` | Top-level state: sessions HashMap, peers Vec, visitors Vec, current_ui String |
-| `Session` | Per-PID: ui_state, busy_since, service_since, last_heartbeat, command info |
-| `VisitingDog` | Incoming visitor: nickname, pet, fromHost, arrived_at |
-
-## Critical Rules
-
-- **pid=0** is reserved for Claude Code — never times out, never cleaned up by watchdog
-- **Priority order**: busy > service > idle > disconnected — always one winner
-- **emit_if_changed()**: only fires `status-changed` when the resolved state differs from `current_ui`
-- **Service display**: service_since timestamp enables the 2-second flash before transition to idle
+Hold the backend's single source of truth — terminal sessions, peers, visitors, discovery metadata, and the resolved UI state — behind one `Arc<Mutex<AppState>>` and resolve the winning status using a fixed priority (`busy > service > idle > disconnected`).
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | State mutations | c3-101 HTTP Server, c3-110 Watchdog, c3-111 Peer Discovery |
-| OUT (provides) | Resolved UI status + Tauri events | c3-2 React Frontend (via event bus) |
-| OUT (provides) | Session data for cleanup | c3-110 Watchdog |
+| --- | --- | --- |
+| IN | Mutations from HTTP routes | c3-101 |
+| IN | Mutations from watchdog sweeps | c3-110 |
+| IN | Peer add/remove events | c3-111 |
+| IN | Setup completion flags | c3-112 |
+| OUT | resolve_ui_state() + emit_if_changed() → status-changed | c3-201 |
+| OUT | Log lines | c3-103 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src-tauri/src/state.rs` | AppState struct, Session struct, resolve_ui_state(), emit_if_changed() |
+`state.rs` defines `AppState`, `Session`, `PeerInfo`, `VisitingDog`, and the pure `resolve_ui_state()` function. The `Arc<Mutex<AppState>>` is constructed in `lib.rs` and cloned to every long-running thread.

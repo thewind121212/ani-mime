@@ -35,7 +35,7 @@ fn clear_logs() {
 #[tauri::command]
 fn open_log_dir(app: tauri::AppHandle) {
     if let Ok(log_dir) = app.path().app_log_dir() {
-        let _ = std::process::Command::new("open").arg(&log_dir).spawn();
+        platform::open_path(&log_dir);
     }
 }
 
@@ -61,78 +61,74 @@ fn scenario_override(status: Option<String>, app: tauri::AppHandle) {
 
 #[tauri::command]
 fn preview_dialog(dialog_id: String, app: tauri::AppHandle) {
-    use crate::setup::shell::macos_dialog;
-
     std::thread::spawn(move || {
         let current = env!("CARGO_PKG_VERSION");
 
         match dialog_id.as_str() {
             // --- Update dialogs ---
             "update_available" => {
-                let script = format!(
-                    "display alert \"Ani-Mime v99.0.0 Available\" message \"You are currently on v{}.\\n\\nA new version is ready with improvements and bug fixes.\\nTap Changelog to see what is new.\" buttons {{\"Later\", \"Changelog\", \"Update Now\"}} default button \"Update Now\"",
-                    current,
+                platform::show_dialog(
+                    "Ani-Mime v99.0.0 Available",
+                    &format!(
+                        "You are currently on v{}.\n\nA new version is ready with improvements and bug fixes.\nTap Changelog to see what is new.",
+                        current
+                    ),
+                    &["Update Now", "Later", "Changelog"],
                 );
-                let _ = std::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg(&script)
-                    .output();
             }
             "update_up_to_date" => {
-                let script = format!(
-                    "display alert \"You are up to date\" message \"Ani-Mime v{} is the latest version.\" buttons {{\"OK\"}} default button \"OK\"",
-                    current,
+                platform::show_dialog(
+                    "You are up to date",
+                    &format!("Ani-Mime v{} is the latest version.", current),
+                    &["OK"],
                 );
-                let _ = std::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg(&script)
-                    .output();
             }
             "update_failed" => {
-                let _ = std::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg("display alert \"Update Check Failed\" message \"Could not reach GitHub. Please check your internet connection.\" buttons {\"OK\"} default button \"OK\"")
-                    .output();
+                platform::show_dialog(
+                    "Update Check Failed",
+                    "Could not reach GitHub. Please check your internet connection.",
+                    &["OK"],
+                );
             }
 
             // --- Setup dialogs ---
             "setup_shell_single" => {
-                macos_dialog(
+                platform::show_dialog(
                     "Ani-Mime Setup",
                     "zsh detected. Ani-Mime needs to add a hook to ~/.zshrc to track terminal activity.\n\nAllow setup?",
                     &["Yes", "Skip"],
                 );
             }
             "setup_shell_multiple" => {
-                let script = r#"choose from list {"zsh", "bash", "fish", "All"} with title "Ani-Mime Setup" with prompt "Multiple shells detected. Select which ones to set up for terminal tracking:" with multiple selections allowed"#;
-                let _ = std::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg(script)
-                    .output();
+                platform::show_choose_list(
+                    "Ani-Mime Setup",
+                    "Multiple shells detected. Select which ones to set up for terminal tracking:",
+                    &["zsh", "bash", "fish", "All"],
+                );
             }
             "setup_claude" => {
-                macos_dialog(
+                platform::show_dialog(
                     "Ani-Mime Setup",
                     "Ani-Mime also supports Claude Code! Your mascot can react in real-time when Claude is thinking or using tools.\n\nThis will add lightweight hooks to ~/.claude/settings.json.\n\nWould you like to enable it?",
                     &["Yes", "Skip"],
                 );
             }
             "setup_complete" => {
-                macos_dialog(
+                platform::show_dialog(
                     "Ani-Mime",
                     "Setup complete!\n\nPlease open a new terminal tab or window for the tracking to take effect.",
                     &["OK"],
                 );
             }
             "setup_no_shells" => {
-                macos_dialog(
+                platform::show_dialog(
                     "Ani-Mime",
                     "No supported shell found (zsh, bash, or fish).\n\nPlease install one and restart the app.",
                     &["OK"],
                 );
             }
             "setup_no_selected" => {
-                macos_dialog(
+                platform::show_dialog(
                     "Ani-Mime",
                     "Ani-Mime requires at least one shell (zsh, bash, or fish) to be configured for terminal tracking.\n\nThe app will now close.\nRestart Ani-Mime when you're ready to set up.",
                     &["OK"],
@@ -180,10 +176,8 @@ fn request_local_network() {
                 crate::app_log!("[app] local network permission probe completed");
             }
             Err(e) => {
-                crate::app_warn!("[app] mDNS probe failed ({}), opening System Preferences", e);
-                let _ = std::process::Command::new("open")
-                    .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork")
-                    .spawn();
+                crate::app_warn!("[app] mDNS probe failed ({}), opening system settings", e);
+                platform::open_local_network_settings();
             }
         }
     });
@@ -192,7 +186,7 @@ fn request_local_network() {
 #[tauri::command]
 fn set_dock_visible(visible: bool, app: tauri::AppHandle) {
     crate::app_log!("[app] set_dock_visible -> {}", visible);
-    platform::macos::set_dock_visibility(&app, visible);
+    platform::set_dock_visibility(&app, visible);
 }
 
 #[tauri::command]
@@ -363,8 +357,8 @@ pub fn run() {
                 logger::set_log_path(log_dir.join("ani-mime.log"));
             }
 
-            platform::macos::setup_macos_window(app);
-            crate::app_log!("[app] macOS window configured");
+            platform::setup_main_window(app);
+            crate::app_log!("[app] main window configured");
 
             // Build native macOS menu bar
             let app_menu = SubmenuBuilder::new(app, "Ani-Mime")
@@ -468,7 +462,7 @@ pub fn run() {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
                             if json.get("hideDock").and_then(|v| v.as_bool()).unwrap_or(false) {
                                 crate::app_log!("[app] restoring dock-hidden preference");
-                                platform::macos::set_dock_visibility(app.handle(), false);
+                                platform::set_dock_visibility(app.handle(), false);
                             }
                             if json.get("hideTray").and_then(|v| v.as_bool()).unwrap_or(false) {
                                 crate::app_log!("[app] restoring tray-hidden preference");

@@ -55,86 +55,11 @@ pub fn detect_shells(home: &Path) -> Vec<ShellInfo> {
     ]
 }
 
-/// Show a native macOS dialog. Returns the button text the user clicked.
-pub(crate) fn macos_dialog(title: &str, message: &str, buttons: &[&str]) -> String {
-    let buttons_str = buttons
-        .iter()
-        .map(|b| format!("\"{}\"", b))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let script = format!(
-        r#"display dialog "{}" with title "{}" buttons {{{}}} default button 1"#,
-        message.replace('"', "\\\""),
-        title.replace('"', "\\\""),
-        buttons_str
-    );
-
-    match std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-    {
-        Ok(o) => {
-            let result = String::from_utf8_lossy(&o.stdout).to_string();
-            let button = result
-                .split("button returned:")
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            crate::app_log!("[setup] dialog '{}': user pressed '{}'", title, button);
-            button
-        }
-        Err(e) => {
-            crate::app_error!("[setup] failed to show dialog '{}': {}", title, e);
-            String::new()
-        }
-    }
-}
-
-/// Show a macOS "choose from list" dialog. Returns selected items.
-fn macos_choose_list(title: &str, message: &str, items: &[&str]) -> Vec<String> {
-    let items_str = items
-        .iter()
-        .map(|i| format!("\"{}\"", i))
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let script = format!(
-        r#"choose from list {{{}}} with title "{}" with prompt "{}" with multiple selections allowed"#,
-        items_str,
-        title.replace('"', "\\\""),
-        message.replace('"', "\\\""),
-    );
-
-    match std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .output()
-    {
-        Ok(o) => {
-            let result = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if result == "false" || result.is_empty() {
-                crate::app_log!("[setup] choose list '{}': user cancelled", title);
-                return vec![];
-            }
-            let selected: Vec<String> = result.split(", ").map(|s| s.to_string()).collect();
-            crate::app_log!("[setup] choose list '{}': user selected {:?}", title, selected);
-            selected
-        }
-        Err(e) => {
-            crate::app_error!("[setup] failed to show choose list '{}': {}", title, e);
-            vec![]
-        }
-    }
-}
-
 /// Prompt user to select which shells to configure. Returns list of shell names.
 pub fn prompt_shell_selection(needs_setup: &[&ShellInfo]) -> Vec<String> {
     if needs_setup.len() == 1 {
         let shell = needs_setup[0];
-        let answer = macos_dialog(
+        let answer = crate::platform::show_dialog(
             "Ani-Mime Setup",
             &format!(
                 "{} detected. Ani-Mime needs to add a hook to {} to track terminal activity.\n\nAllow setup?",
@@ -151,7 +76,7 @@ pub fn prompt_shell_selection(needs_setup: &[&ShellInfo]) -> Vec<String> {
     } else {
         let mut items: Vec<&str> = needs_setup.iter().map(|s| s.name).collect();
         items.push("All");
-        let selected = macos_choose_list(
+        let selected = crate::platform::show_choose_list(
             "Ani-Mime Setup",
             "Multiple shells detected. Select which ones to set up for terminal tracking:",
             &items,

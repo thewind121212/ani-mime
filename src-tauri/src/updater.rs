@@ -1,5 +1,7 @@
 use tauri::Manager;
 
+use crate::platform;
+
 const GITHUB_RELEASES_URL: &str =
     "https://api.github.com/repos/vietnguyenhoangw/ani-mime/releases/latest";
 
@@ -70,24 +72,22 @@ pub fn check_for_updates_manual(app_handle: tauri::AppHandle) {
         let latest = match fetch_latest_version() {
             Some(v) => v,
             None => {
-                let _ = std::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg("display alert \"Update Check Failed\" message \"Could not reach GitHub. Please check your internet connection.\" buttons {\"OK\"} default button \"OK\"")
-                    .output();
+                platform::show_dialog(
+                    "Update Check Failed",
+                    "Could not reach GitHub. Please check your internet connection.",
+                    &["OK"],
+                );
                 return;
             }
         };
 
         if !is_newer(&latest, current) {
             crate::app_log!("[updater] manual check: up to date");
-            let script = format!(
-                "display alert \"You are up to date\" message \"Ani-Mime v{} is the latest version.\" buttons {{\"OK\"}} default button \"OK\"",
-                current
+            platform::show_dialog(
+                "You are up to date",
+                &format!("Ani-Mime v{} is the latest version.", current),
+                &["OK"],
             );
-            let _ = std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(&script)
-                .output();
             return;
         }
 
@@ -100,47 +100,28 @@ fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str
     let release_url = format!("https://github.com/vietnguyenhoangw/ani-mime/releases/tag/v{}", latest);
 
     loop {
-        let script = format!(
-            "display alert \"Ani-Mime v{latest} Available\" message \"You are currently on v{current}.\\n\\nA new version is ready with improvements and bug fixes.\\nTap Changelog to see what is new.\" buttons {{\"Later\", \"Changelog\", \"Update Now\"}} default button \"Update Now\"",
-            latest = latest,
-            current = current,
+        let button = platform::show_dialog(
+            &format!("Ani-Mime v{} Available", latest),
+            &format!(
+                "You are currently on v{}.\n\nA new version is ready with improvements and bug fixes.\nTap Changelog to see what is new.",
+                current
+            ),
+            &["Update Now", "Later", "Changelog"],
         );
+        crate::app_log!("[updater] user pressed: {}", button);
 
-        match std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output()
-        {
-            Ok(o) => {
-                let result = String::from_utf8_lossy(&o.stdout).to_string();
-                let button = result
-                    .split("button returned:")
-                    .nth(1)
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                crate::app_log!("[updater] user pressed: {}", button);
-
-                match button.as_str() {
-                    "Update Now" => {
-                        update_now(app_handle);
-                        break;
-                    }
-                    "Changelog" => {
-                        crate::app_log!("[updater] opening changelog: {}", release_url);
-                        let _ = std::process::Command::new("open")
-                            .arg(&release_url)
-                            .spawn();
-                        continue;
-                    }
-                    _ => {
-                        crate::app_log!("[updater] user chose Later or dismissed");
-                        break;
-                    }
-                }
+        match button.as_str() {
+            "Update Now" => {
+                update_now(app_handle, &release_url);
+                break;
             }
-            Err(e) => {
-                crate::app_error!("[updater] failed to show dialog: {}", e);
+            "Changelog" => {
+                crate::app_log!("[updater] opening changelog: {}", release_url);
+                platform::open_url(&release_url);
+                continue;
+            }
+            _ => {
+                crate::app_log!("[updater] user chose Later or dismissed");
                 break;
             }
         }
@@ -171,22 +152,12 @@ fn is_newer(latest: &str, current: &str) -> bool {
     l > c
 }
 
-fn update_now(app_handle: &tauri::AppHandle) {
-    crate::app_log!("[updater] user chose: Update — quitting app for upgrade");
+fn update_now(app_handle: &tauri::AppHandle, release_url: &str) {
+    crate::app_log!("[updater] user chose: Update — running platform update flow");
 
-    // Terminal script: wait for app to quit, run brew upgrade, then reopen
-    let script = r#"tell application "Terminal"
-    activate
-    do script "echo '🐕 Updating Ani-Mime...' && sleep 1 && brew update && brew upgrade --cask ani-mime && echo '✅ Update complete! Reopening Ani-Mime...' && open -a 'Ani-Mime'"
-end tell"#;
+    platform::run_update_command(release_url);
 
-    // Spawn the Terminal command first, then quit the app
-    let _ = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .spawn();
-
-    // Give Terminal a moment to launch before we quit
+    // Give the platform update command a moment to detach before we quit.
     std::thread::sleep(std::time::Duration::from_millis(500));
     app_handle.exit(0);
 }

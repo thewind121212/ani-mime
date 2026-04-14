@@ -1,81 +1,31 @@
 ---
 id: c3-211
 c3-version: 4
+c3-seal: ac6901cc1da016db306f389f61f4dbdcb9126b7b6f7e49e45a1caa5ae516cb93
 title: Settings
 type: component
 category: feature
 parent: c3-2
-goal: Allow users to configure theme, pet character, nickname, and glow mode with persistent storage
+goal: Host the standalone settings window (General, Mime, About tabs) where users pick theme, pet/character, nickname, glow mode, bubble toggle, effect toggles, dock visibility, custom mime imports, and see version + update info — persisting each change through the Tauri store and broadcasting so other windows update live.
 summary: Separate Tauri window (620×440) with tabbed UI for General (theme, glow), Mime (pet grid), and About sections, backed by Tauri Store for persistence
+uses:
+    - ref-cross-window-sync
+    - ref-theming
+    - rule-data-testid
 ---
-
-# Settings
 
 ## Goal
 
-Allow users to configure theme, pet character, nickname, and glow mode through a dedicated settings window, with all preferences persisted to disk via Tauri Store.
-
-## Container Connection
-
-Without settings, users are locked to defaults. This component provides personalization and is the only way to change the mascot character, theme, or visual effects.
-
-## Window
-
-| Property | Value |
-|----------|-------|
-| Size | 620 × 440 px |
-| Decorations | Standard window chrome |
-| Position | Centered on screen |
-| Trigger | Context menu → "Settings" or DevTag button |
-
-## Tabs
-
-```mermaid
-graph LR
-  subgraph "Settings Window"
-    TAB1[General Tab]
-    TAB2[Mime Tab]
-    TAB3[About Tab]
-  end
-
-  TAB1 --> THEME[Theme: dark / light]
-  TAB1 --> GLOW[Glow: off / light / dark]
-
-  TAB2 --> GRID[Pet Selection Grid]
-  GRID --> ROTT[Rottweiler]
-  GRID --> DALM[Dalmatian]
-  GRID --> SAMU[Samurai]
-  GRID --> HANC[Hancock]
-
-  TAB3 --> VER[Version info]
-  TAB3 --> LINKS[GitHub / support links]
-  TAB3 --> DEVMODE["10× click → dev mode"]
-```
-
-## Persistence
-
-| Store Key | Type | Default | Effect |
-|-----------|------|---------|--------|
-| `theme` | `"dark" \| "light"` | `"dark"` | CSS variables swap |
-| `pet` | `string` | `"rottweiler"` | Sprite sheet selection |
-| `nickname` | `string` | `""` | Shown to peers on visit |
-| `glowMode` | `"off" \| "light" \| "dark"` | `"off"` | CSS glow filter |
-| `bubbleEnabled` | `boolean` | `true` | Speech bubble toggle |
-
-Changes broadcast cross-window events (e.g., `theme-changed`) so the main window updates immediately.
+Host the standalone settings window (General, Mime, About tabs) where users pick theme, pet/character, nickname, glow mode, bubble toggle, effect toggles, dock visibility, custom mime imports, and see version + update info — persisting each change through the Tauri store and broadcasting so other windows update live.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Current preferences | Tauri Store (settings.json) |
-| OUT (provides) | Updated preferences | Tauri Store → cross-window events → main window hooks |
+| --- | --- | --- |
+| IN | Current settings values and broadcast subscriptions | c3-201 |
+| IN | Custom mime list | c3-213 |
+| IN | Effect registry | c3-203 |
+| OUT | 10-click gesture unlocks Superpower Tool | c3-212 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src/components/Settings.tsx` | Settings window UI, tab navigation, preference controls |
-| `src/hooks/useTheme.ts` | Theme read/write with store |
-| `src/hooks/usePet.ts` | Pet read/write with store |
-| `src/hooks/useGlow.ts` | Glow mode read/write with store |
+Runs in its own window via settings.html and settings-main.tsx. The 10-click gesture on the version string toggles dev mode, which adds a "Superpower" entry to the sidebar and unlocks c3-212. All persistence and cross-window sync goes through the hooks in c3-201 — Settings never touches the Tauri store plugin directly.

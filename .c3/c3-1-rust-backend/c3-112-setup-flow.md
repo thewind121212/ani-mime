@@ -1,70 +1,30 @@
 ---
 id: c3-112
 c3-version: 4
+c3-seal: 087c207e3905e2b75ef4236dccf52692fc8ae4f2accbda4bd6c8ad065f81ca06
 title: Setup Flow
 type: component
 category: feature
 parent: c3-1
-goal: Auto-configure shell hooks and Claude Code hooks on first launch with native macOS dialogs
+goal: 'Run once on first launch: detect installed shells, ask the user which to configure via native AppleScript dialogs, inject terminal-mirror.{zsh,bash,fish} source lines into RC files, optionally install Claude Code hooks and register the MCP server, then write ~/.ani-mime/setup-done so the flow never runs again.'
 summary: First-launch detection, shell RC file injection, Claude settings.json hook configuration, and native osascript dialog prompts
+uses:
+    - ref-setup-flow
+    - rule-app-log-macros
 ---
-
-# Setup Flow
 
 ## Goal
 
-Auto-configure shell hooks and Claude Code hooks on first launch, guiding the user through native macOS dialogs to select which shells to integrate and whether to enable Claude tracking.
-
-## Container Connection
-
-Without setup, no shell hooks are installed and no signals reach the backend. This component bridges the gap between "app installed" and "app receiving terminal activity."
-
-## Flow
-
-```mermaid
-graph TD
-  START[App Launch] --> CHECK{~/.ani-mime/setup-done?}
-  CHECK -->|Exists| SKIP[Skip setup]
-  CHECK -->|Missing| DETECT[Detect installed shells]
-
-  DETECT --> DIALOG{Show native dialog}
-  DIALOG -->|"Single shell"| YESNO["Yes/Skip dialog"]
-  DIALOG -->|"Multiple shells"| LIST["Choose from list dialog"]
-
-  YESNO --> INJECT[Inject source line into RC file]
-  LIST --> INJECT
-
-  INJECT --> CLAUDE{Detect Claude Code}
-  CLAUDE -->|Found| ASKC["Allow Claude tracking?"]
-  CLAUDE -->|Not found| PREC["Pre-configure hooks?"]
-
-  ASKC --> HOOKS[Write ~/.claude/settings.json hooks]
-  PREC --> HOOKS
-
-  HOOKS --> MARKER[Write ~/.ani-mime/setup-done]
-  MARKER --> RESTART["Show 'restart terminal' dialog"]
-```
-
-## What Gets Injected
-
-| Target | Injection |
-|--------|----------|
-| `~/.zshrc` | `source "/Applications/ani-mime.app/.../terminal-mirror.zsh"` |
-| `~/.bashrc` | `source "/Applications/ani-mime.app/.../terminal-mirror.bash"` |
-| `~/.config/fish/config.fish` | `source "/Applications/ani-mime.app/.../terminal-mirror.fish"` |
-| `~/.claude/settings.json` | PreToolUse, Stop, SessionEnd hooks with curl commands |
+Run once on first launch: detect installed shells, ask the user which to configure via native AppleScript dialogs, inject terminal-mirror.{zsh,bash,fish} source lines into RC files, optionally install Claude Code hooks and register the MCP server, then write ~/.ani-mime/setup-done so the flow never runs again.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Shell detection, RC file paths | Host filesystem |
-| OUT (provides) | Configured shell hooks | c3-301 Terminal Mirror (enabled via sourcing) |
-| OUT (provides) | Configured Claude hooks | c3-310 Claude Hooks (enabled via settings.json) |
+| --- | --- | --- |
+| OUT | Hook installation commands consumed by Terminal Mirror | c3-301 |
+| OUT | settings.json entries consumed by Claude Hooks | c3-310 |
+| OUT | server.mjs installation + .claude.json registration | c3-311 |
+| OUT | Log lines | c3-103 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src-tauri/src/setup/shell.rs` | Shell detection, RC file editing, native dialog prompts |
-| `src-tauri/src/setup/claude.rs` | Claude Code detection, settings.json hook migration |
+setup/mod.rs orchestrates setup/shell.rs, setup/claude.rs, and setup/mcp.rs. It writes the ~/.ani-mime/setup-done marker, reads and mutates the user's RC files (~/.zshrc, ~/.bashrc, ~/.config/fish/config.fish), and invokes osascript for every dialog. A preview_dialog Tauri command is also exposed so the Superpower Tool can exercise every dialog path without rerunning the full flow.

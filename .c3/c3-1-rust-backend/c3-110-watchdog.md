@@ -1,68 +1,32 @@
 ---
 id: c3-110
 c3-version: 4
+c3-seal: b4cf2fb9cfd5f778f24b3e8f6700c5ef4e8992873ab279cb9d8d68731f973300
 title: Watchdog
 type: component
 category: feature
 parent: c3-1
-goal: Perform background state transitions and cleanup to keep the mascot responsive when terminals disconnect or go silent
+goal: Run the periodic background sweep that transitions `service` → `idle` after 2 seconds, evicts sessions idle longer than 40 seconds, expires overdue visitors, and enters sleep mode after 120 seconds of idle so the UI stops re-emitting.
 summary: Background thread running every 2 seconds that handles service→idle transitions (2s display), stale session removal (40s timeout), and idle→sleep transitions (120s)
+uses:
+    - ref-status-priority
+    - ref-tauri-events
+    - rule-app-log-macros
+    - rule-pid-zero-reserved
 ---
-
-# Watchdog
 
 ## Goal
 
-Perform background state transitions and session cleanup to keep the mascot responsive when terminals disconnect or go silent, without requiring explicit "goodbye" signals.
-
-## Container Connection
-
-Terminals can crash, close, or lose network. Without the watchdog, stale sessions would accumulate and the mascot could be permanently stuck in "busy" or "service" state.
-
-## Timing
-
-```mermaid
-gantt
-  title Watchdog Transitions
-  dateFormat X
-  axisFormat %s
-
-  section Service Flash
-  service displayed :0, 2
-  transition to idle :2, 3
-
-  section Session Timeout
-  last heartbeat :0, 20
-  grace period :20, 40
-  session removed :40, 41
-
-  section Idle → Sleep
-  idle state :0, 120
-  transition to sleep :120, 121
-```
-
-| Timer | Duration | Action |
-|-------|----------|--------|
-| Service display | 2 seconds | service → idle (prevents permanent blue state for dev servers) |
-| Session timeout | 40 seconds | Remove sessions with no heartbeat (heartbeat interval is 20s) |
-| Idle → sleep | 120 seconds | idle → disconnected/sleep if no activity |
-| Watchdog tick | 2 seconds | Check interval for all of the above |
-
-## Critical Rules
-
-- **Never cleans up pid=0** (Claude Code session is exempt from timeout)
-- Runs in a dedicated `std::thread` spawned at app startup
-- Holds the `AppState` mutex briefly per tick — must not block HTTP handling
+Run the periodic background sweep that transitions `service` → `idle` after 2 seconds, evicts sessions idle longer than 40 seconds, expires overdue visitors, and enters sleep mode after 120 seconds of idle so the UI stops re-emitting.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Session timestamps | c3-102 State Management |
-| OUT (provides) | State transitions + session removal | c3-102 State Management |
+| --- | --- | --- |
+| IN | AppState handle | c3-102 |
+| OUT | Mutated sessions / visitors / sleeping flag | c3-102 |
+| OUT | status-changed, visitor-left events | c3-201 |
+| OUT | Log lines | c3-103 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src-tauri/src/watchdog.rs` | Watchdog thread loop, transition logic, session cleanup |
+Spawned once from `lib.rs` as a dedicated `std::thread`. Wakes every 2 seconds, holds the `AppState` mutex only for the minimum scope, and never performs I/O under the lock.

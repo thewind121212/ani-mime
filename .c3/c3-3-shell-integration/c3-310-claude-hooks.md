@@ -1,71 +1,30 @@
 ---
 id: c3-310
 c3-version: 4
+c3-seal: abc3ff659ff5c49becede61e3046f8c15f02eb7700e911aeea81fe44edac3309
 title: Claude Hooks
 type: component
 category: feature
 parent: c3-3
-goal: Track Claude Code AI activity through hook scripts that report busy/idle state using the reserved pid=0 session
+goal: Track Claude Code AI activity by configuring hook entries in ~/.claude/settings.json so each tool-use and session event curls the HTTP server with the reserved virtual PID 0, letting the backend treat Claude as a single always-alive session that never times out.
 summary: Shell script configured in ~/.claude/settings.json hooks (PreToolUse, Stop, SessionEnd) that curls the HTTP server with pid=0 to indicate Claude is thinking vs idle
+uses:
+    - ref-http-api-contract
+    - ref-setup-flow
+    - rule-http-port-1234
+    - rule-pid-zero-reserved
 ---
-
-# Claude Hooks
 
 ## Goal
 
-Track Claude Code AI activity through hook scripts that report busy/idle state using the reserved pid=0 session, allowing the mascot to react when Claude is thinking.
-
-## Container Connection
-
-Extends the mascot's awareness beyond terminal commands to AI assistant activity. Without Claude hooks, the mascot ignores Claude Code sessions entirely.
-
-## Hook Configuration
-
-```mermaid
-sequenceDiagram
-  participant CC as Claude Code
-  participant HOOK as tauri-hook.sh
-  participant SERVER as HTTP Server :1234
-
-  CC->>HOOK: PreToolUse event
-  HOOK->>SERVER: curl /status?pid=0&state=busy
-  Note over SERVER: Session[0].ui_state = busy
-
-  CC->>HOOK: Stop event
-  HOOK->>SERVER: curl /status?pid=0&state=idle
-  Note over SERVER: Session[0].ui_state = idle
-
-  CC->>HOOK: SessionEnd event
-  HOOK->>SERVER: curl /status?pid=0&state=idle
-  Note over SERVER: Session[0].ui_state = idle
-```
-
-## Settings.json Hooks
-
-Configured in `~/.claude/settings.json`:
-
-| Hook Event | Action | Effect |
-|-----------|--------|--------|
-| `PreToolUse` | `curl /status?pid=0&state=busy` | Mascot shows busy (Claude thinking) |
-| `Stop` | `curl /status?pid=0&state=idle` | Mascot returns to idle |
-| `SessionEnd` | `curl /status?pid=0&state=idle` | Cleanup when session ends |
-
-## Critical Rules
-
-- **pid=0 is reserved** — the watchdog never times out or cleans up this session
-- **No heartbeat needed** — Claude hooks fire on specific events, not on a timer
-- **Priority applies** — if a terminal is also busy, terminal busy wins (same priority level, but Claude's pid=0 is just another session in the priority resolution)
+Track Claude Code AI activity by configuring hook entries in ~/.claude/settings.json so each tool-use and session event curls the HTTP server with the reserved virtual PID 0, letting the backend treat Claude as a single always-alive session that never times out.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Claude Code hook events | Claude Code (`~/.claude/settings.json`) |
-| OUT (provides) | HTTP activity signals (pid=0) | c3-101 HTTP Server |
+| --- | --- | --- |
+| IN | Initial hook installation | c3-112 |
+| OUT | /status signals with pid=0 | c3-101 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src-tauri/script/tauri-hook.sh` | Curl wrapper script invoked by Claude hooks |
-| `src-tauri/src/setup/claude.rs` | Auto-configuration of Claude settings.json hooks |
+Hook commands use curl -s --max-time 1 ... > /dev/null 2>&1 so a dead backend never blocks Claude Code. PreToolUse and UserPromptSubmit report busy, Stop and SessionEnd report idle, SessionStart reports idle on boot. The pid=0 contract is shared with c3-110 (watchdog never evicts pid=0) and c3-101 (routes the signal into a single virtual session).

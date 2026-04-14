@@ -1,0 +1,68 @@
+c3-101:
+  - src-tauri/src/server.rs
+c3-102:
+  - src-tauri/src/helpers.rs
+  - src-tauri/src/lib.rs
+  - src-tauri/src/main.rs
+  - src-tauri/src/state.rs
+c3-103:
+  - src-tauri/src/logger.rs
+c3-104:
+  - src-tauri/src/platform/**
+c3-110:
+  - src-tauri/src/watchdog.rs
+c3-111:
+  - src-tauri/src/discovery.rs
+c3-112:
+  - src-tauri/src/setup/mod.rs
+  - src-tauri/src/setup/shell.rs
+c3-113:
+  - src-tauri/src/updater.rs
+c3-201:
+  - src/hooks/**
+c3-202:
+  - src/constants/sprites.ts
+  - src/types/status.ts
+c3-203:
+  - src/effects/**
+c3-210:
+  - index.html
+  - src/App.tsx
+  - src/components/AnimationPreview.tsx
+  - src/components/DevTag.tsx
+  - src/components/Mascot.tsx
+  - src/components/SpeechBubble.tsx
+  - src/components/StatusPill.tsx
+  - src/main.tsx
+  - src/styles/app.css
+  - src/styles/dev-tag.css
+  - src/styles/mascot.css
+  - src/styles/speech-bubble.css
+  - src/styles/status-pill.css
+  - src/styles/theme.css
+c3-211:
+  - settings.html
+  - src/components/Settings.tsx
+  - src/settings-main.tsx
+  - src/styles/settings.css
+c3-212:
+  - src/components/SuperpowerTool.tsx
+  - src/components/scenarios/**
+  - src/styles/superpower.css
+  - src/superpower-main.tsx
+  - superpower.html
+c3-213:
+  - src/components/SmartImport.tsx
+  - src/utils/spriteSheetProcessor.ts
+c3-214:
+  - src/components/VisitorDog.tsx
+  - src/styles/visitor.css
+c3-301:
+  - src-tauri/script/terminal-mirror.bash
+  - src-tauri/script/terminal-mirror.fish
+  - src-tauri/script/terminal-mirror.zsh
+c3-310:
+  - src-tauri/src/setup/claude.rs
+c3-311:
+  - src-tauri/mcp-server/server.mjs
+  - src-tauri/src/setup/mcp.rs

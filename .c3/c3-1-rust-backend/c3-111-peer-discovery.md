@@ -1,68 +1,34 @@
 ---
 id: c3-111
 c3-version: 4
+c3-seal: fb0009e166108d6f213642a81ea9cbb8ff3a8828b810da0650d422b5d3fbb4e6
 title: Peer Discovery
 type: component
 category: feature
 parent: c3-1
-goal: Enable LAN peer discovery and dog visits between Ani-Mime instances using mDNS/Bonjour
+goal: Advertise this instance on _ani-mime._tcp.local. and browse for peers via mDNS, then drive the visit protocol — outgoing POST /visit to initiate, incoming POST /visit to render visitors, scheduled POST /visit-end to clean up after 15 seconds. Filters out its own instance so the local machine is never a visitable target.
 summary: mdns-sd based service registration and browsing for _ani-mime._tcp.local, with HTTP-based visit protocol for sending dogs to peers
+uses:
+    - ref-http-api-contract
+    - ref-peer-visit-protocol
+    - ref-tauri-events
+    - rule-app-log-macros
+    - rule-http-port-1234
 ---
-
-# Peer Discovery
 
 ## Goal
 
-Enable LAN peer discovery and dog visits between Ani-Mime instances using mDNS/Bonjour, allowing developers to see each other's mascots visit their screen.
-
-## Container Connection
-
-Powers the social feature of Ani-Mime — without peer discovery, the app is isolated. Provides the peer list for the context menu "Visit" action and handles the visit protocol.
-
-## Protocol
-
-```mermaid
-sequenceDiagram
-  participant A as Instance A
-  participant MDNS as mDNS (Bonjour)
-  participant B as Instance B
-
-  A->>MDNS: Register "alice-12345._ani-mime._tcp.local"
-  B->>MDNS: Register "bob-99999._ani-mime._tcp.local"
-  MDNS-->>A: Discover bob-99999
-  MDNS-->>B: Discover alice-12345
-
-  Note over A: User right-clicks → "Visit Bob"
-  A->>B: POST /visit {nickname, pet, fromHost}
-  B-->>B: emit("visitor-arrived")
-  A-->>A: emit("dog-away", true)
-
-  Note over A: 15 seconds later
-  A->>B: POST /visit-end {fromHost}
-  B-->>B: emit("visitor-left")
-  A-->>A: emit("dog-away", false)
-```
-
-## mDNS Service
-
-| Field | Value |
-|-------|-------|
-| Service type | `_ani-mime._tcp.local` |
-| Instance name | `{nickname}-{port}` |
-| Port | 1234 (or ANI_MIME_PORT) |
-| TXT records | nickname, pet, version |
+Advertise this instance on _ani-mime._tcp.local. and browse for peers via mDNS, then drive the visit protocol — outgoing POST /visit to initiate, incoming POST /visit to render visitors, scheduled POST /visit-end to clean up after 15 seconds. Filters out its own instance so the local machine is never a visitable target.
 
 ## Dependencies
 
 | Direction | What | From/To |
-|-----------|------|---------|
-| IN (uses) | Peer registry in AppState | c3-102 State Management |
-| IN (uses) | Visit HTTP endpoints | c3-101 HTTP Server |
-| OUT (provides) | Peer list + visit events | c3-2 React Frontend (usePeers, useVisitors hooks) |
+| --- | --- | --- |
+| IN | start_visit Tauri command | c3-214 |
+| OUT | peers-changed, discovery-hint, discovery-error, dog-away events | c3-201 |
+| OUT | POST /visit and POST /visit-end to remote peers | c3-101 |
+| OUT | Peer map and visiting field mutations | c3-102 |
+| OUT | Log lines | c3-103 |
+## Container Connection
 
-## Code References
-
-| File | Purpose |
-|------|---------|
-| `src-tauri/src/discovery.rs` | mDNS daemon, service registration, peer browsing, address detection |
-| `src-tauri/src/lib.rs` | `start_visit` Tauri command, visit thread spawning |
+discovery.rs runs a mdns-sd ServiceDaemon in a dedicated thread. It resolves IPv4 first (falling back through IPv6) via a UDP connect trick to 8.8.8.8:80 and advertises nickname + pet properties. The visit thread sleeps VISIT_DURATION_SECS (15) then POSTs /visit-end to the peer.

@@ -8,7 +8,7 @@ use tauri::Emitter;
 use self::claude::{migrate_claude_hooks, setup_claude_hooks};
 use self::mcp::{install_mcp_server, register_mcp_server};
 use self::shell::{detect_shells, install_shell_hooks, ShellInfo};
-use crate::setup::shell::macos_dialog;
+use crate::platform;
 
 /// Auto-setup on first launch:
 /// 1. Detect installed shells (zsh, bash, fish)
@@ -85,7 +85,7 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
                 let any_shell_configured = shells.iter().any(|s| s.is_configured());
                 if !any_shell_configured {
                     crate::app_warn!("[setup] no shell selected and none configured, exiting");
-                    macos_dialog(
+                    platform::show_dialog(
                         "Ani-Mime",
                         "Ani-Mime requires at least one shell (zsh, bash, or fish) to be configured for terminal tracking.\n\nThe app will now close.\nRestart Ani-Mime when you're ready to set up.",
                         &["OK"],
@@ -97,7 +97,7 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
             install_shell_hooks(&needs_setup, &chosen, &resource_dir);
         } else if available.is_empty() {
             crate::app_error!("[setup] no supported shells found");
-            macos_dialog(
+            platform::show_dialog(
                 "Ani-Mime",
                 "No supported shell found (zsh, bash, or fish).\n\nPlease install one and restart the app.",
                 &["OK"],
@@ -111,7 +111,7 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
             crate::app_log!("[setup] claude CLI installed: {}", has_claude);
 
             if has_claude {
-                let answer = macos_dialog(
+                let answer = platform::show_dialog(
                     "Ani-Mime Setup",
                     "Ani-Mime also supports Claude Code! Your mascot can react in real-time when Claude is thinking or using tools.\n\nThis will add lightweight hooks to ~/.claude/settings.json.\n\nWould you like to enable it?",
                     &["Yes", "Skip"],
@@ -138,24 +138,14 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
         }
         crate::app_log!("[setup] setup complete, marker written");
 
-        macos_dialog(
+        platform::show_dialog(
             "Ani-Mime",
             "Setup complete!\n\nPlease open a new terminal tab or window for the tracking to take effect.\n\nThe app will now restart.",
             &["OK"],
         );
 
-        // Restart the app
-        match std::env::current_exe() {
-            Ok(exe) => {
-                crate::app_log!("[setup] restarting app: {}", exe.display());
-                if let Err(e) = std::process::Command::new("open").arg("-a").arg(&exe).spawn() {
-                    crate::app_error!("[setup] failed to restart: {}", e);
-                }
-            }
-            Err(e) => {
-                crate::app_error!("[setup] failed to get current exe: {}", e);
-            }
-        }
-        std::process::exit(0);
+        // Restart the app via Tauri — lets the event loop clean up GTK before relaunching
+        crate::app_log!("[setup] restarting app via tauri");
+        app_handle.restart();
     });
 }
