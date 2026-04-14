@@ -1,12 +1,68 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import { useStatus } from "../hooks/useStatus";
 import { usePet } from "../hooks/usePet";
 import { useScale } from "../hooks/useScale";
+import { useCustomMimes } from "../hooks/useCustomMimes";
 import { getSpriteMap } from "../constants/sprites";
 import { useEffectEnabled } from "./useEffectEnabled";
 import { effects } from "./index";
 import type { EffectDefinition } from "./types";
+
+const FRAME_BASE_PX = 128;
+const CANDIDATE_FRAME_SIZES = [128, 96, 64, 48, 32, 16];
+
+function inferGrid(w: number, h: number, frames: number) {
+  for (const fp of CANDIDATE_FRAME_SIZES) {
+    if (w % fp === 0 && h % fp === 0) {
+      const cols = w / fp;
+      const rows = h / fp;
+      if (cols * rows >= frames) return { framePx: fp, cols };
+    }
+  }
+  return { framePx: h, cols: Math.max(1, Math.round(w / Math.max(1, h))) };
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/**
+ * Flatten a potentially multi-row sprite sheet into a single-row strip.
+ * The shadow clone CSS animation shifts background-position-x only,
+ * so grids must be converted to horizontal strips.
+ */
+async function flattenToStrip(blob: Blob, frames: number): Promise<string> {
+  const blobUrl = URL.createObjectURL(blob);
+  const img = await loadImage(blobUrl);
+  const { framePx, cols } = inferGrid(img.naturalWidth, img.naturalHeight, frames);
+
+  // Already a flat strip — use the blob URL directly
+  if (cols >= frames) return blobUrl;
+
+  // Flatten grid to horizontal strip via canvas
+  const canvas = document.createElement("canvas");
+  canvas.width = framePx * frames;
+  canvas.height = framePx;
+  const ctx = canvas.getContext("2d")!;
+  for (let i = 0; i < frames; i++) {
+    const srcX = (i % cols) * framePx;
+    const srcY = Math.floor(i / cols) * framePx;
+    ctx.drawImage(img, srcX, srcY, framePx, framePx, i * framePx, 0, framePx, framePx);
+  }
+  URL.revokeObjectURL(blobUrl);
+
+  return new Promise((resolve) => {
+    canvas.toBlob((b) => resolve(URL.createObjectURL(b!)), "image/png");
+  });
+}
 
 interface EffectOverlayProps {
   onActiveChange?: (active: boolean) => void;
@@ -51,12 +107,14 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
   const { status } = useStatus();
   const { pet } = usePet();
   const { scale } = useScale();
+  const { mimes } = useCustomMimes();
 
   const [activeEffect, setActiveEffect] = useState<ActiveEffect | null>(null);
   const [windowReady, setWindowReady] = useState(false);
   const prevStatusRef = useRef(status);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const savedWindowRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const customSpriteUrlRef = useRef<string | null>(null);
 
   const expandWindow = useCallback(async (size: number) => {
     try {
@@ -121,6 +179,10 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
     setWindowReady(false);
     onActiveChange?.(false);
     restoreWindow();
+    if (customSpriteUrlRef.current) {
+      URL.revokeObjectURL(customSpriteUrlRef.current);
+      customSpriteUrlRef.current = null;
+    }
   }, [onActiveChange, restoreWindow]);
 
   useEffect(() => {
@@ -138,36 +200,65 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
     if (!matchingEffect) return;
 
     const isCustom = pet.startsWith("custom-");
-    if (isCustom) return;
+    const frameSize = FRAME_BASE_PX * scale;
+    let cancelled = false;
 
-    const spriteMap = getSpriteMap(pet);
-    const sprite = spriteMap[status];
-    const spriteUrl = new URL(
-      `../assets/sprites/${sprite.file}`,
-      import.meta.url
-    ).href;
-    const frameSize = 128 * scale;
+    const activate = async () => {
+      let spriteUrl: string;
+      let frames: number;
 
-    // Pause auto-size BEFORE rendering the effect
-    onActiveChange?.(true);
+      if (isCustom) {
+        const customMime = mimes.find((m) => m.id === pet);
+        if (!customMime) return;
+        const spriteData = customMime.sprites[status] ?? customMime.sprites.searching;
+        frames = spriteData.frames;
+        const base = await appDataDir();
+        const filePath = await join(base, "custom-sprites", spriteData.fileName);
+        const bytes = await readFile(filePath);
+        if (cancelled) return;
+        const blob = new Blob([bytes], { type: "image/png" });
+        spriteUrl = await flattenToStrip(blob, frames);
+        if (cancelled) {
+          URL.revokeObjectURL(spriteUrl);
+          return;
+        }
+        customSpriteUrlRef.current = spriteUrl;
+      } else {
+        const spriteMap = getSpriteMap(pet);
+        const sprite = spriteMap[status];
+        spriteUrl = new URL(
+          `../assets/sprites/${sprite.file}`,
+          import.meta.url
+        ).href;
+        frames = sprite.frames;
+      }
 
-    // Expand window (pinning prevents content shift)
-    if (matchingEffect.expandWindow) {
-      expandWindow(matchingEffect.expandWindow);
-    } else {
-      setWindowReady(true);
-    }
+      // Pause auto-size BEFORE rendering the effect
+      onActiveChange?.(true);
 
-    setActiveEffect({
-      definition: matchingEffect,
-      spriteUrl,
-      frames: sprite.frames,
-      frameSize,
-    });
+      // Expand window (pinning prevents content shift)
+      if (matchingEffect.expandWindow) {
+        expandWindow(matchingEffect.expandWindow);
+      } else {
+        setWindowReady(true);
+      }
 
-    timerRef.current = setTimeout(stopEffect, matchingEffect.duration);
+      setActiveEffect({
+        definition: matchingEffect,
+        spriteUrl,
+        frames,
+        frameSize,
+      });
 
-    return () => clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(stopEffect, matchingEffect.duration);
+    };
+
+    activate();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timerRef.current);
+    };
   }, [status]);
 
   if (!activeEffect || !windowReady) return null;
