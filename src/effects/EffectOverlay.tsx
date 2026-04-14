@@ -106,7 +106,7 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
           win.setSize(new LogicalSize(w, h)),
         ]);
         unpinRootContent();
-        await win.setShadow(true);
+        // await win.setShadow(true);
         savedWindowRef.current = null;
       }
     } catch (err) {
