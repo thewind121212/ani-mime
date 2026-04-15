@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.16.1] - 2026-04-15
+
+### Added
+- **Session List Dropdown** — Click the status pill to see every open terminal grouped by project path. Each row shows state (busy / idle / service), foreground command, and a Claude Code badge when `claude` is running inside.
+- **Click-to-Focus** — Click any shell row to jump directly to that terminal tab. Supports iTerm2 and Terminal.app (tab-precise via AppleScript), VS Code / Cursor (window focus via Accessibility), tmux (pane switch via CLI), plus Warp / WezTerm / kitty / Alacritty / Hyper / Ghostty (activation only).
+- **OS Process Scanner** — 2-second `libproc` scan auto-discovers shells without needing the zsh hook, enriches pwd / tty / foreground command, detects running Claude Code instances, and removes zombie sessions immediately.
+- **Per-Claude Session Tracking** — Claude Code hooks migrated from shared `pid=0` to `pid=$PPID`, so each Claude tab has its own session. Existing `~/.claude/settings.json` hooks are auto-migrated on every startup.
+- **Session List toggle** in Settings (enabled by default) — lets users opt out of the feature.
+- **`QuangHo0911`** added to the contributors grid on the About page.
+
+### Fixed
+- **Neon-glow clipping** — busy-state pulse was cut off at the window edge; container now reserves padding to fit the glow.
+- **Effect toggle init flash** — disabled effects (e.g. Shadow Clone) briefly appeared "on" when reopening Settings. Hook now uses a module-level cache to start from the persisted value on every mount.
+- **Tray is locked on while "Hide from Dock" is enabled** — prevents losing all access to Settings when both would be off.
+- **Session list updates live while open** (hybrid `status-changed` event + 3s fallback poll) — no close/reopen required.
+
+### Changed
+- Shell hook scripts (zsh / bash / fish) now send `pwd` and `tty` via `curl -G --data-urlencode` for safe URL encoding and include them on every `/status` and `/heartbeat`.
+- `/status` and `/heartbeat` return `410 Gone` when the PID isn't a live process — prevents orphaned heartbeat subshells from resurrecting dead sessions.
+- Services shown in the session list keep their service color for the entire lifetime of the dev server (not just the 2s watchdog window).
+- macOS menu bar no longer shows the Edit submenu.
+
+### Docs
+- Added a "Session List & Click-to-Focus" section to README with the full terminal-app support matrix.
+- Updated `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/state-management.md`, `docs/http-api.md`, `docs/events-reference.md`, `docs/project-structure.md`, and `docs/shell-integration.md` to reflect the new modules, fields, events, Tauri commands, HTTP params, and terminal-app support matrix.
+
 ## [0.15.5] - 2026-04-14
 
 ### Added
