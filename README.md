@@ -14,9 +14,9 @@
   <img src="https://img.shields.io/badge/Platform-macOS-000000?style=for-the-badge&logo=apple" alt="Platform">
 </p>
 
-<p align="center">
-  <img src="docs/assets/demo.gif" width="960" alt="Ani-Mime Demo" />
-</p>
+<!-- <p align="center"> -->
+  <!-- <img src="docs/assets/demo.gif" width="960" alt="Ani-Mime Demo" /> -->
+<!-- </p> -->
 
 ---
 
