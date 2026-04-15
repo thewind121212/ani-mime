@@ -97,4 +97,22 @@ describe("SmartImport frame editor", () => {
       expect(screen.queryByTestId("frame-chip-idle-1")).toBeNull();
     });
   });
+
+  it("reorders frames within a group via drag-drop", async () => {
+    render(<SmartImport onSave={vi.fn()} onCancel={vi.fn()} initialFilePath="/fake.png" />);
+    // Remove a frame first so idle has only 1; instead seed by dragging between existing lists.
+    // Use busy list (which has frame 2) into idle (which has frame 1).
+    const source = await screen.findByTestId("frame-chip-busy-2");
+    const target = await screen.findByTestId("frame-chip-idle-1");
+    const dataTransfer = makeDT();
+    fireEvent.dragStart(source, { dataTransfer });
+    // drop before idle-1
+    fireEvent.dragOver(target, { dataTransfer, clientX: 0 });
+    fireEvent.drop(target, { dataTransfer });
+    await waitFor(() => {
+      const list = screen.getByTestId("frame-list-idle");
+      const nums = [...list.querySelectorAll(".smart-import-frame-num")].map((n) => n.textContent);
+      expect(nums).toEqual(["2", "1"]);
+    });
+  });
 });

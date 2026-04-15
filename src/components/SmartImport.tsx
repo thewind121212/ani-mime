@@ -133,6 +133,8 @@ export function SmartImport({
     return init as Record<Status, { src: string; num: number }[]>;
   });
   const previewCache = useRef<Map<number, string>>(new Map());
+  const [dragging, setDragging] = useState<{ status: Status; index: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ status: Status; index: number } | null>(null);
 
   const processFile = useCallback(async (filePath: string) => {
     setError(null);
@@ -226,6 +228,61 @@ export function SmartImport({
     setFrameThumbs((prev) => ({ ...prev, [status]: thumbs }));
     setFrameInputs((prev) => ({ ...prev, [status]: serializeFrames(nextNums) }));
   }, [canvas, frames]);
+
+  const onChipDragStart = (status: Status, index: number) => (e: React.DragEvent) => {
+    const payload = { sourceStatus: status, index, num: frameThumbs[status][index].num };
+    e.dataTransfer.setData("application/x-frame", JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "copyMove";
+    setDragging({ status, index });
+  };
+
+  const onChipDragOver = (status: Status, index: number) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const after = e.clientX - rect.left > rect.width / 2;
+    setDropTarget({ status, index: after ? index + 1 : index });
+  };
+
+  const onListDragOver = (status: Status) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = e.altKey ? "copy" : "move";
+    setDropTarget((prev) => {
+      if (prev && prev.status === status) return prev;
+      return { status, index: frameThumbs[status].length };
+    });
+  };
+
+  const onListDrop = (status: Status) => (e: React.DragEvent) => {
+    e.preventDefault();
+    const raw = e.dataTransfer.getData("application/x-frame");
+    if (!raw) return;
+    const data = JSON.parse(raw) as { sourceStatus: Status; index: number; num: number };
+    const copy = e.altKey;
+    const insertAt = dropTarget?.status === status ? dropTarget.index : frameThumbs[status].length;
+
+    if (data.sourceStatus === status) {
+      const nums = frameThumbs[status].map((t) => t.num);
+      const [m] = nums.splice(data.index, 1);
+      nums.splice(insertAt > data.index ? insertAt - 1 : insertAt, 0, m);
+      applyFramesChange(status, nums);
+    } else {
+      const dst = frameThumbs[status].map((t) => t.num);
+      dst.splice(insertAt, 0, data.num);
+      applyFramesChange(status, dst);
+      if (!copy) {
+        const src = frameThumbs[data.sourceStatus].map((t) => t.num).filter((_, i) => i !== data.index);
+        applyFramesChange(data.sourceStatus, src);
+      }
+    }
+    setDragging(null);
+    setDropTarget(null);
+  };
+
+  const onDragEnd = () => {
+    setDragging(null);
+    setDropTarget(null);
+  };
 
   const handlePreview = useCallback(async (status: Status, inputValue?: string) => {
     if (!canvas || frames.length === 0) return;
@@ -378,13 +435,25 @@ export function SmartImport({
                 </div>
                 {frameThumbs[status]?.length > 0 && (
                   <div
-                    className="smart-import-frame-previews"
+                    className={`smart-import-frame-previews${dropTarget?.status === status ? " drop-target" : ""}`}
                     data-testid={`frame-list-${status}`}
+                    onDragOver={onListDragOver(status)}
+                    onDrop={onListDrop(status)}
                   >
-                    {frameThumbs[status].map((thumb, i) => (
+                    {frameThumbs[status].map((thumb, i) => {
+                      const isDragging = dragging?.status === status && dragging.index === i;
+                      const dropSide =
+                        dropTarget?.status === status && dropTarget.index === i ? "before" :
+                        dropTarget?.status === status && dropTarget.index === i + 1 ? "after" : null;
+                      const cls = `smart-import-frame-thumb-item${isDragging ? " dragging" : ""}${dropSide ? ` drop-${dropSide}` : ""}`;
+                      return (
                       <div
                         key={`${thumb.num}-${i}`}
-                        className="smart-import-frame-thumb-item"
+                        draggable
+                        onDragStart={onChipDragStart(status, i)}
+                        onDragOver={onChipDragOver(status, i)}
+                        onDragEnd={onDragEnd}
+                        className={cls}
                         data-testid={`frame-chip-${status}-${thumb.num}`}
                       >
                         <img src={thumb.src} alt={`Frame ${thumb.num}`} className="smart-import-frame-thumb" />
@@ -402,7 +471,8 @@ export function SmartImport({
                           ×
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

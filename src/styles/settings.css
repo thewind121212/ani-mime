@@ -818,6 +818,32 @@
   opacity: 1;
 }
 
+.smart-import-frame-thumb-item {
+  cursor: grab;
+}
+
+.smart-import-frame-thumb-item:active {
+  cursor: grabbing;
+}
+
+.smart-import-frame-thumb-item.dragging {
+  opacity: 0.4;
+}
+
+.smart-import-frame-thumb-item.drop-before {
+  box-shadow: -2px 0 0 0 #4af;
+}
+
+.smart-import-frame-thumb-item.drop-after {
+  box-shadow: 2px 0 0 0 #4af;
+}
+
+.smart-import-frame-previews.drop-target {
+  outline: 1px dashed rgba(74, 170, 255, 0.4);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .smart-import-frame-thumb {
   width: 36px;
   height: 36px;
