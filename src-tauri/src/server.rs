@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
 use crate::helpers::{get_port, get_query_param, now_secs};
+use crate::proc_scan::pid_exists;
 use crate::state::{emit_if_changed, AppState, Session, TaskCompleted};
 
 pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
@@ -33,6 +34,18 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 match get_query_param(&url, "pid") {
                     Some(pid_str) => match pid_str.parse::<u32>() {
                         Ok(pid) => {
+                            // Reject zombie heartbeats: if the shell that claimed to own
+                            // this PID is gone but the request keeps coming from an
+                            // orphaned subshell, don't re-create the session.
+                            if !pid_exists(pid) {
+                                crate::app_warn!("[http] /status rejected: pid={} not running", pid);
+                                let resp = tiny_http::Response::from_string("gone")
+                                    .with_status_code(410)
+                                    .with_header(cors.clone());
+                                let _ = req.respond(resp);
+                                continue;
+                            }
+
                             let mut st = app_state.lock().unwrap();
                             let is_new = !st.sessions.contains_key(&pid);
                             let session = st
@@ -42,6 +55,16 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                             session.last_seen = now;
                             if let Some(t) = get_query_param(&url, "title") {
                                 session.title = urlencoding::decode(t)
+                                    .unwrap_or(std::borrow::Cow::Borrowed(t))
+                                    .into_owned();
+                            }
+                            if let Some(p) = get_query_param(&url, "pwd") {
+                                session.pwd = urlencoding::decode(p)
+                                    .unwrap_or(std::borrow::Cow::Borrowed(p))
+                                    .into_owned();
+                            }
+                            if let Some(t) = get_query_param(&url, "tty") {
+                                session.tty = urlencoding::decode(t)
                                     .unwrap_or(std::borrow::Cow::Borrowed(t))
                                     .into_owned();
                             }
@@ -131,6 +154,15 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 match get_query_param(&url, "pid") {
                     Some(pid_str) => match pid_str.parse::<u32>() {
                         Ok(pid) => {
+                            if !pid_exists(pid) {
+                                crate::app_warn!("[http] /heartbeat rejected: pid={} not running", pid);
+                                let resp = tiny_http::Response::from_string("gone")
+                                    .with_status_code(410)
+                                    .with_header(cors.clone());
+                                let _ = req.respond(resp);
+                                continue;
+                            }
+
                             let mut st = app_state.lock().unwrap();
                             let is_new = !st.sessions.contains_key(&pid);
                             let session = st
@@ -140,6 +172,16 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                             session.last_seen = now;
                             if let Some(t) = get_query_param(&url, "title") {
                                 session.title = urlencoding::decode(t)
+                                    .unwrap_or(std::borrow::Cow::Borrowed(t))
+                                    .into_owned();
+                            }
+                            if let Some(p) = get_query_param(&url, "pwd") {
+                                session.pwd = urlencoding::decode(p)
+                                    .unwrap_or(std::borrow::Cow::Borrowed(p))
+                                    .into_owned();
+                            }
+                            if let Some(t) = get_query_param(&url, "tty") {
+                                session.tty = urlencoding::decode(t)
                                     .unwrap_or(std::borrow::Cow::Borrowed(t))
                                     .into_owned();
                             }

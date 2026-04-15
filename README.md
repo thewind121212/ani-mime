@@ -48,7 +48,8 @@ It also integrates with **Claude Code** — the dog knows when Claude is thinkin
 - **Display Scale** — resize your mascot with Tiny / Normal / Large / XL presets
 - **Peer Visits** — discover other Ani-Mime users on your local network via Bonjour/mDNS; right-click to send your pet to visit theirs
 - **Manual Tagging** — zsh hooks classify commands as `task` or `service`
-- **Heartbeat Architecture** — no process tree scanning, no time-based guessing
+- **Heartbeat + OS Scan** — hooks drive state transitions; a 2s libproc scan auto-discovers every live shell and cleans up zombies
+- **Session Dropdown** — click the status pill to see every open terminal grouped by project path, with the foreground command (`claude`, `bun`, etc.), and click any row to jump straight to that tab (see [Session List & Click-to-Focus](#session-list--click-to-focus))
 - **Claude Code Hooks** — tracks when Claude is actively working vs waiting
 - **MCP Server** — Claude Code can talk to your pet: trigger speech bubbles, play reaction animations, and check pet status via MCP tools
 - **Multi-Session** — handles multiple terminals, priority: busy > service > idle
@@ -57,6 +58,48 @@ It also integrates with **Claude Code** — the dog knows when Claude is thinkin
 - **Menu Bar Tray Icon** — always-visible tray icon with right-click menu; left-click toggles mascot visibility
 - **Hide from Dock** — optional setting to remove the app from Dock and Cmd+Tab, running as a menu bar-only app
 - **Low Footprint** — Rust + Tauri, minimal CPU and RAM
+
+---
+
+## Session List & Click-to-Focus
+
+Click the status pill to open a dropdown listing every open terminal, grouped by working directory:
+
+```
+~/dev/ani-mime                 2
+    🤖 claude                     idle
+    bun                           service
+
+~/dev/docliq-admin
+    🤖 claude                     idle
+```
+
+Sessions come from two sources merged together: **shell hooks** (event-driven busy / idle / service state) and a **2-second libproc scan** of the OS process table (paths, tty, foreground command, and which tabs have `claude` running inside).
+
+**Click any row** and Ani-Mime brings that terminal to the front. For apps with scripting support it jumps to the specific tab; for the rest it just activates the app. The walk up the process tree uses `pidpath` + a `ps`-based ppid map, so it works even across root-owned ancestors like `/usr/bin/login`.
+
+### Terminal app support matrix
+
+| App                        | Activate | Tab-precise focus | How                                                                                               |
+| -------------------------- | :------: | :---------------: | ------------------------------------------------------------------------------------------------- |
+| **iTerm2**                 |    ✅    |         ✅        | AppleScript: matches the `tty` property on every session                                          |
+| **Terminal.app**           |    ✅    |         ✅        | AppleScript: matches the `tty` property on every tab                                              |
+| **VS Code**                |    ✅    |      ⚠️ Window    | System Events + window title contains the workspace folder name (can't target individual panes — Electron) |
+| **Cursor**                 |    ✅    |      ⚠️ Window    | Same approach as VS Code                                                                          |
+| **tmux** (inside any host) |    ✅    |         ✅        | `tmux select-pane -t` + `select-window` + `switch-client` matched by `pane_tty`; host app also activated |
+| **Warp**                   |    ✅    |         ❌        | No public scripting API for tabs — activation only                                                |
+| **WezTerm**                |    ✅    |         ❌        | Has a `wezterm cli` pane API but no pid→pane mapping from outside                                 |
+| **Alacritty / kitty / Hyper / Ghostty** | ✅ | ❌         | No inter-app scripting exposed — activation only                                                  |
+| **ssh session**            |    ✅    |         ❌        | Remote shells resolve to the local ssh ancestor — activate the local terminal                    |
+
+### Permissions
+
+The first time Ani-Mime tries to script another app, macOS will prompt:
+
+- **iTerm / Terminal** — Automation permission. Grant once; subsequent clicks target the exact tab.
+- **VS Code / Cursor** — Accessibility permission (required by System Events to raise windows). Find Ani-Mime under **System Settings → Privacy & Security → Accessibility** and enable it.
+
+Without these permissions, the click still brings the app to the front via `open -a` (Launch Services, no permission needed) — you just lose the precise tab / window targeting.
 
 ---
 

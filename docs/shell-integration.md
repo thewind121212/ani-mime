@@ -40,10 +40,21 @@ Commands starting with `claude` (or aliases resolving to claude) are skipped ent
 
 ### 3. Hooks
 
+All hooks go through a single `_tm_send` helper that uses `curl -G --data-urlencode` (instead of naive string concatenation) so paths with spaces/special characters don't break the URL.
+
 | Event | Signal Sent | Purpose |
 |-------|-------------|---------|
-| **preexec** (before command) | `/status?pid=$$&state=busy&type={task\|service}` | Mark terminal as working |
-| **precmd** (after command) | `/status?pid=$$&state=idle` | Mark terminal as free |
+| **preexec** (before command) | `/status?pid=$$&state=busy&type={task\|service}&title=...&pwd=...&tty=...` | Mark terminal as working |
+| **precmd** (after command) | `/status?pid=$$&state=idle&title=...&pwd=...&tty=...` | Mark terminal as free |
+
+**Parameters always included:**
+
+| Param | Source | Purpose |
+|-------|--------|---------|
+| `pid` | `$$` (zsh/bash) / `$fish_pid` (fish) | Shell process ID |
+| `title` | `${PWD##*/}` / `(basename $PWD)` | Directory basename |
+| `pwd` | `$PWD` | Full working directory — used by the Session List to group sessions by project |
+| `tty` | `$TTY` (zsh) / `$(tty)` (bash/fish) | Controlling terminal device, e.g. `/dev/ttys001` — used for precise tab focus |
 
 ### 4. Heartbeat
 
@@ -51,13 +62,14 @@ A background loop runs once per shell session:
 
 ```bash
 while true; do
-  curl -s --max-time 2 "http://127.0.0.1:1234/heartbeat?pid=$$" > /dev/null 2>&1
+  _tm_send /heartbeat   # via -G --data-urlencode with pid, title, pwd, tty
   sleep 20
 done
 ```
 
 - Proves the shell is still alive
 - Uses PID guard (`$_TM_HEARTBEAT_PID`) to prevent duplicate loops
+- **Re-sourcing the script restarts the heartbeat** — if `$_TM_HEARTBEAT_PID` is already set, the old subshell is killed and a fresh one is spawned with the current script body. This lets users pick up script changes via `source ~/.zshrc` without opening a new tab
 - Cleaned up on shell exit via `trap EXIT`
 
 ## Installation

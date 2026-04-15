@@ -2,6 +2,7 @@
 # Add to fish config:  source /path/to/terminal-mirror.fish
 
 set -g _TM_URL "http://127.0.0.1:1234"
+set -g _TM_TTY (tty 2>/dev/null; or echo "")
 
 # --- Detect if a command is Claude Code ---
 function _tm_is_claude
@@ -22,20 +23,44 @@ function _tm_classify
     end
 end
 
+# --- Send a request with URL-safe params ---
+function _tm_send
+    set -l endpoint $argv[1]
+    set -l extra $argv[2..-1]
+    set -l args -G \
+        --data-urlencode "pid=$fish_pid" \
+        --data-urlencode "title="(basename $PWD) \
+        --data-urlencode "pwd=$PWD" \
+        --data-urlencode "tty=$_TM_TTY"
+    for kv in $extra
+        set args $args --data-urlencode $kv
+    end
+    curl -s --max-time 1 $args "$_TM_URL$endpoint" >/dev/null 2>&1 &
+    disown
+end
+
 # --- Heartbeat (background, every 20s) ---
 function _tm_heartbeat
     while true
-        curl -s --max-time 2 "$_TM_URL/heartbeat?pid=$fish_pid&title="(basename $PWD) >/dev/null 2>&1
+        curl -s --max-time 2 -G \
+            --data-urlencode "pid=$fish_pid" \
+            --data-urlencode "title="(basename $PWD) \
+            --data-urlencode "pwd=$PWD" \
+            --data-urlencode "tty=$_TM_TTY" \
+            "$_TM_URL/heartbeat" >/dev/null 2>&1
         sleep 20
     end
 end
 
-# Start heartbeat only once per shell session
-if not set -q _TM_HEARTBEAT_STARTED
-    set -g _TM_HEARTBEAT_STARTED 1
-    _tm_heartbeat &
-    disown
+# Kill any heartbeat from a previous sourcing (re-source restarts it with new code)
+if set -q _TM_HEARTBEAT_PID
+    kill $_TM_HEARTBEAT_PID 2>/dev/null
+    set -e _TM_HEARTBEAT_PID
 end
+
+_tm_heartbeat &
+set -g _TM_HEARTBEAT_PID $last_pid
+disown
 
 # --- Hooks ---
 function _tm_preexec --on-event fish_preexec
@@ -45,11 +70,9 @@ function _tm_preexec --on-event fish_preexec
     _tm_is_claude "$cmd"; and return
 
     set -l cmd_type (_tm_classify "$cmd")
-    curl -s --max-time 1 "$_TM_URL/status?pid=$fish_pid&state=busy&type=$cmd_type&title="(basename $PWD) >/dev/null 2>&1 &
-    disown
+    _tm_send /status "state=busy" "type=$cmd_type"
 end
 
 function _tm_postexec --on-event fish_postexec
-    curl -s --max-time 1 "$_TM_URL/status?pid=$fish_pid&state=idle&title="(basename $PWD) >/dev/null 2>&1 &
-    disown
+    _tm_send /status "state=idle"
 end

@@ -10,6 +10,7 @@ import { useAutoStart } from "../hooks/useAutoStart";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
 import { useDockVisible } from "../hooks/useDockVisible";
 import { useTrayVisible } from "../hooks/useTrayVisible";
+import { useSessionList } from "../hooks/useSessionList";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
 import { effects, useEffectEnabled } from "../effects";
@@ -79,6 +80,7 @@ export function Settings() {
   const { enabled: autoUpdateEnabled, setEnabled: setAutoUpdateEnabled } = useAutoUpdate();
   const { hidden: dockHidden, setHidden: setDockHidden } = useDockVisible();
   const { hidden: trayHidden, setHidden: setTrayHidden } = useTrayVisible();
+  const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
   const [tab, setTab] = useState<Tab>("general");
@@ -433,6 +435,19 @@ export function Settings() {
                   className={`toggle-switch ${!trayHidden ? "active" : ""}`}
                   onClick={() => setTrayHidden(!trayHidden)}
                   data-testid="show-tray-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Session List</span>
+                  <span className="settings-row-hint">Click the status pill to see all open terminals grouped by project, with click-to-focus.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${sessionListEnabled ? "active" : ""}`}
+                  onClick={() => setSessionListEnabled(!sessionListEnabled)}
+                  data-testid="session-list-toggle"
                 >
                   <span className="toggle-knob" />
                 </button>

@@ -6,7 +6,9 @@ export function useDrag() {
 
   const onMouseDown = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest(".session-dot-btn")) return;
+    // Don't start a window drag when interacting with the pill dropdown.
+    // Match by data-testid rather than class name per project conventions.
+    if ((e.target as HTMLElement).closest('[data-testid="status-pill-wrap"]')) return;
     setDragging(true);
     await getCurrentWindow().startDragging();
     setDragging(false);

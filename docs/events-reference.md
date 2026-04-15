@@ -60,6 +60,7 @@ These events synchronize settings across the main, settings, and superpower wind
 | `nickname-changed` | `string` | `useNickname.setNickname()` | `useNickname` |
 | `pet-changed` | `string` (Pet) | `usePet.setPet()` | `usePet` |
 | `dev-mode-changed` | `bool` | Settings (10x version click) | `useDevMode` |
+| `session-list-changed` | `bool` | `useSessionList.setEnabled()` | `useSessionList` |
 
 ## Tauri Commands (Frontend → Backend)
 
@@ -73,6 +74,8 @@ Invoked via `invoke()` from the frontend.
 | `scenario_override` | `status: string \| null` | `()` | Override UI state for testing |
 | `preview_dialog` | `dialog_id: string` | `()` | Show test dialog |
 | `open_superpower` | none | `()` | Open dev tools window |
+| `get_sessions` | none | `Vec<SessionInfo>` | Snapshot of `AppState.sessions` for the Session List dropdown |
+| `focus_terminal` | `pid: u32, tty: Option<String>` | `()` | Bring the owning terminal (iTerm / Terminal / VS Code / Cursor / tmux) to the foreground and target the specific tab when supported |
 
 ## Event Naming Convention
 

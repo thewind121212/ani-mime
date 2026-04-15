@@ -1,6 +1,7 @@
-/* --- Pill Row --- */
-.pill-row {
+/* --- Pill wrapper (stacks pill + dropdown vertically, grows container) --- */
+.pill-wrap {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   align-self: center;
   gap: 6px;
@@ -18,9 +19,276 @@
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border-pill);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   white-space: nowrap;
+}
+
+.pill.is-open {
+  background: var(--bg-pill-hover);
+  border-color: var(--border-pill-hover);
+}
+
+/* When session-list feature is disabled, pill is not clickable. */
+.pill.no-dropdown {
+  cursor: default;
+}
+
+/* --- Caret --- */
+.caret {
+  width: 0;
+  height: 0;
+  margin-left: 2px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-primary);
+  opacity: 0.6;
+  transition: transform 0.2s;
+}
+
+.caret.up {
+  transform: rotate(180deg);
+}
+
+/* --- Session dropdown (in flow so container grows & window auto-sizes) --- */
+.session-dropdown {
+  min-width: 240px;
+  max-width: 360px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-pill);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-pill);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  animation: dropdown-in 0.12s ease-out;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  color: var(--text-primary);
+}
+
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.session-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  opacity: 0.6;
+  text-align: center;
+}
+
+/* --- Group (one per unique PWD, plus Claude Code) --- */
+.session-group {
+  padding: 4px 4px 2px;
+  border-radius: 6px;
+}
+
+.session-group + .session-group {
+  margin-top: 2px;
+  border-top: 1px solid var(--border-pill);
+  padding-top: 6px;
+}
+
+.session-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+/* Wraps the title + ? info icon so they sit together regardless of row width. */
+.session-group-title-row {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-group-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-group.claude .session-group-title {
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.session-count {
+  flex-shrink: 0;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 9999px;
+  background: var(--bg-pill-hover);
+  border: 1px solid var(--border-pill);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: center;
+  opacity: 0.75;
+}
+
+/* Little ? circle next to the basename that reveals full path on hover. */
+.session-group-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-pill-hover);
+  border: 1px solid var(--border-pill);
+  color: var(--text-primary);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: help;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.session-group-info:hover {
+  opacity: 0.95;
+  background: var(--border-pill-hover);
+}
+
+/* Instant custom tooltip: no OS-delay, fires on hover immediately. Positioned
+   ABOVE the ? icon so it doesn't get covered by other dropdown rows. */
+.session-group-info::after {
+  content: attr(data-path);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 5px 8px;
+  background: rgba(0, 0, 0, 0.9);
+  color: rgba(255, 255, 255, 0.95);
+  border-radius: 6px;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: opacity 0.08s ease-out, visibility 0s linear 0.08s;
+}
+
+.session-group-info:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.08s ease-out, visibility 0s linear 0s;
+}
+
+/* Small arrow pointing down from the tooltip to the ? icon. */
+.session-group-info::before {
+  content: "";
+  position: absolute;
+  bottom: calc(100% + 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-top-color: rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.08s ease-out;
+  z-index: 101;
+}
+
+.session-group-info:hover::before {
+  opacity: 1;
+}
+
+.session-state {
+  font-size: 11px;
+  opacity: 0.55;
+  text-transform: lowercase;
+  flex-shrink: 0;
+}
+
+/* --- Child rows (individual shells within a group) --- */
+.session-children {
+  padding: 2px 0 2px 14px;
+}
+
+.session-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0.85;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.session-child:hover,
+.session-child:focus-visible {
+  background: var(--bg-pill-hover);
+  opacity: 1;
+  outline: none;
+}
+
+.session-child:active {
+  transform: translateY(0.5px);
+}
+
+/* Claude logo badge on the right side of a child row's label. */
+.session-child-claude {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  background-image: url("../assets/claude-logo.png");
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  border-radius: 2px;
+}
+
+/* Groups the label + claude badge so the icon sits tight to the label, not
+   pushed to the far right of the row. */
+.session-child-label-row {
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-child-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "SF Mono", "Menlo", "Monaco", monospace;
+}
+
+.dot.small {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
 }
 
 .container:hover .pill {
