@@ -29,8 +29,10 @@ body {
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  padding-left: 20px;
-  padding-bottom: 6px;
+  /* Right/bottom/top padding gives the status pill's neon-glow box-shadow
+     room to render — the window auto-sizes to offsetWidth/Height, which
+     does NOT include box-shadow, so without this the glow is clipped. */
+  padding: 20px 30px 30px 20px;
 }
 
 .container.dragging {
