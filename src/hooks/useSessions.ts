@@ -12,9 +12,6 @@ export interface SessionInfo {
   /** True if this session's PID is itself a `claude` process (created by the
    *  pid=$PPID Claude Code hook). UI hides these rows. */
   is_claude_proc: boolean;
-  /** True when the most recent task transitioned busy→idle and no new task has
-   *  started since. Drives the green checkmark in the dropdown row. */
-  just_finished: boolean;
   /** Name of the foreground command currently running in this shell, or "" if idle. */
   fg_cmd: string;
 }

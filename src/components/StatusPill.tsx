@@ -189,12 +189,7 @@ function overlayClaudeState(sessions: SessionInfo[]): SessionInfo[] {
     if (!claudeSession) return s;
     const claudeP = statePriority[claudeSession.ui_state] ?? 0;
     const ownP = statePriority[s.ui_state] ?? 0;
-    // Also propagate just_finished — when claude completes a tool call we
-    // want the parent shell row to flash the green checkmark.
-    const just_finished = s.just_finished || claudeSession.just_finished;
-    return ownP >= claudeP
-      ? { ...s, just_finished }
-      : { ...s, ui_state: claudeSession.ui_state, just_finished };
+    return ownP >= claudeP ? s : { ...s, ui_state: claudeSession.ui_state };
   });
 }
 
@@ -344,15 +339,6 @@ export function StatusPill({ status, glow }: StatusPillProps) {
                             />
                           )}
                         </span>
-                        {s.just_finished && (
-                          <span
-                            className="session-child-check"
-                            aria-label="Just finished"
-                            title="Just finished"
-                          >
-                            ✓
-                          </span>
-                        )}
                       </button>
                     ))}
                   </div>

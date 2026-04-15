@@ -253,24 +253,6 @@
   transform: translateY(0.5px);
 }
 
-/* Green checkmark shown right of a child row whose last task just finished.
-   Cleared as soon as the row goes busy again. */
-.session-child-check {
-  flex-shrink: 0;
-  margin-left: 6px;
-  color: #34c759;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  text-shadow: 0 0 4px rgba(52, 199, 89, 0.5);
-  animation: check-fade-in 0.25s ease-out;
-}
-
-@keyframes check-fade-in {
-  from { opacity: 0; transform: scale(0.5); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
 /* Claude logo badge on the right side of a child row's label. */
 .session-child-claude {
   display: inline-block;

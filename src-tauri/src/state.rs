@@ -55,10 +55,6 @@ pub struct Session {
     /// (created by the pid=$PPID Claude Code hook). UI hides these from the
     /// dropdown — their state is overlaid onto the parent shell row instead.
     pub is_claude_proc: bool,
-    /// True when the most recent task transitioned busy→idle and no new task
-    /// has started since. Drives the green checkmark in the dropdown row.
-    /// Cleared on the next busy event.
-    pub just_finished: bool,
     /// Name of the foreground command running in this shell (e.g. "claude",
     /// "node", "bun"). Empty if the shell is idle at its prompt.
     pub fg_cmd: String,
@@ -78,7 +74,6 @@ impl Session {
             has_claude: false,
             claude_pid: None,
             is_claude_proc: false,
-            just_finished: false,
             fg_cmd: String::new(),
         }
     }
@@ -96,7 +91,6 @@ pub struct SessionInfo {
     pub has_claude: bool,
     pub claude_pid: Option<u32>,
     pub is_claude_proc: bool,
-    pub just_finished: bool,
     pub fg_cmd: String,
 }
 
