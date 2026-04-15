@@ -1,7 +1,12 @@
 use std::path::Path;
 
-/// Patch existing ani-mime hooks to add `|| true` so they don't error when the app is offline.
-/// Safe to run on every startup — only modifies hooks that need fixing.
+/// Patch existing ani-mime hooks for compatibility with newer behaviors.
+/// Safe to run on every startup — only modifies hooks that actually need fixing.
+///
+/// Migrations applied (idempotently):
+///   1. Add `|| true` so a missing app doesn't error in claude
+///   2. Replace `pid=0` (shared session) with `pid=$PPID` (per-claude session)
+///      and switch single quotes to double so the shell expands $PPID
 pub fn migrate_claude_hooks(home: &Path) {
     let settings_path = home.join(".claude/settings.json");
     if !settings_path.exists() {
@@ -13,29 +18,62 @@ pub fn migrate_claude_hooks(home: &Path) {
         Err(_) => return,
     };
 
-    // Only patch if we have ani-mime hooks missing `|| true`
-    if !content.contains("127.0.0.1:1234") || !content.contains("2>&1\"") {
+    if !content.contains("127.0.0.1:1234") {
         return;
     }
 
-    // Check if any hook needs patching (has our marker but no `|| true`)
     let mut settings: serde_json::Value = match serde_json::from_str(&content) {
         Ok(v) => v,
         Err(_) => return,
     };
 
     let mut patched = false;
+    let mut migrations_applied: Vec<&str> = Vec::new();
+
     if let Some(hooks) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         for (_event, entries) in hooks.iter_mut() {
             if let Some(entries) = entries.as_array_mut() {
                 for entry in entries.iter_mut() {
                     if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
                         for hook in hks.iter_mut() {
-                            if let Some(cmd) = hook.get_mut("command").and_then(|c| c.as_str().map(String::from)) {
-                                if cmd.contains("127.0.0.1:1234") && !cmd.contains("|| true") {
-                                    hook["command"] = serde_json::Value::String(format!("{} || true", cmd));
-                                    patched = true;
+                            let Some(cmd) = hook
+                                .get_mut("command")
+                                .and_then(|c| c.as_str().map(String::from))
+                            else {
+                                continue;
+                            };
+                            if !cmd.contains("127.0.0.1:1234") {
+                                continue;
+                            }
+
+                            let mut new_cmd = cmd.clone();
+
+                            // Migration 2: pid=0 → pid=$PPID. Replace the
+                            // single-quoted URL wrapping (which prevents $PPID
+                            // expansion) with double quotes.
+                            if new_cmd.contains("pid=0") {
+                                new_cmd = new_cmd.replace("pid=0", "pid=$PPID");
+                                // Convert any single-quoted URL into a double-quoted one
+                                // so the shell actually expands $PPID at runtime.
+                                if let Some(start) = new_cmd.find("'http://127.0.0.1:1234") {
+                                    if let Some(end_rel) = new_cmd[start + 1..].find('\'') {
+                                        let end = start + 1 + end_rel;
+                                        new_cmd.replace_range(start..start + 1, "\"");
+                                        new_cmd.replace_range(end..end + 1, "\"");
+                                    }
                                 }
+                                migrations_applied.push("pid=0 → pid=$PPID");
+                            }
+
+                            // Migration 1: append `|| true` if missing.
+                            if !new_cmd.contains("|| true") {
+                                new_cmd = format!("{} || true", new_cmd);
+                                migrations_applied.push("added || true");
+                            }
+
+                            if new_cmd != cmd {
+                                hook["command"] = serde_json::Value::String(new_cmd);
+                                patched = true;
                             }
                         }
                     }
@@ -47,7 +85,12 @@ pub fn migrate_claude_hooks(home: &Path) {
     if patched {
         if let Ok(json_str) = serde_json::to_string_pretty(&settings) {
             if std::fs::write(&settings_path, json_str).is_ok() {
-                crate::app_log!("[setup] migrated claude hooks: added || true for graceful offline handling");
+                migrations_applied.sort();
+                migrations_applied.dedup();
+                crate::app_log!(
+                    "[setup] migrated claude hooks: {}",
+                    migrations_applied.join(", ")
+                );
             }
         }
     }
@@ -90,8 +133,12 @@ pub fn setup_claude_hooks(home: &Path) {
         .entry("hooks")
         .or_insert(serde_json::json!({}));
 
-    let busy_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=busy&type=task' > /dev/null 2>&1 || true";
-    let idle_cmd = "curl -s --max-time 1 'http://127.0.0.1:1234/status?pid=0&state=idle' > /dev/null 2>&1 || true";
+    // Use $PPID instead of a hardcoded 0: each running `claude` binary becomes
+    // its own session (so two concurrent Claude tabs don't share the same dot).
+    // $PPID inside the hook subshell is the parent process — i.e. the claude
+    // binary that spawned the hook.
+    let busy_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
+    let idle_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=idle\" > /dev/null 2>&1 || true";
     let ani_marker = "127.0.0.1:1234";
 
     let has_ani_hook = |arr: &serde_json::Value| -> bool {

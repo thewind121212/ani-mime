@@ -241,6 +241,12 @@
   transform: translateX(16px);
 }
 
+.toggle-switch.locked,
+.toggle-switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* Action button (e.g. Request Permission) */
 .settings-action-btn {
   padding: 4px 12px;
@@ -320,9 +326,10 @@
 .contributors {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
   margin-top: 8px;
+  margin-left: -8px;
 }
 
 .contributor {

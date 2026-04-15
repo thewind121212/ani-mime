@@ -30,11 +30,12 @@ A floating macOS desktop mascot that reacts to your terminal and Claude Code act
 ## Key Design Decisions
 
 1. **HTTP over IPC** — Shell hooks use `curl` to talk to the backend. Simpler than Unix sockets, works across all shells.
-2. **Heartbeat over process scanning** — Shells prove they're alive via periodic pings. No `sysinfo` crate, no process tree walking.
+2. **Heartbeat drives state, libproc enriches** — Shells drive `ui_state` transitions via hook pings (event-driven, instant). A separate `proc_scan` thread polls `libproc` every 2s to auto-discover sessions that don't have hooks installed, fill `pwd`/`tty`/`fg_cmd` authoritatively from the OS, detect `claude` descendants, and drop zombie sessions immediately. Hooks stay authoritative for state; scanning stays authoritative for discovery. See `src-tauri/src/proc_scan.rs`.
 3. **Priority-based state resolution** — Multiple terminals resolve to one UI state: `busy > service > idle > disconnected`.
 4. **Service auto-transition** — Dev servers flash "service" (blue) for 2s then become "idle". Prevents permanently-blue pill.
 5. **mDNS peer discovery** — LAN-local Bonjour for zero-config multi-machine awareness.
 6. **MCP sidecar pattern** — A zero-dependency Node.js MCP server bridges Claude Code to the HTTP server via stdio. Claude Code calls MCP tools, which translate to HTTP requests on `:1234`.
+7. **Click-to-focus via parent-chain walk** — The `focus_terminal` command walks a shell's PID up through its parents using `pidpath()` + a `ps`-based ppid fallback (needed because libproc refuses BSDInfo for root-owned `login`). Once a `.app` bundle is found in the path, we activate via `open -a` and optionally AppleScript the specific tab. See `src-tauri/src/focus.rs` and the support matrix in `README.md`.
 
 ## Request Lifecycle
 

@@ -41,6 +41,23 @@ pub struct Session {
     pub service_since: u64,
     /// When this session entered "busy" state (0 = not busy).
     pub busy_since: u64,
+    /// Human-readable session title (directory basename).
+    pub title: String,
+    /// Full working directory path (for grouping in the UI).
+    pub pwd: String,
+    /// TTY device (e.g. "/dev/ttys001") — identifies the terminal window.
+    pub tty: String,
+    /// Set by proc_scan: this shell has a `claude` process as a child/descendant.
+    pub has_claude: bool,
+    /// PID of the claude process running inside this shell, if any.
+    pub claude_pid: Option<u32>,
+    /// Set by proc_scan: this session's PID *is* itself a claude process
+    /// (created by the pid=$PPID Claude Code hook). UI hides these from the
+    /// dropdown — their state is overlaid onto the parent shell row instead.
+    pub is_claude_proc: bool,
+    /// Name of the foreground command running in this shell (e.g. "claude",
+    /// "node", "bun"). Empty if the shell is idle at its prompt.
+    pub fg_cmd: String,
 }
 
 impl Session {
@@ -51,8 +68,30 @@ impl Session {
             last_seen: now,
             service_since: 0,
             busy_since: 0,
+            title: String::new(),
+            pwd: String::new(),
+            tty: String::new(),
+            has_claude: false,
+            claude_pid: None,
+            is_claude_proc: false,
+            fg_cmd: String::new(),
         }
     }
+}
+
+/// Serializable session info returned to the frontend.
+#[derive(Clone, Serialize)]
+pub struct SessionInfo {
+    pub pid: u32,
+    pub title: String,
+    pub ui_state: String,
+    pub pwd: String,
+    pub tty: String,
+    pub busy_type: String,
+    pub has_claude: bool,
+    pub claude_pid: Option<u32>,
+    pub is_claude_proc: bool,
+    pub fg_cmd: String,
 }
 
 pub struct AppState {

@@ -3,9 +3,11 @@
 extern crate objc;
 
 mod discovery;
+mod focus;
 mod helpers;
 mod logger;
 mod platform;
+mod proc_scan;
 mod server;
 mod setup;
 mod state;
@@ -18,7 +20,7 @@ use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 
-use crate::state::AppState;
+use crate::state::{AppState, SessionInfo};
 
 const VISIT_DURATION_SECS: u64 = 15;
 
@@ -43,6 +45,34 @@ fn open_log_dir(app: tauri::AppHandle) {
 fn set_dev_mode(enabled: bool, app: tauri::AppHandle) {
     crate::app_log!("[dev] dev-mode-changed -> {}", enabled);
     let _ = app.emit("dev-mode-changed", enabled);
+}
+
+#[tauri::command]
+fn focus_terminal(
+    pid: u32,
+    tty: Option<String>,
+    state: tauri::State<'_, Arc<Mutex<AppState>>>,
+) {
+    focus::focus_terminal_for_pid(pid, tty.as_deref(), state.inner());
+}
+
+#[tauri::command]
+fn get_sessions(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<SessionInfo> {
+    let st = state.lock().unwrap();
+    st.sessions.iter().map(|(pid, s)| SessionInfo {
+        pid: *pid,
+        title: if s.title.is_empty() {
+            if *pid == 0 { "Claude Code".into() } else { format!("PID {}", pid) }
+        } else { s.title.clone() },
+        ui_state: s.ui_state.clone(),
+        pwd: s.pwd.clone(),
+        tty: s.tty.clone(),
+        busy_type: s.busy_type.clone(),
+        has_claude: s.has_claude,
+        claude_pid: s.claude_pid,
+        is_claude_proc: s.is_claude_proc,
+        fg_cmd: s.fg_cmd.clone(),
+    }).collect()
 }
 
 #[tauri::command]
@@ -354,7 +384,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -376,17 +406,7 @@ pub fn run() {
                 .item(&PredefinedMenuItem::quit(app, Some("Quit Ani-Mime"))?)
                 .build()?;
 
-            let edit_menu = SubmenuBuilder::new(app, "Edit")
-                .undo()
-                .redo()
-                .separator()
-                .cut()
-                .copy()
-                .paste()
-                .select_all()
-                .build()?;
-
-            let menu = MenuBuilder::new(app).item(&app_menu).item(&edit_menu).build()?;
+            let menu = MenuBuilder::new(app).item(&app_menu).build()?;
             app.set_menu(menu)?;
             crate::app_log!("[app] menu bar created");
 
@@ -541,6 +561,7 @@ pub fn run() {
 
             server::start_http_server(app.handle().clone(), app_state.clone());
             watchdog::start_watchdog(app.handle().clone(), app_state.clone());
+            proc_scan::start_proc_scanner(app_state.clone());
 
             // Start mDNS peer discovery
             let discovery_handle = app.handle().clone();

@@ -15,6 +15,9 @@ Report a shell or tool state change.
 | `pid` | Yes | Integer | Shell process ID (use `0` for Claude Code) |
 | `state` | Yes | `busy`, `idle` | Current shell state |
 | `type` | When state=busy | `task`, `service` | Command classification |
+| `title` | No | String | Directory basename — `${PWD##*/}` |
+| `pwd` | No | String (URL-encoded) | Full working directory — powers the Session List grouping |
+| `tty` | No | String (URL-encoded) | Controlling TTY device, e.g. `/dev/ttys001` |
 
 **Examples:**
 
@@ -22,18 +25,25 @@ Report a shell or tool state change.
 # Command started (regular task)
 curl "http://127.0.0.1:1234/status?pid=12345&state=busy&type=task"
 
-# Dev server started
-curl "http://127.0.0.1:1234/status?pid=12345&state=busy&type=service"
+# Dev server started with full context
+curl -G --max-time 1 "http://127.0.0.1:1234/status" \
+  --data-urlencode "pid=12345" \
+  --data-urlencode "state=busy" \
+  --data-urlencode "type=service" \
+  --data-urlencode "pwd=$PWD" \
+  --data-urlencode "tty=$TTY"
 
 # Command finished
 curl "http://127.0.0.1:1234/status?pid=12345&state=idle"
 ```
 
 **Behavior:**
-- Creates session if PID doesn't exist
-- Updates `ui_state`, `busy_type`, `last_seen`, `service_since`
+- Creates session if PID doesn't exist (unless `pid` doesn't map to a live process — see zombie guard below)
+- Updates `ui_state`, `busy_type`, `last_seen`, `service_since`, `title`, `pwd`, `tty`
 - On busy→idle transition: emits `task-completed` with duration
 - Triggers state resolution and `status-changed` event emission
+
+**Zombie guard:** If `pid` isn't a running process (checked via libproc), responds with `410 Gone` and does not create/update a session. This prevents orphaned shell-hook heartbeats from re-registering dead sessions after the parent shell was force-killed.
 
 ---
 
@@ -46,11 +56,16 @@ Keep a shell session alive. Sent periodically (every 20s) by shell hooks.
 | Param | Required | Description |
 |-------|----------|-------------|
 | `pid` | Yes | Shell process ID |
+| `title` | No | Directory basename |
+| `pwd` | No | Full working directory (URL-encoded) |
+| `tty` | No | Controlling TTY device (URL-encoded) |
 
 **Behavior:**
-- Creates session if PID doesn't exist
+- Creates session if PID doesn't exist (subject to the same zombie guard as `/status`)
 - Refreshes `last_seen` timestamp (only for non-busy sessions)
-- Busy sessions intentionally skip refresh — they should timeout if the shell dies mid-command
+- Updates `title`, `pwd`, `tty` when provided
+- Busy sessions intentionally skip the last-seen refresh — they should timeout if the shell dies mid-command
+- Returns `410 Gone` if `pid` no longer exists in the OS process table
 
 ---
 

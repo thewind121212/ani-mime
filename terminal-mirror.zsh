@@ -28,31 +28,49 @@ _tm_classify() {
   fi
 }
 
+# --- Send a status/heartbeat request with URL-safe params ---
+# Usage: _tm_send <endpoint> <key=value>...
+_tm_send() {
+  local endpoint="$1"
+  shift
+  local args=(-G --data-urlencode "pid=$$" \
+              --data-urlencode "title=${PWD##*/}" \
+              --data-urlencode "pwd=${PWD}" \
+              --data-urlencode "tty=${TTY}")
+  for kv in "$@"; do
+    args+=(--data-urlencode "$kv")
+  done
+  curl -s --max-time 1 "${args[@]}" "${_TM_URL}${endpoint}" > /dev/null 2>&1 &!
+}
+
 # --- Heartbeat (background, every 20s) ---
 _tm_heartbeat() {
   while true; do
-    curl -s --max-time 2 "${_TM_URL}/heartbeat?pid=$$" > /dev/null 2>&1
+    _tm_send /heartbeat
     sleep 20
   done
 }
 
-# Start heartbeat only once per shell session
-if [[ -z "$_TM_HEARTBEAT_PID" ]]; then
-  _tm_heartbeat &!
-  _TM_HEARTBEAT_PID=$!
-  trap "kill $_TM_HEARTBEAT_PID 2>/dev/null" EXIT
+# Kill any heartbeat from a previous sourcing (re-source restarts it with new code)
+if [[ -n "$_TM_HEARTBEAT_PID" ]]; then
+  kill "$_TM_HEARTBEAT_PID" 2>/dev/null
+  unset _TM_HEARTBEAT_PID
 fi
+
+_tm_heartbeat &!
+_TM_HEARTBEAT_PID=$!
+trap "kill $_TM_HEARTBEAT_PID 2>/dev/null" EXIT
 
 # --- Hooks ---
 _tm_preexec() {
   # Claude Code has its own hooks — skip entirely
   _tm_is_claude "$1" && return
   local cmd_type=$(_tm_classify "$1")
-  curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=busy&type=${cmd_type}" > /dev/null 2>&1 &!
+  _tm_send /status "state=busy" "type=${cmd_type}"
 }
 
 _tm_precmd() {
-  curl -s --max-time 1 "${_TM_URL}/status?pid=$$&state=idle" > /dev/null 2>&1 &!
+  _tm_send /status "state=idle"
 }
 
 autoload -Uz add-zsh-hook

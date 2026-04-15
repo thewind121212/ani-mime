@@ -55,7 +55,9 @@ src/
 │   ├── usePet.ts              # Persistent pet selection + cross-window sync
 │   ├── useNickname.ts         # Persistent nickname + cross-window sync
 │   ├── useGlow.ts             # Persistent glow mode (off/light/dark)
-│   └── useDevMode.ts          # Session-only dev mode flag
+│   ├── useDevMode.ts          # Session-only dev mode flag
+│   ├── useSessions.ts         # invoke("get_sessions") wrapper + SessionInfo type
+│   └── useSessionList.ts      # Persistent toggle for the pill-click session dropdown
 │
 ├── constants/
 │   └── sprites.ts             # Sprite registry: character → status → {file, frames}
@@ -75,6 +77,7 @@ src/
 │   └── superpower.css         # Log viewer, scenario grid, tag colors
 │
 └── assets/
+    ├── claude-logo.png        # Claude Code badge for session rows
     └── sprites/
         ├── rottweiler/        # Rottweiler PNG sprite sheets
         ├── dalmatian/         # Dalmatian PNG sprite sheets
@@ -95,9 +98,11 @@ src-tauri/
 ├── src/
 │   ├── main.rs                # Binary entry (#![cfg_attr(not(debug), windows_subsystem)])
 │   ├── lib.rs                 # Tauri setup: plugins, commands, menu, state init, thread spawns
-│   ├── state.rs               # AppState, Session, PeerInfo, VisitingDog, resolve_ui_state()
-│   ├── server.rs              # HTTP server: /status, /heartbeat, /visit, /visit-end, /debug
+│   ├── state.rs               # AppState, Session, SessionInfo, PeerInfo, VisitingDog, resolve_ui_state()
+│   ├── server.rs              # HTTP server: /status, /heartbeat, /visit, /visit-end, /debug (410 guard on dead pids)
 │   ├── watchdog.rs            # Background thread: service→idle, stale cleanup, sleep mode
+│   ├── proc_scan.rs           # Background thread (2s): libproc OS scan — discovers shells, fills pwd/tty/fg_cmd, detects claude, drops zombies
+│   ├── focus.rs               # focus_terminal_for_pid() — activates owning terminal app + targets specific tab (iTerm/Terminal/VSCode/Cursor/tmux)
 │   ├── discovery.rs           # mDNS peer discovery (register, browse, resolve)
 │   ├── helpers.rs             # Utilities: now_secs(), get_port(), get_query_param()
 │   ├── logger.rs              # Global log buffer + app_log!/app_warn!/app_error! macros
