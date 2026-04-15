@@ -33,7 +33,8 @@
         "visible": false,
         "decorations": true,
         "transparent": false,
-        "center": true
+        "center": true,
+        "dragDropEnabled": false
       },
       {
         "label": "superpower",
