@@ -132,6 +132,7 @@ export function SmartImport({
     for (const s of ALL_STATUSES) init[s] = [];
     return init as Record<Status, { src: string; num: number }[]>;
   });
+  const previewCache = useRef<Map<number, string>>(new Map());
 
   const processFile = useCallback(async (filePath: string) => {
     setError(null);
@@ -153,6 +154,7 @@ export function SmartImport({
       const prepared = prepareCanvas(img).canvas;
       removeSmallComponents(prepared);
       setCanvas(prepared);
+      previewCache.current.clear();
 
       const detected = detectRows(prepared);
       if (detected.length === 0) {
@@ -210,19 +212,26 @@ export function SmartImport({
     }
   }, [initialFilePath, processFile]);
 
-  const updateThumbs = useCallback((status: Status, inputValue?: string) => {
+  const applyFramesChange = useCallback((status: Status, nextNums: number[]) => {
     if (!canvas || frames.length === 0) return;
-    const value = inputValue ?? frameInputs[status];
-    const indices = parseFrameInput(value, frames.length);
-    const previews = indices.map((i) => ({ src: getFramePreview(canvas, frames[i], 72), num: i + 1 }));
-    setFrameThumbs((prev) => ({ ...prev, [status]: previews }));
-  }, [canvas, frames, frameInputs]);
+    const cache = previewCache.current;
+    const thumbs = nextNums.map((num) => {
+      let src = cache.get(num);
+      if (!src) {
+        src = getFramePreview(canvas, frames[num - 1], 72);
+        cache.set(num, src);
+      }
+      return { src, num };
+    });
+    setFrameThumbs((prev) => ({ ...prev, [status]: thumbs }));
+    setFrameInputs((prev) => ({ ...prev, [status]: serializeFrames(nextNums) }));
+  }, [canvas, frames]);
 
   const handlePreview = useCallback(async (status: Status, inputValue?: string) => {
     if (!canvas || frames.length === 0) return;
     const value = inputValue ?? frameInputs[status];
     const indices = parseFrameInput(value, frames.length);
-    updateThumbs(status, value);
+    applyFramesChange(status, indices.map((i) => i + 1));
     if (indices.length === 0) return;
 
     const strip = await createStripFromFrames(canvas, frames, indices);
@@ -230,7 +239,7 @@ export function SmartImport({
     const url = URL.createObjectURL(blob);
     if (animPreview?.url) URL.revokeObjectURL(animPreview.url);
     setAnimPreview({ url, frames: strip.frames, label: STATUS_LABELS[status] });
-  }, [canvas, frames, frameInputs, animPreview, updateThumbs]);
+  }, [canvas, frames, frameInputs, animPreview, applyFramesChange]);
 
 
 
@@ -359,7 +368,10 @@ export function SmartImport({
                       value={frameInputs[status]}
                       placeholder="1-5"
                       onChange={(e) => setFrameInputs((prev) => ({ ...prev, [status]: e.target.value }))}
-                      onBlur={(e) => updateThumbs(status, e.currentTarget.value)}
+                      onBlur={(e) => {
+                        const nums = parseFrameInput(e.currentTarget.value, frames.length).map((i) => i + 1);
+                        applyFramesChange(status, nums);
+                      }}
                     />
                     <button className="smart-import-preview-btn" onClick={() => handlePreview(status)}>Preview</button>
                   </div>
