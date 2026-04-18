@@ -416,9 +416,15 @@ fn is_shell(name: &str) -> bool {
 }
 
 fn is_claude(proc: &ProcInfo) -> bool {
-    // libproc's `p_comm` returns "node" for Claude Code (which is a Node app),
-    // so we check both the kernel name and argv[0] basename.
-    proc.name == "claude" || argv0_basename(&proc.argv0) == "claude"
+    // Claude Code has shipped under two executable names:
+    //   • "node" — older Node-shipped CLI (real name is via argv[0])
+    //   • "claude.exe" — newer single-file compiled binary at
+    //     ~/.../@anthropic-ai/claude-code/bin/claude.exe, with a `claude`
+    //     symlink in PATH. p_comm reflects the real file, not the symlink.
+    fn is_claude_name(s: &str) -> bool {
+        s == "claude" || s == "claude.exe"
+    }
+    is_claude_name(&proc.name) || is_claude_name(argv0_basename(&proc.argv0))
 }
 
 #[cfg(target_os = "macos")]
