@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.3] - 2026-04-18
+
+### Added
+- **Claude Code plugin manager tab** in Settings — view, enable, disable, and manage installed Claude Code plugins directly from Ani-Mime. (#86, @thanh-dong)
+
+### Changed
+- **GitHub release notes are now auto-generated from merged PRs** via `gh release create --generate-notes`. The release page shows a "What's Changed" list linking every PR + author since the previous tag, plus a "Full Changelog" compare link. `CHANGELOG.md` remains the curated long-form history.
+
 ## [0.16.2] - 2026-04-18
 
 ### Fixed

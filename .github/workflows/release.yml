@@ -9,7 +9,29 @@ permissions:
   contents: write
 
 jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create release with auto-generated notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists, skipping create"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Ani-Mime $GITHUB_REF_NAME" \
+              --notes "$(gh api repos/${{ github.repository }}/releases/generate-notes \
+                -f tag_name="$GITHUB_REF_NAME" \
+                --jq .body)"
+          fi
+
   build:
+    needs: create-release
     strategy:
       matrix:
         include:
@@ -42,7 +64,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Ani-Mime ${{ github.ref_name }}"
-          releaseBody: "See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details."
           releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.target }}

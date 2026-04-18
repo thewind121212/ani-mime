@@ -160,7 +160,10 @@ After editing `Cargo.toml`, run `cargo check` in `src-tauri/` to regenerate `Car
 2. **Commit**: `chore: release vX.Y.Z`
 3. **PR → merge to main** (branch protection requires PR)
 4. **Tag on main**: `git tag vX.Y.Z && git push origin vX.Y.Z`
-5. **CI builds automatically** — triggered by `v*` tag push, builds aarch64 + x86_64 DMGs
+5. **CI builds automatically** — triggered by `v*` tag push:
+   - `create-release` job runs first: calls `gh release create --notes "$(gh api .../releases/generate-notes)"` to publish the GitHub release with an auto-generated "What's Changed" list of PRs merged since the previous tag, plus a **Full Changelog** compare link
+   - `build` matrix then builds aarch64 + x86_64 DMGs and uploads them to that same release
+   - Write PR titles in conventional-commit style (`feat:`, `fix:`, `chore:`, etc.) — they become the release-note bullet text verbatim
 6. **Update Homebrew cask** after CI publishes DMG artifacts:
    - Download both DMGs: `gh release download vX.Y.Z --pattern "*.dmg"`
    - Compute hashes: `shasum -a 256 *.dmg`
