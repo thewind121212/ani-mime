@@ -23,11 +23,15 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             echo "Release $GITHUB_REF_NAME already exists, skipping create"
           else
+            # Strip the "chore: release vX.Y.Z" PR bullet — it's noise in the
+            # user-facing changelog, every release has one by definition.
+            notes=$(gh api repos/${{ github.repository }}/releases/generate-notes \
+              -f tag_name="$GITHUB_REF_NAME" \
+              --jq .body \
+              | grep -v -E '^\* chore: release v[0-9]' || true)
             gh release create "$GITHUB_REF_NAME" \
               --title "Ani-Mime $GITHUB_REF_NAME" \
-              --notes "$(gh api repos/${{ github.repository }}/releases/generate-notes \
-                -f tag_name="$GITHUB_REF_NAME" \
-                --jq .body)"
+              --notes "$notes"
           fi
 
   build:
