@@ -102,6 +102,39 @@
   line-height: 1;
 }
 
+/* When the head is a real <button> (collapsible group) reset button chrome
+ * so it visually matches the non-collapsible div variant. */
+button.session-group-head {
+  width: 100%;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+button.session-group-head:hover {
+  background: var(--bg-pill-hover);
+}
+
+.session-group-caret {
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  opacity: 0.5;
+  transform: rotate(90deg);
+  transition: transform 120ms ease;
+}
+
+.session-group-head.collapsed .session-group-caret {
+  transform: rotate(0deg);
+}
+
 /* Wraps the title + ? info icon so they sit together regardless of row width. */
 .session-group-title-row {
   flex: 1;

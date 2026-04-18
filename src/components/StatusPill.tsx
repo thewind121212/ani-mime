@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import type { Status } from "../types/status";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
+import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import "../styles/status-pill.css";
 
 interface StatusPillProps {
@@ -198,6 +199,7 @@ export function StatusPill({ status, glow }: StatusPillProps) {
   const [groups, setGroups] = useState<Group[]>([]);
   const wrapRef = useRef<HTMLDivElement>(null);
   const { enabled: sessionListEnabled } = useSessionList();
+  const { collapsed, toggle: toggleCollapsed } = useCollapsedSessionGroups();
 
   const toggleOpen = async (e: React.MouseEvent) => {
     if (!sessionListEnabled) return; // feature disabled — pill is not clickable
@@ -286,13 +288,13 @@ export function StatusPill({ status, glow }: StatusPillProps) {
           {groups.length === 0 ? (
             <div className="session-empty">No active terminals</div>
           ) : (
-            groups.map((g) => (
-              <div
-                key={g.key}
-                className={`session-group ${g.isClaudeFallback ? "claude" : ""}`}
-                data-testid={`session-group-${g.key}`}
-              >
-                <div className="session-group-head">
+            groups.map((g) => {
+              const isCollapsed = collapsed.has(g.key);
+              const headContent = (
+                <>
+                  {!g.isClaudeFallback && (
+                    <span className="session-group-caret" aria-hidden="true" />
+                  )}
                   <span className={`dot small ${g.state}`} />
                   <span className="session-group-title-row">
                     <span className="session-group-title">
@@ -311,10 +313,37 @@ export function StatusPill({ status, glow }: StatusPillProps) {
                   {g.sessions.length > 1 && (
                     <span className="session-count">{g.sessions.length}</span>
                   )}
-                </div>
+                </>
+              );
+              return (
+              <div
+                key={g.key}
+                className={`session-group ${g.isClaudeFallback ? "claude" : ""}`}
+                data-testid={`session-group-${g.key}`}
+              >
+                {g.isClaudeFallback ? (
+                  <div className="session-group-head">{headContent}</div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`session-group-head clickable ${isCollapsed ? "collapsed" : ""}`}
+                    data-testid={`session-group-head-${g.key}`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={`session-children-${g.key}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void toggleCollapsed(g.key);
+                    }}
+                  >
+                    {headContent}
+                  </button>
+                )}
 
-                {!g.isClaudeFallback && (
-                  <div className="session-children">
+                {!g.isClaudeFallback && !isCollapsed && (
+                  <div
+                    className="session-children"
+                    id={`session-children-${g.key}`}
+                  >
                     {g.sessions.map((s) => (
                       <button
                         key={s.pid}
@@ -344,7 +373,8 @@ export function StatusPill({ status, glow }: StatusPillProps) {
                   </div>
                 )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
