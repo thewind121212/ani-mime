@@ -1024,3 +1024,207 @@
   image-rendering: pixelated;
   background-repeat: no-repeat;
 }
+
+/* ── Claude Code tab ──────────────────────────────────────────────── */
+
+.claude-item-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.claude-version-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 122, 255, 0.12);
+  color: #007aff;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.claude-marketplace {
+  font-size: 10px;
+  opacity: 0.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claude-cmd-preview {
+  font-size: 10px;
+  opacity: 0.45;
+  font-family: "SF Mono", "Menlo", monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.claude-sub-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.5;
+  padding: 6px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.claude-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.claude-badge-ani {
+  background: rgba(94, 92, 230, 0.15);
+  color: #5e5ce6;
+}
+
+.claude-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.claude-action-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: none;
+  background: rgba(128, 128, 128, 0.12);
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.claude-action-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.claude-delete-btn {
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.3;
+  flex-shrink: 0;
+}
+
+.claude-delete-btn:hover {
+  opacity: 1;
+  color: #ff3b30;
+}
+
+.claude-command-preview {
+  font-size: 11px;
+  font-family: "SF Mono", "Menlo", monospace;
+  background: rgba(128, 128, 128, 0.06);
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 6px;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0.7;
+}
+
+.claude-hook-header {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 0 2px;
+  opacity: 0.7;
+}
+
+.claude-hook-header:first-child {
+  padding-top: 2px;
+}
+
+.claude-hook-row {
+  padding-left: 8px;
+}
+
+.claude-plugin-skills-section {
+  padding: 0 0 6px;
+}
+
+.claude-skills-toggle {
+  font-size: 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.45;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.claude-skills-toggle:hover {
+  opacity: 0.7;
+}
+
+.claude-skills-toggle-arrow {
+  font-size: 9px;
+  width: 8px;
+  display: inline-block;
+}
+
+.claude-plugin-skills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0 2px;
+}
+
+.claude-skill-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.08);
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
+.claude-skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 4px 0;
+}
+
+.claude-skill-item {
+  font-size: 12px;
+  padding: 3px 10px;
+  width: 50%;
+  box-sizing: border-box;
+}
+
+.claude-empty-state {
+  font-size: 12px;
+  opacity: 0.4;
+  padding: 12px 0;
+  text-align: center;
+}
+
+.claude-error {
+  color: #ff3b30;
+  opacity: 0.8;
+}

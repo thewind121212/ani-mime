@@ -16,7 +16,7 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$RESOURCE/**" }]
+      "allow": [{ "path": "$RESOURCE/**" }, { "path": "$HOME/.claude/**" }]
     },
     "store:default",
     "autostart:allow-enable",

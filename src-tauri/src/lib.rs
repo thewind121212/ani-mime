@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate objc;
 
+mod claude_config;
 mod discovery;
 mod focus;
 mod helpers;
@@ -384,7 +385,7 @@ pub fn run() {
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
