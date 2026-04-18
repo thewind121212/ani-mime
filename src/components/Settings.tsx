@@ -24,6 +24,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { error as logError } from "@tauri-apps/plugin-log";
+import { useClaudeConfig } from "../hooks/useClaudeConfig";
 import "../styles/settings.css";
 
 const STATUS_DESCRIPTIONS: Record<Status, string> = {
@@ -62,11 +63,12 @@ function parseFrameSpec(spec: string): number {
 
 export { parseFrameSpec };
 
-type Tab = "general" | "mime" | "about";
+type Tab = "general" | "mime" | "claude" | "about";
 
 const tabTitles: Record<Tab, string> = {
   general: "General",
   mime: "Mime",
+  claude: "Claude Code",
   about: "About",
 };
 
@@ -83,6 +85,10 @@ export function Settings() {
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
+  const claude = useClaudeConfig();
+  const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
+  const [commandContent, setCommandContent] = useState<Record<string, string>>({});
+  const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
   const [tab, setTab] = useState<Tab>("general");
   const [creating, setCreating] = useState<false | "manual" | "smart">(false);
   const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
@@ -330,7 +336,7 @@ export function Settings() {
   return (
     <div className="settings">
       <nav className="settings-sidebar">
-        {(["general", "mime", "about"] as Tab[]).map((t) => (
+        {(["general", "mime", "claude", "about"] as Tab[]).map((t) => (
           <button
             key={t}
             className={`sidebar-item ${tab === t ? "active" : ""}`}
@@ -775,6 +781,222 @@ export function Settings() {
                 </>
               )}
             </div>
+          </>
+        )}
+        {tab === "claude" && (
+          <>
+            {claude.loading && <div className="claude-empty-state">Loading Claude Code configuration...</div>}
+            {claude.error && <div className="claude-empty-state claude-error">Failed to load: {claude.error}</div>}
+            {claude.config && (
+              <>
+                {/* Plugins */}
+                <div className="settings-section">
+                  <div className="settings-section-title">Plugins</div>
+                  {claude.config.plugins.length === 0 ? (
+                    <div className="claude-empty-state">No plugins installed</div>
+                  ) : (
+                    <div className="settings-card">
+                      {claude.config.plugins.map((p) => (
+                        <div key={p.id} data-testid={`plugin-row-${p.id}`}>
+                          <div className="settings-row">
+                            <div className="claude-item-info">
+                              <span className="settings-row-label">{p.name}</span>
+                              <span className="claude-version-badge">v{p.version}</span>
+                              <span className="claude-marketplace">{p.marketplace}</span>
+                            </div>
+                            <button
+                              data-testid={`plugin-toggle-${p.id}`}
+                              className={`toggle-switch ${p.enabled ? "active" : ""}`}
+                              onClick={() => claude.setPluginEnabled(p.id, !p.enabled)}
+                            >
+                              <span className="toggle-knob" />
+                            </button>
+                          </div>
+                          {p.skills.length > 0 && (
+                            <div className="claude-plugin-skills-section">
+                              <button
+                                className="claude-skills-toggle"
+                                onClick={() => setExpandedPluginSkills((prev) => ({ ...prev, [p.id]: !prev[p.id] }))}
+                              >
+                                <span className="claude-skills-toggle-arrow">{expandedPluginSkills[p.id] ? "\u25BE" : "\u25B8"}</span>
+                                {p.skills.length} skill{p.skills.length !== 1 ? "s" : ""}
+                              </button>
+                              {expandedPluginSkills[p.id] && (
+                                <div className="claude-plugin-skills">
+                                  {p.skills.map((s) => (
+                                    <span key={s} className="claude-skill-tag">{s}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* MCP Servers */}
+                <div className="settings-section">
+                  <div className="settings-section-title">MCP Servers</div>
+                  {claude.config.global_mcp_servers.length === 0 && claude.config.project_mcp_servers.length === 0 ? (
+                    <div className="claude-empty-state">No MCP servers registered</div>
+                  ) : (
+                    <>
+                      {claude.config.global_mcp_servers.length > 0 && (
+                        <div className="settings-card">
+                          <div className="claude-sub-header">Global</div>
+                          {claude.config.global_mcp_servers.map((s) => (
+                            <div key={s.name} className="settings-row" data-testid={`mcp-global-${s.name}`}>
+                              <div className="claude-item-info">
+                                <span className="settings-row-label">{s.name}</span>
+                                <span className="claude-cmd-preview">{s.command} {s.args.join(" ")}</span>
+                              </div>
+                              <button
+                                className="claude-delete-btn"
+                                title="Remove MCP server"
+                                onClick={() => claude.deleteMcpServer(s.name)}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {claude.config.project_mcp_servers.map((proj) => (
+                        <div key={proj.project_path} className="settings-card" style={{ marginTop: 8 }}>
+                          <div className="claude-sub-header">
+                            <span className="claude-badge">project</span>
+                            {proj.project_path.split("/").slice(-2).join("/")}
+                          </div>
+                          {proj.servers.map((s) => (
+                            <div key={s.name} className="settings-row" data-testid={`mcp-project-${s.name}`}>
+                              <div className="claude-item-info">
+                                <span className="settings-row-label">{s.name}</span>
+                                <span className="claude-cmd-preview">{s.command} {s.args.join(" ")}</span>
+                              </div>
+                              <button
+                                className="claude-delete-btn"
+                                title="Remove MCP server"
+                                onClick={() => claude.deleteMcpServer(s.name, proj.project_path)}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {/* Commands */}
+                <div className="settings-section">
+                  <div className="settings-section-title">Commands</div>
+                  {claude.config.commands.length === 0 ? (
+                    <div className="claude-empty-state">No custom commands</div>
+                  ) : (
+                    <div className="settings-card">
+                      {claude.config.commands.map((cmd) => (
+                        <div key={cmd.name} data-testid={`command-row-${cmd.name}`}>
+                          <div className="settings-row">
+                            <div className="claude-item-info">
+                              <span className="settings-row-label">/{cmd.name}</span>
+                            </div>
+                            <div className="claude-row-actions">
+                              <button
+                                className="claude-action-btn"
+                                onClick={async () => {
+                                  if (expandedCommand === cmd.name) {
+                                    setExpandedCommand(null);
+                                  } else {
+                                    if (!commandContent[cmd.name]) {
+                                      try {
+                                        const content = await claude.getCommandContent(cmd.name);
+                                        setCommandContent((prev) => ({ ...prev, [cmd.name]: content }));
+                                      } catch {
+                                        setCommandContent((prev) => ({ ...prev, [cmd.name]: "(failed to load)" }));
+                                      }
+                                    }
+                                    setExpandedCommand(cmd.name);
+                                  }
+                                }}
+                              >
+                                {expandedCommand === cmd.name ? "Hide" : "View"}
+                              </button>
+                              <button
+                                className="claude-delete-btn"
+                                title="Delete command"
+                                onClick={() => claude.deleteCommand(cmd.name)}
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          </div>
+                          {expandedCommand === cmd.name && commandContent[cmd.name] && (
+                            <pre className="claude-command-preview">{commandContent[cmd.name]}</pre>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Standalone Skills */}
+                {claude.config.skills.length > 0 && (
+                  <div className="settings-section">
+                    <div className="settings-section-title">Standalone Skills</div>
+                    <div className="settings-card claude-skills-list">
+                      {claude.config.skills.map((skill) => (
+                        <div key={skill.name} className="claude-skill-item" data-testid={`skill-row-${skill.name}`}>
+                          <span className="settings-row-label">{skill.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Hooks */}
+                <div className="settings-section">
+                  <div className="settings-section-title">Hooks</div>
+                  {claude.config.hooks.length === 0 ? (
+                    <div className="claude-empty-state">No hooks configured</div>
+                  ) : (
+                    <div className="settings-card">
+                      {claude.config.hooks.map((evt) => (
+                        <div key={evt.event}>
+                          <div className="claude-hook-header">{evt.event}</div>
+                          {evt.entries.map((entry, idx) => {
+                            const isAniMime = entry.hooks.some((h) => h.command.includes("127.0.0.1:1234"));
+                            return (
+                              <div key={idx} className="settings-row claude-hook-row" data-testid={`hook-${evt.event}-${idx}`}>
+                                <div className="claude-item-info">
+                                  {isAniMime && <span className="claude-badge claude-badge-ani">ani-mime</span>}
+                                  {entry.matcher && <span className="claude-badge">{entry.matcher}</span>}
+                                  <span className="claude-cmd-preview">
+                                    {entry.hooks.map((h) => h.command).join("; ").slice(0, 80)}
+                                    {entry.hooks.map((h) => h.command).join("; ").length > 80 ? "..." : ""}
+                                  </span>
+                                </div>
+                                {!isAniMime && (
+                                  <button
+                                    className="claude-delete-btn"
+                                    title="Remove hook"
+                                    onClick={() => claude.deleteHookEntry(evt.event, idx)}
+                                  >
+                                    &times;
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </>
         )}
         {tab === "about" && (
