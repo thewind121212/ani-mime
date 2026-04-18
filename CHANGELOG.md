@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.16.4] - 2026-04-19
+
+### Added
+- **Install Updates Automatically** toggle in Settings (default ON) — when enabled, a detected new version runs `brew upgrade --cask ani-mime` directly instead of showing the Later/Changelog/Update Now dialog. Disable the toggle to restore the confirmation dialog. Manual menu checks always show the dialog. (#88)
+- **Collapsible session groups** in the status-pill dropdown. Click a group header to hide its shells; the collapsed state is persisted in `settings.json` under `collapsedSessionGroups` and restored on the next dropdown open. (#90)
+
+### Fixed
+- Hook rows and the event-name label in the Claude Code settings tab now align with plugin rows and other row content (removed the `padding-left: 8px` override on `.claude-hook-row`, added horizontal padding to `.claude-hook-header`). (#89)
+- Empty-state messages in the Claude Code tab ("No plugins installed", "No MCP servers registered", "No custom commands", "No hooks configured") now render inside the same grey card container as populated lists, keeping visual rhythm. (#89)
+
+### Changed
+- Release notes auto-generator now filters out `chore: release vX.Y.Z` PRs so each release's "What's Changed" list only shows real feature/fix PRs.
+
 ## [0.16.3] - 2026-04-18
 
 ### Added
