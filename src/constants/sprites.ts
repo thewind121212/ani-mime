@@ -91,4 +91,18 @@ export function getSpriteMap(petId: Pet): Record<Status, SpriteConfig> {
   return pet ? pet.sprites : pets[0].sprites;
 }
 
+/** Default built-in pet used when the announced pet id is unknown or a
+ * custom mime that isn't available in this instance. Picked as the first
+ * built-in so the fallback sprite is always bundled and renderable. */
+export const FALLBACK_PET_ID = pets[0].id;
+
+/** Returns a pet id that is guaranteed to have bundled sprites in this
+ * instance. Unknown ids — typically a peer advertising a `custom-*` mime
+ * we don't have locally — fall back to FALLBACK_PET_ID. */
+export function resolveBuiltinPet(petId: string): Pet {
+  if (pets.some((p) => p.id === petId)) return petId as Pet;
+  if (customSpriteOverrides[petId]) return petId as Pet;
+  return FALLBACK_PET_ID;
+}
+
 export const autoStopStatuses = new Set<Status>(["idle", "disconnected"]);

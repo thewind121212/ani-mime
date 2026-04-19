@@ -1,15 +1,22 @@
+.visitors-col {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 4px;
+}
+
 .visitor-dog {
-  position: absolute;
-  bottom: calc(36px * var(--sprite-scale, 1));
-  right: calc(-110px * var(--sprite-scale, 1) - var(--visitor-offset));
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  transform: translateX(200px);
-  transition: transform 0.5s ease-out;
+  opacity: 0;
+  transform: translateX(40px);
+  transition: transform 0.5s ease-out, opacity 0.35s ease-out;
 }
 
 .visitor-dog.entered {
+  opacity: 1;
   transform: translateX(0);
 }
 

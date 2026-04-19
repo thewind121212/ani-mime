@@ -85,17 +85,28 @@ function App() {
       onMouseDown={onMouseDown}
       onContextMenu={onContextMenu}
     >
-      {scenario && <div data-testid="scenario-badge" className="scenario-badge">SCENARIO</div>}
-      <EffectOverlay onActiveChange={setEffectActive} />
-      <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
-      {status !== "visiting" && <Mascot status={status} />}
-      {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
-      <DevBuildBadge />
-      <StatusPill status={status} glow={visible} />
-      {devMode && <DevTag />}
-      {visitors.map((v, i) => (
-        <VisitorDog key={v.instance_name || v.nickname} pet={v.pet} nickname={v.nickname} index={i} />
-      ))}
+      <div className="main-col">
+        {scenario && <div data-testid="scenario-badge" className="scenario-badge">SCENARIO</div>}
+        <EffectOverlay onActiveChange={setEffectActive} />
+        <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
+        {status !== "visiting" && <Mascot status={status} />}
+        {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
+        <DevBuildBadge />
+        <StatusPill status={status} glow={visible} />
+        {devMode && <DevTag />}
+      </div>
+      {visitors.length > 0 && (
+        <div className="visitors-col" data-testid="visitors-col">
+          {visitors.map((v, i) => (
+            <VisitorDog
+              key={v.instance_name || v.nickname || `${i}`}
+              pet={v.pet}
+              nickname={v.nickname}
+              index={i}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

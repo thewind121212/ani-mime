@@ -78,11 +78,6 @@ pub fn start_discovery(
 
         let instance_name = format!("{}-{}", nickname, std::process::id());
 
-        let properties = [
-            ("nickname", nickname.as_str()),
-            ("pet", pet.as_str()),
-        ];
-
         // Detect the primary LAN IPv4 address explicitly.
         // enable_addr_auto() only finds interfaces with IPv6 link-local addresses,
         // which misses en0 (WiFi) when it has IPv4-only. We pass the detected IP
@@ -93,6 +88,18 @@ pub fn start_discovery(
         } else {
             crate::app_log!("[discovery] will register with explicit IP: {}", explicit_ip);
         }
+
+        // Embed the IP + port in the TXT record so peers can read them directly
+        // instead of relying on resolving our SRV/A records — this matches
+        // snor-oh's Bonjour strategy and removes a class of failure modes where
+        // mdns-sd returns only IPv6 link-local addresses.
+        let port_str = port.to_string();
+        let properties = [
+            ("nickname", nickname.as_str()),
+            ("pet", pet.as_str()),
+            ("ip", explicit_ip.as_str()),
+            ("port", port_str.as_str()),
+        ];
 
         let service_info = match ServiceInfo::new(
             SERVICE_TYPE,
@@ -205,18 +212,25 @@ pub fn start_discovery(
                         let pet = info.get_property_val_str("pet")
                             .unwrap_or("rottweiler")
                             .to_string();
+                        let txt_ip = info.get_property_val_str("ip")
+                            .map(|s| s.to_string())
+                            .filter(|s| !s.is_empty());
+                        let txt_port = info.get_property_val_str("port")
+                            .and_then(|s| s.parse::<u16>().ok());
                         let addrs: Vec<String> = info.get_addresses().iter()
                             .map(|a| a.to_string())
                             .collect();
-                        let port = info.get_port();
+                        let srv_port = info.get_port();
+                        let port = txt_port.unwrap_or(srv_port);
 
                         crate::app_log!(
-                            "[discovery] peer resolved: {} (nickname={}, pet={}, all_addrs=[{}], port={})",
-                            peer_instance, nickname, pet, addrs.join(", "), port
+                            "[discovery] peer resolved: {} (nickname={}, pet={}, txt_ip={:?}, all_addrs=[{}], port={})",
+                            peer_instance, nickname, pet, txt_ip, addrs.join(", "), port
                         );
 
-                        // Prefer IPv4 non-loopback address
-                        let ip = match pick_best_addr(&addrs) {
+                        // Prefer TXT-advertised IP (matches snor-oh pattern).
+                        // Fall back to picking the best address from the SRV/A records.
+                        let ip = match txt_ip.or_else(|| pick_best_addr(&addrs)) {
                             Some(best) => {
                                 crate::app_log!("[discovery] selected address for {}: {}", nickname, best);
                                 best

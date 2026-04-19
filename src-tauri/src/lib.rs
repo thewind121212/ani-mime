@@ -240,6 +240,15 @@ fn open_superpower(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Build a ureq agent with short timeouts so a stale/unreachable peer doesn't
+/// hang the visit flow. Mirrors snor-oh's 5s URLRequest timeoutInterval.
+fn visit_agent() -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(5)))
+        .build();
+    ureq::Agent::new_with_config(config)
+}
+
 #[tauri::command]
 fn start_visit(
     peer_id: String,
@@ -251,7 +260,7 @@ fn start_visit(
     crate::app_log!("[visit] starting visit to peer={} as {} ({})", peer_id, nickname, pet);
 
     let (ip, port, my_instance) = {
-        let st = state.lock().unwrap();
+        let mut st = state.lock().unwrap();
 
         if st.visiting.is_some() {
             crate::app_warn!("[visit] already visiting someone, rejecting");
@@ -260,64 +269,65 @@ fn start_visit(
 
         let instance = st.discovery_instance.clone();
 
-        match st.peers.get(&peer_id) {
+        let (ip, port) = match st.peers.get(&peer_id) {
             Some(peer) => {
                 crate::app_log!("[visit] target peer: {} at {}:{}", peer.nickname, peer.ip, peer.port);
-                (peer.ip.clone(), peer.port, instance)
+                (peer.ip.clone(), peer.port)
             }
             None => {
                 crate::app_error!("[visit] peer not found: {}", peer_id);
                 return Err("Peer not found".to_string());
             }
-        }
-    };
+        };
 
-    let body = serde_json::json!({
-        "instance_name": my_instance,
-        "pet": pet,
-        "nickname": nickname,
-        "duration_secs": VISIT_DURATION_SECS,
-    });
-
-    let base = crate::helpers::format_http_host(&ip, port);
-    let url = format!("{}/visit", base);
-    crate::app_log!("[visit] sending POST {}", url);
-
-    let send_result = std::thread::spawn({
-        let url = url.clone();
-        let body = body.clone();
-        move || {
-            ureq::post(&url)
-                .send_json(&body)
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }
-    }).join().map_err(|_| {
-        crate::app_error!("[visit] send thread panicked");
-        "Thread panicked".to_string()
-    })?;
-
-    if let Err(ref e) = send_result {
-        crate::app_error!("[visit] HTTP request failed: {}", e);
-    }
-    send_result.map_err(|e| format!("Failed to send visit: {}", e))?;
-
-    crate::app_log!("[visit] visit request accepted by peer");
-
-    {
-        let mut st = state.lock().unwrap();
+        // Optimistically mark as visiting so the UI can react immediately and
+        // to block concurrent visit attempts. Rolled back below if the POST
+        // fails.
         st.visiting = Some(peer_id.clone());
-    }
+        (ip, port, instance)
+    };
 
     if let Err(e) = app.emit("dog-away", true) {
         crate::app_error!("[visit] failed to emit dog-away: {}", e);
     }
 
+    // Send the visit POST + schedule the visit-end in a single background
+    // thread so the Tauri command returns immediately.
     let state_clone = state.inner().clone();
     let app_clone = app.clone();
     let nickname_clone = nickname.clone();
+    let pet_clone = pet.clone();
     std::thread::spawn(move || {
-        crate::app_log!("[visit] dog away, returning in {}s", VISIT_DURATION_SECS);
+        let base = crate::helpers::format_http_host(&ip, port);
+        let url = format!("{}/visit", base);
+        crate::app_log!("[visit] sending POST {}", url);
+
+        let body = serde_json::json!({
+            "instance_name": my_instance,
+            "pet": pet_clone,
+            "nickname": nickname_clone,
+            "duration_secs": VISIT_DURATION_SECS,
+        });
+
+        let agent = visit_agent();
+        if let Err(e) = agent.post(&url).send_json(&body) {
+            crate::app_error!("[visit] HTTP request failed: {}", e);
+            // Roll back optimistic state so the user can retry.
+            let mut st = state_clone.lock().unwrap();
+            if st.visiting.as_deref() == Some(peer_id.as_str()) {
+                st.visiting = None;
+            }
+            drop(st);
+            if let Err(e) = app_clone.emit("dog-away", false) {
+                crate::app_error!("[visit] failed to emit dog-away(false): {}", e);
+            }
+            if let Err(e) = app_clone.emit("visit-failed", format!("{}", e)) {
+                crate::app_error!("[visit] failed to emit visit-failed: {}", e);
+            }
+            return;
+        }
+
+        crate::app_log!("[visit] visit request accepted by peer, returning in {}s", VISIT_DURATION_SECS);
         std::thread::sleep(std::time::Duration::from_secs(VISIT_DURATION_SECS));
 
         // Send visit-end to peer — use instance_name as stable identifier
@@ -326,19 +336,20 @@ fn start_visit(
             st.discovery_instance.clone()
         };
         let end_body = serde_json::json!({ "instance_name": my_instance_clone, "nickname": nickname_clone });
-        match {
+        let peer_cached = {
             let st = state_clone.lock().unwrap();
-            st.peers.get(&peer_id).cloned().ok_or(())
-        } {
-            Ok(peer_info) => {
+            st.peers.get(&peer_id).cloned()
+        };
+        match peer_cached {
+            Some(peer_info) => {
                 let end_base = crate::helpers::format_http_host(&peer_info.ip, peer_info.port);
                 let end_url = format!("{}/visit-end", end_base);
                 crate::app_log!("[visit] sending visit-end to {}", end_url);
-                if let Err(e) = ureq::post(&end_url).send_json(&end_body) {
+                if let Err(e) = visit_agent().post(&end_url).send_json(&end_body) {
                     crate::app_error!("[visit] failed to send visit-end: {}", e);
                 }
             }
-            Err(_) => {
+            None => {
                 crate::app_warn!("[visit] peer {} no longer in peer list, skipping visit-end", peer_id);
             }
         }

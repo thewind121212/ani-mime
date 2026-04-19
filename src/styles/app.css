@@ -22,9 +22,9 @@ body {
 
 .container {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
   cursor: grab;
   user-select: none;
   -webkit-user-select: none;
@@ -33,6 +33,14 @@ body {
      room to render — the window auto-sizes to offsetWidth/Height, which
      does NOT include box-shadow, so without this the glow is clipped. */
   padding: 20px 30px 30px 20px;
+}
+
+.main-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .container.dragging {

@@ -16,11 +16,14 @@ pub fn get_port() -> u16 {
 }
 
 /// Format an IP + port into a valid HTTP host. Wraps IPv6 in brackets.
+/// Strips IPv6 zone IDs (e.g. `fe80::1%en0` → `fe80::1`) because URL parsers
+/// reject them.
 pub fn format_http_host(ip: &str, port: u16) -> String {
-    if ip.contains(':') {
-        format!("http://[{}]:{}", ip, port)
+    let clean = ip.split('%').next().unwrap_or(ip);
+    if clean.contains(':') {
+        format!("http://[{}]:{}", clean, port)
     } else {
-        format!("http://{}:{}", ip, port)
+        format!("http://{}:{}", clean, port)
     }
 }
 
