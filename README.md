@@ -5,13 +5,13 @@
 </p>
 
 <p align="center">
-  <strong>A floating pixel mascot that mirrors your terminal & Claude Code activity on macOS.</strong>
+  <strong>A floating pixel mascot that mirrors your terminal & Claude Code activity on macOS and Linux.</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/vietnguyenhoangw/ani-mime/releases"><img src="https://img.shields.io/github/v/release/vietnguyenhoangw/ani-mime?style=for-the-badge&color=8b5cf6" alt="Version"></a>
   <a href="https://github.com/vietnguyenhoangw/ani-mime/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-vietnguyenhoangw-8b5cf6?style=for-the-badge" alt="License"></a>
-  <img src="https://img.shields.io/badge/Platform-macOS-000000?style=for-the-badge&logo=apple" alt="Platform">
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20WSL2-f97316?style=for-the-badge&logo=apple" alt="Platform">
 </p>
 
 <p align="center">
@@ -175,7 +175,7 @@ Without these permissions, the click still brings the app to the front via `open
 
 ## Install
 
-### Homebrew (recommended)
+### macOS — Homebrew (recommended)
 
 ```bash
 brew tap vietnguyenhoangw/ani-mime
@@ -190,6 +190,31 @@ Open a new terminal tab and the mascot starts reacting.
 
 The MCP server is also auto-configured so Claude Code can interact with your pet directly (see [MCP Server](#mcp-server) below).
 
+### Linux — `.deb`, `.rpm`, or `.AppImage`
+
+Download the bundle for your distro and arch from the [Releases page](https://github.com/vietnguyenhoangw/ani-mime/releases/latest):
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./ani-mime_X.Y.Z_amd64.deb      # or _arm64.deb on ARM
+
+# Fedora / RHEL / openSUSE
+sudo rpm -i ani-mime-X.Y.Z-1.x86_64.rpm          # or .aarch64.rpm
+
+# AppImage (any distro)
+chmod +x ani-mime_X.Y.Z_amd64.AppImage && ./ani-mime_X.Y.Z_amd64.AppImage
+```
+
+Runtime deps (installed automatically by `apt`/`rpm`; required manually for AppImage):
+
+```bash
+sudo apt install libwebkit2gtk-4.1-0 libayatana-appindicator3-1 zenity xdg-utils
+```
+
+### WSL2
+
+Install the Linux `.deb` inside your WSL2 distro. Always-on-top works via a WSLg-specific `SetWindowPos(HWND_TOPMOST)` shim — no extra setup required.
+
 ### Manual (from source)
 
 ```bash
@@ -199,7 +224,15 @@ bun install
 bun tauri dev
 ```
 
-Then source the zsh script:
+On Linux you also need the build deps:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libglib2.0-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+  xdg-utils pkg-config build-essential zenity
+```
+
+Then source the shell script for your shell (`terminal-mirror.zsh`, `.bash`, or `.fish`):
 
 ```bash
 echo 'source "/path/to/ani-mime/src-tauri/script/terminal-mirror.zsh"' >> ~/.zshrc
@@ -210,9 +243,28 @@ source ~/.zshrc
 
 ## Requirements
 
-- **macOS** (Intel or Apple Silicon)
-- **zsh** (default shell on macOS)
+- **macOS** (Intel or Apple Silicon) — full feature set
+- **Linux** (x86_64 or aarch64) — runs with shell hooks; some click-to-focus integrations are macOS-only
+- **WSL2 / WSLg** — runs as a Linux build with a WSLg-aware always-on-top shim
+- **Shell** — zsh / bash / fish (hooks provided for each)
 - **Claude Code** (optional) — for Claude activity tracking
+
+### Platform feature matrix
+
+| Feature                              | macOS | Linux | WSL2 |
+| ------------------------------------ | :---: | :---: | :--: |
+| Mascot + speech bubbles              |  ✅   |  ✅   |  ✅  |
+| Shell hook tracking (zsh/bash/fish)  |  ✅   |  ✅   |  ✅  |
+| Claude Code hooks + MCP server       |  ✅   |  ✅   |  ✅  |
+| Always-on-top over full-screen apps  |  ✅   |  ✅   |  ✅  |
+| Peer discovery (mDNS / Bonjour)      |  ✅   |  ✅   |  ⚠️  |
+| Session list dropdown                |  ✅   |  ✅   |  ✅  |
+| Click-to-focus terminal tabs         |  ✅   |  ❌   |  ❌  |
+| Auto shell discovery (libproc scan)  |  ✅   |  ❌   |  ❌  |
+| Homebrew cask install                |  ✅   |  —    |  —   |
+| Auto-install update via `brew`       |  ✅   |  —    |  —   |
+
+Linux and WSL2 fall back to the shell-hook based path for terminal tracking — you get the full mascot + Claude Code + MCP experience, just without the macOS-only auto-discovery and tab-precise focus.
 
 ## Tech Stack
 
@@ -298,6 +350,8 @@ Claude Code calls MCP tools during conversations. The MCP server translates them
 
 ## Building for Release
 
+### macOS (DMG)
+
 ```bash
 # Build the Tauri app
 bun run tauri build
@@ -316,6 +370,27 @@ If the recipient sees "app is damaged", they need to remove the quarantine attri
 ```bash
 xattr -cr /Applications/ani-mime.app
 ```
+
+### Linux (`.deb`, `.rpm`, `.AppImage`)
+
+```bash
+bun run tauri build
+```
+
+Produces all three bundle formats under `src-tauri/target/release/bundle/{deb,rpm,appimage}/`. No post-build signing step required on Linux.
+
+### CI release pipeline
+
+Tag pushes (`v*`) trigger `.github/workflows/release.yml`, which runs a 4-job matrix:
+
+| Job | Runner | Target | Artifact |
+| --- | ------ | ------ | -------- |
+| macOS aarch64 | `macos-latest` | `aarch64-apple-darwin` | `.dmg` |
+| macOS x86_64  | `macos-latest` | `x86_64-apple-darwin`  | `.dmg` |
+| Linux aarch64 | `ubuntu-22.04-arm` | `aarch64-unknown-linux-gnu` | `.deb` + `.rpm` + `.AppImage` |
+| Linux x86_64  | `ubuntu-22.04` | `x86_64-unknown-linux-gnu`  | `.deb` + `.rpm` + `.AppImage` |
+
+Each release publishes 8 artifacts total.
 
 ---
 

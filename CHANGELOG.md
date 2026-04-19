@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.5] - 2026-04-20
+
+### Added
+- **Linux / WSL2 support** — Ani-Mime now runs on Linux and WSL2 via a cross-platform backend facade. Native Linux uses GTK `set_keep_above`; WSLg uses a `SetWindowPos(HWND_TOPMOST)` PowerShell shim, re-asserted on every focus-lost event so the pet stays on top after clicking into other maximized Windows apps. Dialogs use `zenity`, file/URL open uses `xdg-open`. macOS is unchanged. (#81, @cuongtranba)
+- **Linux release artifacts in CI** — tag pushes now build and publish `.deb`, `.rpm`, and `.AppImage` for both `x86_64` and `aarch64` alongside the existing macOS DMGs. A release now ships 8 artifacts (2 DMGs + 6 Linux bundles). (#93)
+- **Claude Code Management UI screenshot** — new `docs/assets/settings-claude-code.png` added to the README Screenshots table with a dedicated Features bullet describing the Settings → Claude Code tab. (#93)
+
+### Fixed
+- **Updater auto-install compile break** — the auto-install branch called `update_now(&app_handle)` with one argument while the function requires `(app_handle, release_url)`. This was a hard `E0061` compile error on Linux and a silent hole on macOS where auto-install never reached the upgrade flow. `release_url` is now computed once per run and passed to both the auto-install path and `show_update_dialog`. (#93)
+- **macOS full-screen Spaces** — pet now floats over full-screen apps on every Space (`setCollectionBehavior` switched from `fullScreenNone` to `fullScreenAuxiliary`). (#81)
+- **Peer discovery & visit flow** — hardened to match snor-oh parity; visitors now render reliably with a fallback sprite for unknown pet types. (#92)
+- **Claude Code settings — MCP Servers** — "Global" and per-project sub-headers no longer hug the card's left edge; horizontal padding bumped from `0` to `12px` so they align with the server rows below. (#93)
+- **Claude Code settings — Commands** — the expanded `/command` body (shown after tapping View) now sits inside the card with `12px` left/right margin instead of stretching flush edge-to-edge. (#93)
+- **Claude Code settings — Plugins** — plugin rows now match the 2-line rhythm used by MCP, Commands, and Hooks: name + version badge on line 1, marketplace on line 2. The enable/disable toggle keeps its full size on narrow windows (`.toggle-switch` gets `flex-shrink: 0`). The plugin skills expand toggle ("N skills") is temporarily hidden pending UX work. (#93)
+
+### Changed
+- `.claude-item-info` now wraps so any row can drop an ellipsized preview onto a second line via `.claude-cmd-preview { flex-basis: 100%; }`. Unifies the layout across Commands, MCP Servers, Plugins, and Hooks rows. (#93)
+
 ## [0.16.4] - 2026-04-19
 
 ### Added
