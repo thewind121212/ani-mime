@@ -67,13 +67,15 @@ pub fn check_for_updates(app_handle: tauri::AppHandle) {
             .and_then(|j| j.get("autoInstallEnabled").and_then(|v| v.as_bool()))
             .unwrap_or(true);
 
+        let release_url = format!("https://github.com/vietnguyenhoangw/ani-mime/releases/tag/v{}", latest);
+
         if auto_install {
             crate::app_log!("[updater] auto-install enabled — updating to v{} without prompt", latest);
-            update_now(&app_handle);
+            update_now(&app_handle, &release_url);
             return;
         }
 
-        show_update_dialog(&app_handle, current, &latest);
+        show_update_dialog(&app_handle, current, &latest, &release_url);
     });
 }
 
@@ -106,13 +108,12 @@ pub fn check_for_updates_manual(app_handle: tauri::AppHandle) {
         }
 
         crate::app_log!("[updater] manual check: update available v{}", latest);
-        show_update_dialog(&app_handle, current, &latest);
+        let release_url = format!("https://github.com/vietnguyenhoangw/ani-mime/releases/tag/v{}", latest);
+        show_update_dialog(&app_handle, current, &latest, &release_url);
     });
 }
 
-fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str) {
-    let release_url = format!("https://github.com/vietnguyenhoangw/ani-mime/releases/tag/v{}", latest);
-
+fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str, release_url: &str) {
     loop {
         let button = platform::show_dialog(
             &format!("Ani-Mime v{} Available", latest),
@@ -126,12 +127,12 @@ fn show_update_dialog(app_handle: &tauri::AppHandle, current: &str, latest: &str
 
         match button.as_str() {
             "Update Now" => {
-                update_now(app_handle, &release_url);
+                update_now(app_handle, release_url);
                 break;
             }
             "Changelog" => {
                 crate::app_log!("[updater] opening changelog: {}", release_url);
-                platform::open_url(&release_url);
+                platform::open_url(release_url);
                 continue;
             }
             _ => {
