@@ -90,7 +90,7 @@ export function Settings() {
   const claude = useClaudeConfig();
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
   const [commandContent, setCommandContent] = useState<Record<string, string>>({});
-  const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
+  // const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
   const [tab, setTab] = useState<Tab>("general");
   const [creating, setCreating] = useState<false | "manual" | "smart">(false);
   const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
@@ -819,7 +819,7 @@ export function Settings() {
                             <div className="claude-item-info">
                               <span className="settings-row-label">{p.name}</span>
                               <span className="claude-version-badge">v{p.version}</span>
-                              <span className="claude-marketplace">{p.marketplace}</span>
+                              <span className="claude-cmd-preview">{p.marketplace}</span>
                             </div>
                             <button
                               data-testid={`plugin-toggle-${p.id}`}
@@ -829,6 +829,7 @@ export function Settings() {
                               <span className="toggle-knob" />
                             </button>
                           </div>
+                          {/* TEMP: hide plugin skills expand toggle
                           {p.skills.length > 0 && (
                             <div className="claude-plugin-skills-section">
                               <button
@@ -847,6 +848,7 @@ export function Settings() {
                               )}
                             </div>
                           )}
+                          */}
                         </div>
                       ))}
                     </div>
@@ -919,6 +921,7 @@ export function Settings() {
                           <div className="settings-row">
                             <div className="claude-item-info">
                               <span className="settings-row-label">/{cmd.name}</span>
+                              <span className="claude-cmd-preview">{cmd.file_name}</span>
                             </div>
                             <div className="claude-row-actions">
                               <button

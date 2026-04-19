@@ -102,6 +102,7 @@ Ani-Mime wouldn't be the same without these wonderful people. Thank you for your
 - **Heartbeat + OS Scan** — hooks drive state transitions; a 2s libproc scan auto-discovers every live shell and cleans up zombies
 - **Session Dropdown** — click the status pill to see every open terminal grouped by project path, with the foreground command (`claude`, `bun`, etc.), and click any row to jump straight to that tab (see [Session List & Click-to-Focus](#session-list--click-to-focus))
 - **Claude Code Hooks** — tracks when Claude is actively working vs waiting
+- **Claude Code Management UI** — view and manage your Claude Code configuration from Settings → Claude Code: list installed plugins with enable/disable toggles, inspect global and per-project MCP servers, browse and delete custom slash commands, and review/remove hooks
 - **MCP Server** — Claude Code can talk to your pet: trigger speech bubbles, play reaction animations, and check pet status via MCP tools
 - **Multi-Session** — handles multiple terminals, priority: busy > service > idle
 - **Auto-Setup** — first launch configures zsh hooks and Claude Code hooks via native macOS dialogs
@@ -126,12 +127,12 @@ Ani-Mime wouldn't be the same without these wonderful people. Thank you for your
   <tr>
     <td><img src="docs/assets/menu-bar.png" alt="Show on macOS menu bar" width="300"></td>
     <td><img src="docs/assets/import-export.png" alt="One-click import and export of custom Mimes" width="300"></td>
-    <td></td>
+    <td><img src="docs/assets/settings-claude-code.png" alt="Claude Code management UI" width="300"></td>
   </tr>
   <tr>
     <td align="center"><strong>Show on menu bar</strong></td>
     <td align="center"><strong>One-click import &amp; export your Mime</strong></td>
-    <td></td>
+    <td align="center"><strong>Claude Code management UI</strong></td>
   </tr>
 </table>
 
