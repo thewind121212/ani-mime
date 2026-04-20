@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.1] - 2026-04-20
+
+### Added
+- **Mime opacity slider** in Settings → General → Transparency — drag to fade the mime live, click Save to persist.
+- **Status bar opacity slider** in the same section — fades the status pill independently of the mime.
+
+### Changed
+- **Renamed "Pet" → "Mime"** in the Transparency section label for consistency with the rest of the app.
+- **Session dropdown open/close** is smoother and the path tooltip is no longer clipped by the dropdown's overflow bounds.
+- **LAN peer list toggle** added under Settings → General → Status Bar so the peer icon can be hidden entirely.
+
 ## [0.17.0] - 2026-04-20
 
 ### Added
