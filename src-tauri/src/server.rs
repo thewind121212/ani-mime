@@ -232,8 +232,16 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                         let pet = payload["pet"].as_str().unwrap_or("rottweiler").to_string();
                         let nickname = payload["nickname"].as_str().unwrap_or("Unknown").to_string();
                         let duration_secs = payload["duration_secs"].as_u64().unwrap_or(15);
+                        let message = payload["message"]
+                            .as_str()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty());
 
-                        crate::app_log!("[visit] {} ({}) [{}] arrived for {}s", nickname, pet, instance_name, duration_secs);
+                        crate::app_log!(
+                            "[visit] {} ({}) [{}] arrived for {}s{}",
+                            nickname, pet, instance_name, duration_secs,
+                            message.as_deref().map(|m| format!(" — msg: {:?}", m)).unwrap_or_default()
+                        );
 
                         let mut st = app_state.lock().unwrap();
                         st.visitors.push(crate::state::VisitingDog {
@@ -242,18 +250,23 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                             nickname: nickname.clone(),
                             arrived_at: now,
                             duration_secs,
+                            message: message.clone(),
                         });
                         let visitor_count = st.visitors.len();
                         drop(st);
 
                         crate::app_log!("[visit] total visitors: {}", visitor_count);
 
-                        if let Err(e) = app_handle.emit("visitor-arrived", serde_json::json!({
+                        let mut event_payload = serde_json::json!({
                             "instance_name": instance_name,
                             "pet": pet,
                             "nickname": nickname,
                             "duration_secs": duration_secs,
-                        })) {
+                        });
+                        if let Some(m) = &message {
+                            event_payload["message"] = serde_json::Value::String(m.clone());
+                        }
+                        if let Err(e) = app_handle.emit("visitor-arrived", event_payload) {
                             crate::app_error!("[visit] failed to emit visitor-arrived: {}", e);
                         }
                     }

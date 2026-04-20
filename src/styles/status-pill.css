@@ -1,28 +1,40 @@
-/* --- Pill wrapper (stacks pill + dropdown vertically, grows container) --- */
+/* --- Pill wrapper ---
+   Holds the pill plus (when open) the absolute-positioned session
+   dropdown. position: relative establishes the positioning context for
+   the dropdown. The wrap stays exactly as wide as the pill, so opening
+   the dropdown does NOT push the peer icon to the right — App.tsx
+   manually grows the Tauri window to give the absolute dropdown room
+   to render without being clipped. */
 .pill-wrap {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   align-self: center;
-  gap: 6px;
+  position: relative;
 }
 
-/* --- Pill --- */
+/* --- Pill (unified bar) ---
+   Single bar: dot | status text | [flex spacer] | task icon | lan icon.
+   Left side (dot + label) is static; right side hosts two action buttons
+   that each own their own dropdown/popover. */
 .pill {
   display: inline-flex;
   align-items: center;
   align-self: center;
-  gap: 8px;
-  padding: 6px 16px;
+  gap: 6px;
+  padding: 3px 4px 3px 11px;
   border-radius: 9999px;
   background: var(--bg-pill);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border: 1px solid var(--border-pill);
   pointer-events: auto;
-  cursor: pointer;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   white-space: nowrap;
+  /* Minimum width keeps the layout stable when the status label is
+     short ("Free") vs long ("Initializing...") — prevents the action
+     icons from jiggling as status text changes. */
+  min-width: 150px;
 }
 
 .pill.is-open {
@@ -30,31 +42,109 @@
   border-color: var(--border-pill-hover);
 }
 
-/* When session-list feature is disabled, pill is not clickable. */
-.pill.no-dropdown {
-  cursor: default;
+/* --- Action buttons cluster on the right --- */
+.pill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  /* margin-left: auto pushes the cluster to the right so dot+label hug
+     the left and the icons hug the right with a flexible spacer between. */
+  margin-left: auto;
+  pointer-events: auto;
 }
 
-/* --- Caret --- */
-.caret {
-  width: 0;
-  height: 0;
-  margin-left: 2px;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--text-primary);
-  opacity: 0.6;
-  transition: transform 0.2s;
+.pill-action-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.12s;
 }
 
-.caret.up {
-  transform: rotate(180deg);
+.pill-action-btn:hover:not(:disabled) {
+  background: var(--bg-pill-hover);
+  border-color: var(--border-pill-hover);
 }
 
-/* --- Session dropdown (in flow so container grows & window auto-sizes) --- */
+.pill-action-btn:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+.pill-action-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pill-action-btn.is-active {
+  background: var(--bg-pill-hover);
+  border-color: var(--border-pill-hover);
+}
+
+.pill-action-btn.has-peers {
+  border-color: rgba(52, 199, 89, 0.5);
+}
+
+.pill-action-icon {
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.pill-action-btn:hover:not(:disabled) .pill-action-icon,
+.pill-action-btn.is-active .pill-action-icon,
+.pill-action-btn.has-peers .pill-action-icon {
+  opacity: 1;
+}
+
+/* --- Peer-count badge on the lan icon --- */
+.pill-action-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 11px;
+  height: 11px;
+  padding: 0 3px;
+  border-radius: 6px;
+  background: #34c759;
+  color: #000;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 11px;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(52, 199, 89, 0.5);
+}
+
+/* --- Session dropdown ---
+   Fixed-positioned (relative to the viewport / window). top is supplied
+   inline by StatusPill based on the pill's getBoundingClientRect, so it
+   drops just below the pill. left: 50% centers it in the WINDOW, not on
+   the pill — this prevents the left-clipping that would happen when the
+   pill sits near the window's left edge (pill-center - dropdown/2 can
+   be negative). App.tsx grows the main window manually when this opens
+   so the dropdown isn't clipped by the window bounds. Animation is
+   opacity-only so it doesn't replace the translateX(-50%) mid-fade. */
 .session-dropdown {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
   min-width: 240px;
   max-width: 360px;
+  /* Cap the list height so lots of shells don't produce a comically
+     tall window. Content beyond this scrolls vertically; horizontal
+     overflow is hidden (long titles ellipsize via .session-group-title). */
+  max-height: 280px;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 4px;
   border-radius: 10px;
   background: var(--bg-pill);
@@ -66,11 +156,32 @@
   animation: dropdown-in 0.12s ease-out;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   color: var(--text-primary);
+  z-index: 10;
+  /* Subtle custom scrollbar so it looks intentional, not browser-default. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-pill) transparent;
+}
+
+.session-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.session-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.session-dropdown::-webkit-scrollbar-thumb {
+  background: var(--border-pill);
+  border-radius: 3px;
+}
+
+.session-dropdown::-webkit-scrollbar-thumb:hover {
+  background: var(--border-pill-hover);
 }
 
 @keyframes dropdown-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .session-empty {
@@ -332,8 +443,8 @@ button.session-group-head:hover {
 
 /* --- Dot --- */
 .dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   pointer-events: none;
@@ -442,7 +553,7 @@ button.session-group-head:hover {
 
 .label {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-primary);
   line-height: 1;

@@ -15,7 +15,14 @@ body {
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  /* align-items: flex-start pins to the top so the pet doesn't "jump
+     down" when we grow the window height for the session dropdown.
+     justify-content: center centers the widget horizontally inside the
+     window so, when the window gets wider for the session dropdown, the
+     pet lines up with the centered dropdown instead of hanging off to
+     the left. When window == content size (closed), both settings have
+     no visible effect. */
+  align-items: flex-start;
   justify-content: center;
   background: transparent;
 }
@@ -42,6 +49,7 @@ body {
   gap: 4px;
   flex-shrink: 0;
 }
+
 
 .container.dragging {
   cursor: grabbing;

@@ -154,7 +154,7 @@ Both go through the same `handle_announce` code path — the sender's channel is
      { "instance_name": "Alice-12345", "pet": "rottweiler", "nickname": "Alice", "duration_secs": 15 }
      ```
    - Emits `dog-away: true` (hides local mascot)
-   - Spawns thread: sleeps for `VISIT_DURATION_SECS` (15s)
+   - Spawns thread: sleeps for `VISIT_DURATION_SECS` (8s)
 
 ### Receiving a Visit
 
@@ -286,4 +286,4 @@ dns-sd -R "TestBuddy-9999" "_ani-mime._tcp" "local." 1234 nickname=Buddy pet=dal
 - **No rejection** — visits are automatically accepted.
 - **No encryption** — HTTP traffic and UDP announces are plaintext.
 - **Single visit** — can only visit one peer at a time.
-- **Fixed visit duration** — 15 seconds, not configurable by user.
+- **Fixed visit duration** — 8 seconds, not configurable by user.

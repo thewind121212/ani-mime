@@ -6,6 +6,8 @@ export interface Visitor {
   pet: string;
   nickname: string;
   duration_secs: number;
+  /** Optional one-line message the sender attached. */
+  message?: string;
 }
 
 export function useVisitors() {

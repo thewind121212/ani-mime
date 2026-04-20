@@ -24,7 +24,15 @@ use tauri::tray::TrayIconBuilder;
 
 use crate::state::{AppState, SessionInfo};
 
-const VISIT_DURATION_SECS: u64 = 15;
+const VISIT_DURATION_SECS: u64 = 8;
+/// Visit duration when the sender attached a message. Currently equal
+/// to the plain visit duration; kept as a separate constant so we can
+/// extend (or shrink) message visits later without affecting plain ones.
+const MESSAGE_VISIT_DURATION_SECS: u64 = 8;
+/// Max characters accepted for a chat message. Messages longer than this
+/// are truncated server-side as a defensive bound; the frontend enforces
+/// the same limit at input time.
+const MESSAGE_MAX_LEN: usize = 100;
 
 #[tauri::command]
 fn get_logs() -> Vec<logger::LogEntry> {
@@ -255,10 +263,29 @@ fn start_visit(
     peer_id: String,
     nickname: String,
     pet: String,
+    message: Option<String>,
     state: tauri::State<'_, Arc<Mutex<AppState>>>,
     app: tauri::AppHandle,
 ) -> Result<(), String> {
-    crate::app_log!("[visit] starting visit to peer={} as {} ({})", peer_id, nickname, pet);
+    // Normalize + enforce message length server-side (frontend caps at
+    // MESSAGE_MAX_LEN already; this is a defensive bound for other
+    // callers / bad actors).
+    let message = message
+        .map(|m| m.trim().to_string())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.chars().take(MESSAGE_MAX_LEN).collect::<String>());
+
+    let duration_secs = if message.is_some() {
+        MESSAGE_VISIT_DURATION_SECS
+    } else {
+        VISIT_DURATION_SECS
+    };
+
+    crate::app_log!(
+        "[visit] starting visit to peer={} as {} ({}){}",
+        peer_id, nickname, pet,
+        message.as_deref().map(|m| format!(" with message: {:?}", m)).unwrap_or_default()
+    );
 
     let (ip, port, my_instance) = {
         let mut st = state.lock().unwrap();
@@ -298,17 +325,21 @@ fn start_visit(
     let app_clone = app.clone();
     let nickname_clone = nickname.clone();
     let pet_clone = pet.clone();
+    let message_clone = message.clone();
     std::thread::spawn(move || {
         let base = crate::helpers::format_http_host(&ip, port);
         let url = format!("{}/visit", base);
         crate::app_log!("[visit] sending POST {}", url);
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "instance_name": my_instance,
             "pet": pet_clone,
             "nickname": nickname_clone,
-            "duration_secs": VISIT_DURATION_SECS,
+            "duration_secs": duration_secs,
         });
+        if let Some(m) = &message_clone {
+            body["message"] = serde_json::Value::String(m.clone());
+        }
 
         let agent = visit_agent();
         if let Err(e) = agent.post(&url).send_json(&body) {
@@ -328,8 +359,8 @@ fn start_visit(
             return;
         }
 
-        crate::app_log!("[visit] visit request accepted by peer, returning in {}s", VISIT_DURATION_SECS);
-        std::thread::sleep(std::time::Duration::from_secs(VISIT_DURATION_SECS));
+        crate::app_log!("[visit] visit request accepted by peer, returning in {}s", duration_secs);
+        std::thread::sleep(std::time::Duration::from_secs(duration_secs));
 
         // Send visit-end to peer — use instance_name as stable identifier
         let my_instance_clone = {

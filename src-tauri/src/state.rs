@@ -26,6 +26,11 @@ pub struct VisitingDog {
     pub nickname: String,
     pub arrived_at: u64,
     pub duration_secs: u64,
+    /// Optional one-line message from the sender. When present, the
+    /// frontend renders it as a persistent speech bubble for the full
+    /// visit duration instead of showing a random greeting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// Per-shell session state.
