@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.16.6] - 2026-04-20
+
+### Added
+- **Resilient peer discovery** — peer discovery now runs across three parallel channels (mDNS + UDP multicast + UDP unicast `/24` subnet scan), so peers are found on networks where any one channel is blocked. A new `broadcast.rs` module handles the UDP channels on port `1235`; all three channels feed the same `AppState.peers` keyed by `instance_name` so the UI and visit protocol are unchanged. (#98)
+- **`[broadcast]` diagnostic logging** — new log tag with explicit lines for socket bind, multicast join, per-scan summary, `NEW peer` / `refresh peer` / `EXPIRED peer` transitions, and a one-shot `self-loop confirmed` line that proves the local multicast send→recv pipeline is healthy. Makes triaging "peers not finding each other" issues grep-friendly. (#98)
+- **Network-compatibility matrix & troubleshooting guide** in `docs/peer-discovery.md` — covers which channel wins on which network type (home WiFi / managed WiFi with Bonjour Gateway / VLAN) and how to read the log to pinpoint failures. (#98)
+
+### Fixed
+- **Peer discovery on managed WiFi / enterprise networks** — on networks running a Bonjour Gateway that allowlists specific mDNS service types (common in offices and co-working spaces), `_ani-mime._tcp` was silently dropped even between machines on the same subnet. The new UDP unicast subnet scan bypasses multicast filtering entirely by direct-poking every IP in the local `/24` every 30s. (#98)
+
+### Changed
+- New `AppState.broadcast_seen: HashMap<String, u64>` tracks last-heard-from time per peer; the expiry loop removes peers silent for `PEER_EXPIRY_SECS` (30s).
+- `lib.rs` now spawns both `discovery::start_discovery` and `broadcast::start_broadcast` in parallel on startup.
+
 ## [0.16.5] - 2026-04-20
 
 ### Added
