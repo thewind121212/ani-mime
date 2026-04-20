@@ -24,7 +24,7 @@ use tauri::tray::TrayIconBuilder;
 
 use crate::state::{AppState, SessionInfo};
 
-const VISIT_DURATION_SECS: u64 = 15;
+const VISIT_DURATION_SECS: u64 = 8;
 
 #[tauri::command]
 fn get_logs() -> Vec<logger::LogEntry> {

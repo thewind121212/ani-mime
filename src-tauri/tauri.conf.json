@@ -49,6 +49,21 @@
         "decorations": true,
         "transparent": false,
         "center": true
+      },
+      {
+        "label": "peer-list",
+        "title": "Mime Around You",
+        "url": "peer-list.html",
+        "width": 280,
+        "height": 260,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": true,
+        "shadow": false
       }
     ],
     "security": {

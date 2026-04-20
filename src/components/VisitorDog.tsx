@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import { getSpriteMap, resolveBuiltinPet, FALLBACK_PET_ID } from "../constants/sprites";
+import { randomGreeting } from "../constants/visitorGreetings";
 import { useScale } from "../hooks/useScale";
 import { warn } from "@tauri-apps/plugin-log";
 import "../styles/visitor.css";
+
+/** How long the arrival greeting bubble stays visible. */
+const GREETING_DURATION_MS = 5000;
 
 interface VisitorDogProps {
   pet: string;
@@ -12,7 +16,16 @@ interface VisitorDogProps {
 
 export function VisitorDog({ pet, nickname, index }: VisitorDogProps) {
   const [entered, setEntered] = useState(false);
+  // Pick a greeting once on mount and show it briefly as a speech bubble.
+  // useMemo keeps the same line across re-renders (e.g. when scale changes).
+  const greeting = useMemo(() => randomGreeting(), []);
+  const [greetingVisible, setGreetingVisible] = useState(true);
   const { scale } = useScale();
+
+  useEffect(() => {
+    const id = setTimeout(() => setGreetingVisible(false), GREETING_DURATION_MS);
+    return () => clearTimeout(id);
+  }, []);
 
   // Resolve the peer's advertised pet against pets we can actually render.
   // Peers can advertise custom-* mime ids that don't exist on this instance;
@@ -47,7 +60,17 @@ export function VisitorDog({ pet, nickname, index }: VisitorDogProps) {
       className={`visitor-dog ${entered ? "entered" : ""}`}
       style={{ "--visitor-offset": `${offset}px` } as React.CSSProperties}
     >
-      <div className="visitor-name">{nickname}</div>
+      {greetingVisible && (
+        <div
+          className="visitor-greeting"
+          data-testid={`visitor-greeting-${index}`}
+          onClick={() => setGreetingVisible(false)}
+          title="Click to dismiss"
+        >
+          <span className="visitor-greeting-text">{greeting}</span>
+          <span className="visitor-greeting-tail" aria-hidden="true" />
+        </div>
+      )}
       <div
         className="visitor-sprite"
         style={{
@@ -60,6 +83,7 @@ export function VisitorDog({ pet, nickname, index }: VisitorDogProps) {
           "--sprite-duration": `${sprite.frames * 80}ms`,
         } as React.CSSProperties}
       />
+      <div className="visitor-name">{nickname}</div>
     </div>
   );
 }

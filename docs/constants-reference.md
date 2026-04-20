@@ -11,7 +11,7 @@ All hardcoded values, timeouts, and configurable parameters in the codebase.
 | `HEARTBEAT_TIMEOUT_SECS` | 40 | `watchdog.rs` | Remove session if no heartbeat for this long |
 | `SERVICE_DISPLAY_SECS` | 2 | `watchdog.rs` | How long service state shows before auto-transitioning to idle |
 | `IDLE_TO_SLEEP_SECS` | 120 | `watchdog.rs` | Idle duration before entering sleep mode (suppresses emits) |
-| `VISIT_DURATION_SECS` | 15 | `lib.rs` | How long a dog visit lasts |
+| `VISIT_DURATION_SECS` | 8 | `lib.rs` | How long a dog visit lasts |
 | `ANNOUNCE_INTERVAL_SECS` | 5 | `broadcast.rs` | UDP multicast announce cadence |
 | `PEER_EXPIRY_SECS` | 30 | `broadcast.rs` | Remove broadcast peer after this many seconds of silence |
 | `UNICAST_SCAN_INTERVAL_SECS` | 30 | `broadcast.rs` | How often to sweep the local /24 via unicast |

@@ -1,15 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  getCurrentWindow,
+  LogicalPosition,
+  PhysicalPosition,
+} from "@tauri-apps/api/window";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Status } from "../types/status";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
+import { usePeers } from "../hooks/usePeers";
 import "../styles/status-pill.css";
 
 interface StatusPillProps {
   status: Status;
   glow?: boolean;
+  /**
+   * Disables the lan (peer) icon — used during a visit when the user
+   * can't start a second one. The task icon (session list) is always
+   * available regardless of visiting state.
+   */
+  disabled?: boolean;
+  /**
+   * Notifies parent when the session-list dropdown open state changes.
+   * App uses this to pause window auto-size and manually grow the Tauri
+   * window while the fixed-positioned dropdown is visible.
+   */
+  onOpenChange?: (open: boolean) => void;
 }
 
 const dotClassMap: Record<Status, string> = {
@@ -66,7 +85,6 @@ function groupBasename(g: { pwd: string; pretty: string; sessions: SessionInfo[]
     const leaf = g.pwd.split("/").filter(Boolean).pop();
     if (leaf) return leaf;
   }
-  // Fallback: if no pwd, use the pretty (already may be title/pid fallback).
   return g.pretty || g.sessions[0]?.title || "";
 }
 
@@ -74,7 +92,6 @@ function groupBasename(g: { pwd: string; pretty: string; sessions: SessionInfo[]
 function shellLabel(s: SessionInfo): string {
   if (s.has_claude) return "claude";
   if (s.fg_cmd) {
-    // Some commands have "-" prefix when run as login shells ("-zsh" etc) — strip it.
     return s.fg_cmd.replace(/^-/, "");
   }
   if (s.ui_state === "busy" && s.busy_type) return s.busy_type;
@@ -92,17 +109,13 @@ interface Group {
 }
 
 function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
-  // Find pid=0 (legacy Claude shared virtual) — only used as a fallback bucket.
   const claudeVirtual = sessions.find((s) => s.pid === 0);
   const anyShellHasClaude = sessions.some((s) => s.pid !== 0 && s.has_claude);
 
-  // Group real shells by PWD. If pwd is unknown (rare — scanner couldn't read
-  // cwd), fall back to title so the row still shows something meaningful
-  // instead of vanishing.
   const byKey = new Map<string, { pwd: string; list: SessionInfo[] }>();
   for (const s of sessions) {
-    if (s.pid === 0) continue;       // legacy shared virtual
-    if (s.is_claude_proc) continue;  // claude process — represented by its parent shell
+    if (s.pid === 0) continue;
+    if (s.is_claude_proc) continue;
     const key = s.pwd || s.title || String(s.pid);
     if (!byKey.has(key)) byKey.set(key, { pwd: s.pwd, list: [] });
     byKey.get(key)!.list.push(s);
@@ -123,7 +136,6 @@ function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
     });
   }
 
-  // Active groups first, then alphabetical.
   groups.sort((a, b) => {
     const pa = statePriority[a.state] ?? 0;
     const pb = statePriority[b.state] ?? 0;
@@ -131,7 +143,6 @@ function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
     return a.pretty.localeCompare(b.pretty);
   });
 
-  // Fallback: if proc_scan found no claude but hooks report one, show it.
   if (claudeVirtual && !anyShellHasClaude) {
     groups.push({
       key: "claude-virtual",
@@ -146,7 +157,6 @@ function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
   return groups;
 }
 
-// Detect user's home dir from the first absolute path we see.
 function detectHome(sessions: SessionInfo[]): string | undefined {
   for (const s of sessions) {
     const m = s.pwd.match(/^(\/Users\/[^/]+|\/home\/[^/]+)/);
@@ -155,11 +165,6 @@ function detectHome(sessions: SessionInfo[]): string | undefined {
   return undefined;
 }
 
-/** The watchdog auto-flips `ui_state` from "service" back to "idle" after 2
- *  seconds (so the global pill doesn't lock blue while a dev server runs).
- *  But `busy_type` stays "service" until precmd fires — which long-running
- *  servers never do. So in the dropdown we trust busy_type and re-assert the
- *  service color for the whole lifetime of the dev server. */
 function reflectActiveServices(sessions: SessionInfo[]): SessionInfo[] {
   return sessions.map((s) =>
     s.busy_type === "service" && s.ui_state === "idle"
@@ -168,25 +173,15 @@ function reflectActiveServices(sessions: SessionInfo[]): SessionInfo[] {
   );
 }
 
-/** Claude Code's busy/idle state lives on a separate session — either the
- *  per-claude PID (after the pid=$PPID hook migration) or the legacy shared
- *  pid=0. Overlay that state onto each shell with has_claude=true so the
- *  dropdown dot reflects what that specific Claude is doing.
- *
- *  Each claude-hosting shell gets the state of ITS OWN claude_pid session, so
- *  two Claude tabs no longer turn red together when only one is busy. */
 function overlayClaudeState(sessions: SessionInfo[]): SessionInfo[] {
   const sessionByPid = new Map<number, SessionInfo>();
   for (const s of sessions) sessionByPid.set(s.pid, s);
 
   return sessions.map((s) => {
     if (!s.has_claude) return s;
-
-    // Prefer the dedicated per-claude PID; fall back to legacy pid=0.
     const claudeSession =
       (s.claude_pid != null && sessionByPid.get(s.claude_pid)) ||
       sessionByPid.get(0);
-
     if (!claudeSession) return s;
     const claudeP = statePriority[claudeSession.ui_state] ?? 0;
     const ownP = statePriority[s.ui_state] ?? 0;
@@ -194,39 +189,76 @@ function overlayClaudeState(sessions: SessionInfo[]): SessionInfo[] {
   });
 }
 
-export function StatusPill({ status, glow }: StatusPillProps) {
-  const [open, setOpen] = useState(false);
+/** Width of the peer-list popover window — must match tauri.conf.json. */
+const POPOVER_WIDTH = 280;
+/** Negative offset overlaps the popover's 12px shadow-buffer padding. */
+const POPOVER_TOP_GAP = -8;
+
+async function computePopoverScreenPos(
+  anchorEl: HTMLElement
+): Promise<LogicalPosition> {
+  const main = getCurrentWindow();
+  const mainPos = await main.outerPosition();
+  const scale = await main.scaleFactor();
+
+  const pill = anchorEl.closest(".pill") ?? anchorEl;
+  const rect = (pill as HTMLElement).getBoundingClientRect();
+
+  const mainLogical =
+    mainPos instanceof PhysicalPosition ? mainPos.toLogical(scale) : mainPos;
+
+  const centerX = mainLogical.x + rect.left + rect.width / 2;
+  const left = centerX - POPOVER_WIDTH / 2;
+  const top = mainLogical.y + rect.bottom + POPOVER_TOP_GAP;
+  return new LogicalPosition(Math.round(left), Math.round(top));
+}
+
+export function StatusPill({ status, glow, disabled = false, onOpenChange }: StatusPillProps) {
+  // --- Session list state ---
+  const [sessionOpen, setSessionOpen] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [dropdownTop, setDropdownTop] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
   const { enabled: sessionListEnabled } = useSessionList();
   const { collapsed, toggle: toggleCollapsed } = useCollapsedSessionGroups();
 
-  const toggleOpen = async (e: React.MouseEvent) => {
-    if (!sessionListEnabled) return; // feature disabled — pill is not clickable
+  // --- Peer popover state ---
+  const peers = usePeers();
+  const [peerOpen, setPeerOpen] = useState(false);
+  const lanButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    onOpenChange?.(sessionOpen);
+  }, [sessionOpen, onOpenChange]);
+
+  useEffect(() => {
+    if (!sessionOpen) return;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setDropdownTop(rect.bottom + 6);
+  }, [sessionOpen]);
+
+  const toggleSession = async (e: React.MouseEvent) => {
+    if (!sessionListEnabled) return;
     e.preventDefault();
     e.stopPropagation();
-    if (open) {
-      setOpen(false);
+    if (sessionOpen) {
+      setSessionOpen(false);
       return;
     }
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
     setGroups(groupSessions(overlaid, detectHome(overlaid)));
-    setOpen(true);
+    setSessionOpen(true);
   };
 
-  // If the user disables the feature while the dropdown is open, close it.
   useEffect(() => {
-    if (!sessionListEnabled && open) setOpen(false);
-  }, [sessionListEnabled, open]);
+    if (!sessionListEnabled && sessionOpen) setSessionOpen(false);
+  }, [sessionListEnabled, sessionOpen]);
 
-  // Live updates while the dropdown is open. Hybrid strategy:
-  //   • Listen to `status-changed` Tauri events for instant busy/idle reflection
-  //   • Plus a 3s fallback poll for proc_scan-driven changes (new tabs, cd,
-  //     fg_cmd updates) that don't fire status-changed
-  // Costs ~5ms per refresh; total well under 1Hz average while open.
+  // Live session refresh while dropdown is open.
   useEffect(() => {
-    if (!open) return;
+    if (!sessionOpen) return;
     let cancelled = false;
 
     const refresh = async () => {
@@ -236,12 +268,9 @@ export function StatusPill({ status, glow }: StatusPillProps) {
       setGroups(groupSessions(overlaid, detectHome(overlaid)));
     };
 
-    // Subscribe to backend state-change events.
     const unlistenP = listen("status-changed", () => {
       void refresh();
     });
-
-    // Fallback poll covers OS-scan changes that don't emit status-changed.
     const id = setInterval(refresh, 3000);
 
     return () => {
@@ -249,42 +278,172 @@ export function StatusPill({ status, glow }: StatusPillProps) {
       clearInterval(id);
       unlistenP.then((fn) => fn());
     };
-  }, [open]);
+  }, [sessionOpen]);
 
-  // Close on outside click or Escape.
+  // Session dropdown closes ONLY on Escape, pill-toggle, or item click.
   useEffect(() => {
-    if (!open) return;
-
-    const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
+    if (!sessionOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") setSessionOpen(false);
     };
-    window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sessionOpen]);
+
+  // --- Peer popover effects ---
+  useEffect(() => {
+    if (!disabled) return;
+    void (async () => {
+      const popover = await WebviewWindow.getByLabel("peer-list");
+      await popover?.hide().catch(() => {});
+    })();
+    setPeerOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const popover = await WebviewWindow.getByLabel("peer-list");
+      if (!popover) return;
+      const fn = await popover.onFocusChanged(({ payload: focused }) => {
+        if (!focused) setPeerOpen(false);
+      });
+      unlisten = fn;
+    })();
     return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
+      unlisten?.();
     };
-  }, [open]);
+  }, []);
+
+  useEffect(() => {
+    if (!peerOpen) return;
+    const main = getCurrentWindow();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      const popover = await WebviewWindow.getByLabel("peer-list");
+      if (!popover || cancelled) return;
+      const handler = async () => {
+        if (!lanButtonRef.current) return;
+        if (!(await popover.isVisible())) return;
+        const pos = await computePopoverScreenPos(lanButtonRef.current);
+        await popover.setPosition(pos).catch(() => {});
+      };
+      const fn = await main.onMoved(handler);
+      unlisten = fn;
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [peerOpen]);
+
+  const togglePeer = async (e: React.MouseEvent) => {
+    if (disabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!lanButtonRef.current) return;
+
+    const popover = await WebviewWindow.getByLabel("peer-list");
+    if (!popover) {
+      console.error("[status-pill] peer-list window not found");
+      return;
+    }
+
+    const visible = await popover.isVisible();
+    if (visible) {
+      await popover.hide();
+      setPeerOpen(false);
+      return;
+    }
+
+    const pos = await computePopoverScreenPos(lanButtonRef.current);
+    await popover.setPosition(pos);
+    await popover.show();
+    await popover.setFocus();
+    setPeerOpen(true);
+  };
+
+  const peerTooltip = disabled
+    ? "Already visiting someone"
+    : peers.length === 0
+      ? "No peers nearby"
+      : `${peers.length} peer${peers.length === 1 ? "" : "s"} nearby`;
 
   return (
     <div ref={wrapRef} className="pill-wrap" data-testid="status-pill-wrap">
       <div
         data-testid="status-pill"
-        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${open ? "is-open" : ""} ${!sessionListEnabled ? "no-dropdown" : ""}`}
-        onClick={toggleOpen}
+        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${sessionOpen || peerOpen ? "is-open" : ""}`}
       >
         <span data-testid="status-dot" className={dotClassMap[status] ?? "dot searching"} />
-        <span data-testid="status-label" className="label">{labelMap[status] ?? "Searching..."}</span>
-        {sessionListEnabled && (
-          <span className={`caret ${open ? "up" : ""}`} aria-hidden="true" />
-        )}
+        <span data-testid="status-label" className="label">
+          {labelMap[status] ?? "Searching..."}
+        </span>
+
+        <div className="pill-actions" data-testid="pill-actions">
+          {sessionListEnabled && (
+            <button
+              type="button"
+              data-testid="pill-action-task"
+              className={`pill-action-btn ${sessionOpen ? "is-active" : ""}`}
+              onClick={toggleSession}
+              aria-label="Show sessions list"
+              aria-expanded={sessionOpen}
+              title="Session list"
+            >
+              <svg
+                className="pill-action-icon"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" />
+              </svg>
+            </button>
+          )}
+
+          <button
+            ref={lanButtonRef}
+            type="button"
+            data-testid="pill-action-lan"
+            className={`pill-action-btn ${peerOpen ? "is-active" : ""} ${peers.length > 0 ? "has-peers" : ""}`}
+            onClick={togglePeer}
+            disabled={disabled}
+            aria-label={`Mime Around You (${peers.length})`}
+            aria-expanded={peerOpen}
+            title={peerTooltip}
+          >
+            <svg
+              className="pill-action-icon"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M9 2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2v3H5a1 1 0 0 0-1 1v1h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H6v-1h12v1h-1a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h5a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1h-2v-1a1 1 0 0 0-1-1h-6V9h2a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H9z" />
+            </svg>
+            {peers.length > 0 && (
+              <span className="pill-action-badge" data-testid="pill-action-lan-badge">
+                {peers.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
-      {sessionListEnabled && open && (
-        <div data-testid="session-dropdown" className="session-dropdown" role="menu">
+      {sessionListEnabled && sessionOpen && (
+        <div
+          data-testid="session-dropdown"
+          className="session-dropdown"
+          role="menu"
+          style={{ top: `${dropdownTop}px` }}
+        >
           {groups.length === 0 ? (
             <div className="session-empty">No active terminals</div>
           ) : (
@@ -316,63 +475,63 @@ export function StatusPill({ status, glow }: StatusPillProps) {
                 </>
               );
               return (
-              <div
-                key={g.key}
-                className={`session-group ${g.isClaudeFallback ? "claude" : ""}`}
-                data-testid={`session-group-${g.key}`}
-              >
-                {g.isClaudeFallback ? (
-                  <div className="session-group-head">{headContent}</div>
-                ) : (
-                  <button
-                    type="button"
-                    className={`session-group-head clickable ${isCollapsed ? "collapsed" : ""}`}
-                    data-testid={`session-group-head-${g.key}`}
-                    aria-expanded={!isCollapsed}
-                    aria-controls={`session-children-${g.key}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void toggleCollapsed(g.key);
-                    }}
-                  >
-                    {headContent}
-                  </button>
-                )}
+                <div
+                  key={g.key}
+                  className={`session-group ${g.isClaudeFallback ? "claude" : ""}`}
+                  data-testid={`session-group-${g.key}`}
+                >
+                  {g.isClaudeFallback ? (
+                    <div className="session-group-head">{headContent}</div>
+                  ) : (
+                    <button
+                      type="button"
+                      className={`session-group-head clickable ${isCollapsed ? "collapsed" : ""}`}
+                      data-testid={`session-group-head-${g.key}`}
+                      aria-expanded={!isCollapsed}
+                      aria-controls={`session-children-${g.key}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleCollapsed(g.key);
+                      }}
+                    >
+                      {headContent}
+                    </button>
+                  )}
 
-                {!g.isClaudeFallback && !isCollapsed && (
-                  <div
-                    className="session-children"
-                    id={`session-children-${g.key}`}
-                  >
-                    {g.sessions.map((s) => (
-                      <button
-                        key={s.pid}
-                        type="button"
-                        className={`session-child ${s.has_claude ? "has-claude" : ""}`}
-                        data-testid={`session-item-${s.pid}`}
-                        title="Click to bring this terminal to the front"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          invoke("focus_terminal", { pid: s.pid, tty: s.tty || null })
-                            .catch((err) => console.error("[focus_terminal]", err));
-                          setOpen(false);
-                        }}
-                      >
-                        <span className={`dot small ${s.ui_state}`} />
-                        <span className="session-child-label-row">
-                          <span className="session-child-label">{shellLabel(s)}</span>
-                          {s.has_claude && (
-                            <span
-                              className="session-child-claude"
-                              aria-label="Claude Code running"
-                            />
-                          )}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+                  {!g.isClaudeFallback && !isCollapsed && (
+                    <div
+                      className="session-children"
+                      id={`session-children-${g.key}`}
+                    >
+                      {g.sessions.map((s) => (
+                        <button
+                          key={s.pid}
+                          type="button"
+                          className={`session-child ${s.has_claude ? "has-claude" : ""}`}
+                          data-testid={`session-item-${s.pid}`}
+                          title="Click to bring this terminal to the front"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            invoke("focus_terminal", { pid: s.pid, tty: s.tty || null })
+                              .catch((err) => console.error("[focus_terminal]", err));
+                            setSessionOpen(false);
+                          }}
+                        >
+                          <span className={`dot small ${s.ui_state}`} />
+                          <span className="session-child-label-row">
+                            <span className="session-child-label">{shellLabel(s)}</span>
+                            {s.has_claude && (
+                              <span
+                                className="session-child-claude"
+                                aria-label="Claude Code running"
+                              />
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             })
           )}
