@@ -12,6 +12,7 @@ import { useAutoInstall } from "../hooks/useAutoInstall";
 import { useDockVisible } from "../hooks/useDockVisible";
 import { useTrayVisible } from "../hooks/useTrayVisible";
 import { useSessionList } from "../hooks/useSessionList";
+import { useLanList } from "../hooks/useLanList";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
 import { effects, useEffectEnabled } from "../effects";
@@ -85,6 +86,7 @@ export function Settings() {
   const { hidden: dockHidden, setHidden: setDockHidden } = useDockVisible();
   const { hidden: trayHidden, setHidden: setTrayHidden } = useTrayVisible();
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
+  const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
   const claude = useClaudeConfig();
@@ -390,6 +392,37 @@ export function Settings() {
             </div>
           </div>
           <div className="settings-section">
+            <div className="settings-section-title">Status Bar</div>
+            <div className="settings-card">
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Session List</span>
+                  <span className="settings-row-hint">Click the status pill to see all open terminals grouped by project, with click-to-focus.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${sessionListEnabled ? "active" : ""}`}
+                  onClick={() => setSessionListEnabled(!sessionListEnabled)}
+                  data-testid="session-list-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">LAN Peer List</span>
+                  <span className="settings-row-hint">Show the nearby-peers icon on the status pill. Turn off to hide it entirely.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${lanListEnabled ? "active" : ""}`}
+                  onClick={() => setLanListEnabled(!lanListEnabled)}
+                  data-testid="lan-list-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="settings-section">
             <div className="settings-section-title">Behavior</div>
             <div className="settings-card">
               <div className="settings-row">
@@ -475,19 +508,6 @@ export function Settings() {
                   aria-disabled={dockHidden}
                   title={dockHidden ? "Locked on while Dock is hidden" : undefined}
                   data-testid="show-tray-toggle"
-                >
-                  <span className="toggle-knob" />
-                </button>
-              </div>
-              <div className="settings-row with-hint">
-                <div>
-                  <span className="settings-row-label">Session List</span>
-                  <span className="settings-row-hint">Click the status pill to see all open terminals grouped by project, with click-to-focus.</span>
-                </div>
-                <button
-                  className={`toggle-switch ${sessionListEnabled ? "active" : ""}`}
-                  onClick={() => setSessionListEnabled(!sessionListEnabled)}
-                  data-testid="session-list-toggle"
                 >
                   <span className="toggle-knob" />
                 </button>

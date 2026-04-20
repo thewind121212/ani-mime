@@ -31,10 +31,18 @@
   pointer-events: auto;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   white-space: nowrap;
-  /* Minimum width keeps the layout stable when the status label is
-     short ("Free") vs long ("Initializing...") — prevents the action
-     icons from jiggling as status text changes. */
-  min-width: 150px;
+}
+
+/* When no action buttons are visible, tighten the right padding so
+   the pill symmetrically hugs the label. */
+.pill.no-lan.no-tasks {
+  padding-right: 11px;
+}
+
+/* Collapse the actions container when it has no visible children so
+   the parent flex `gap` stops reserving space before it. */
+.pill-actions:empty {
+  display: none;
 }
 
 .pill.is-open {
@@ -42,14 +50,16 @@
   border-color: var(--border-pill-hover);
 }
 
-/* --- Action buttons cluster on the right --- */
+/* --- Action buttons cluster on the right ---
+   Sits after the label with ~12px of breathing room: 6px flex gap
+   from the parent plus an extra 6px margin-left. We no longer use
+   `margin-left: auto` because the pill is content-sized, so there's
+   no excess space to push through. */
 .pill-actions {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  /* margin-left: auto pushes the cluster to the right so dot+label hug
-     the left and the icons hug the right with a flexible spacer between. */
-  margin-left: auto;
+  margin-left: 6px;
   pointer-events: auto;
 }
 

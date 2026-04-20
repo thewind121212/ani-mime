@@ -14,7 +14,11 @@ import { useScale } from "./hooks/useScale";
 import { useDevMode } from "./hooks/useDevMode";
 import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
 import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import {
+  getCurrentWindow,
+  LogicalPosition,
+  LogicalSize,
+} from "@tauri-apps/api/window";
 import "./styles/theme.css";
 import "./styles/app.css";
 
@@ -37,20 +41,65 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
+  // Window position captured when the dropdown opens, restored on close.
+  // Keeping this as a ref avoids triggering a re-render when we record it.
+  const savedPosRef = useRef<LogicalPosition | null>(null);
   useTheme();
   // Pause auto-size while the session dropdown is open — we manually
   // grow the window so the absolute-positioned dropdown has room.
   useWindowAutoSize(containerRef, effectActive || sessionOpen);
 
+  // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
+  // Because #root centers its content, a wider window visibly shifts the
+  // pet + pill rightward. To keep the pet visually anchored we also move
+  // the window left by half the width growth. On close we restore both
+  // size and position so the pet returns to its original spot.
   useEffect(() => {
-    if (!sessionOpen) return;
-    const el = containerRef.current;
-    if (!el) return;
-    const width = Math.max(el.offsetWidth, SESSION_DROPDOWN_MIN_WIDTH);
-    const height = el.offsetHeight + SESSION_DROPDOWN_EXTRA_HEIGHT;
-    getCurrentWindow()
-      .setSize(new LogicalSize(width, height))
-      .catch((err) => console.error("[session-dropdown] setSize failed:", err));
+    const win = getCurrentWindow();
+
+    if (sessionOpen) {
+      const el = containerRef.current;
+      if (!el) return;
+      const currentWidth = el.offsetWidth;
+      const currentHeight = el.offsetHeight;
+      const newWidth = Math.max(currentWidth, SESSION_DROPDOWN_MIN_WIDTH);
+      const newHeight = currentHeight + SESSION_DROPDOWN_EXTRA_HEIGHT;
+      const dx = newWidth - currentWidth;
+
+      void (async () => {
+        try {
+          const scale = await win.scaleFactor();
+          const pos = await win.outerPosition();
+          const logical = pos.toLogical(scale);
+          const origX = Math.round(logical.x);
+          const origY = Math.round(logical.y);
+          savedPosRef.current = new LogicalPosition(origX, origY);
+          await win.setPosition(
+            new LogicalPosition(origX - Math.round(dx / 2), origY)
+          );
+          await win.setSize(new LogicalSize(newWidth, newHeight));
+        } catch (err) {
+          console.error("[session-dropdown] open resize failed:", err);
+        }
+      })();
+      return;
+    }
+
+    const savedPos = savedPosRef.current;
+    if (!savedPos) return;
+    savedPosRef.current = null;
+
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        if (el) {
+          await win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight));
+        }
+        await win.setPosition(savedPos);
+      } catch (err) {
+        console.error("[session-dropdown] close resize failed:", err);
+      }
+    })();
   }, [sessionOpen]);
 
   return (

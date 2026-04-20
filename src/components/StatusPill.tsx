@@ -10,6 +10,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Status } from "../types/status";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
+import { useLanList } from "../hooks/useLanList";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import { usePeers } from "../hooks/usePeers";
 import "../styles/status-pill.css";
@@ -224,6 +225,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
 
   // --- Peer popover state ---
   const peers = usePeers();
+  const { enabled: lanListEnabled } = useLanList();
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -292,13 +294,13 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
 
   // --- Peer popover effects ---
   useEffect(() => {
-    if (!disabled) return;
+    if (!disabled && lanListEnabled) return;
     void (async () => {
       const popover = await WebviewWindow.getByLabel("peer-list");
       await popover?.hide().catch(() => {});
     })();
     setPeerOpen(false);
-  }, [disabled]);
+  }, [disabled, lanListEnabled]);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -376,7 +378,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     <div ref={wrapRef} className="pill-wrap" data-testid="status-pill-wrap">
       <div
         data-testid="status-pill"
-        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${sessionOpen || peerOpen ? "is-open" : ""}`}
+        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${sessionOpen || peerOpen ? "is-open" : ""} ${!lanListEnabled ? "no-lan" : ""} ${!sessionListEnabled ? "no-tasks" : ""}`}
       >
         <span data-testid="status-dot" className={dotClassMap[status] ?? "dot searching"} />
         <span data-testid="status-label" className="label">
@@ -407,6 +409,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
             </button>
           )}
 
+          {lanListEnabled && (
           <button
             ref={lanButtonRef}
             type="button"
@@ -434,6 +437,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
               </span>
             )}
           </button>
+          )}
         </div>
       </div>
 
