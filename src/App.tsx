@@ -41,19 +41,31 @@ function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
+  // Stays true from the moment the dropdown starts closing until the
+  // window has been fully resized and repositioned. Keeps
+  // useWindowAutoSize paused across the whole transition so it can't
+  // race this effect with its own setSize (which would otherwise flash
+  // the content at the wrong position for a frame).
+  const [sessionClosing, setSessionClosing] = useState(false);
   // Window position captured when the dropdown opens, restored on close.
   // Keeping this as a ref avoids triggering a re-render when we record it.
   const savedPosRef = useRef<LogicalPosition | null>(null);
   useTheme();
-  // Pause auto-size while the session dropdown is open — we manually
-  // grow the window so the absolute-positioned dropdown has room.
-  useWindowAutoSize(containerRef, effectActive || sessionOpen);
+  useWindowAutoSize(
+    containerRef,
+    effectActive || sessionOpen || sessionClosing
+  );
 
   // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
   // Because #root centers its content, a wider window visibly shifts the
   // pet + pill rightward. To keep the pet visually anchored we also move
   // the window left by half the width growth. On close we restore both
   // size and position so the pet returns to its original spot.
+  //
+  // setSize + setPosition are fired in parallel via Promise.all so they
+  // commit close to the same native-window frame — otherwise the
+  // sequential awaits make one change visible before the other and the
+  // pet flickers between positions.
   useEffect(() => {
     const win = getCurrentWindow();
 
@@ -74,10 +86,12 @@ function App() {
           const origX = Math.round(logical.x);
           const origY = Math.round(logical.y);
           savedPosRef.current = new LogicalPosition(origX, origY);
-          await win.setPosition(
-            new LogicalPosition(origX - Math.round(dx / 2), origY)
-          );
-          await win.setSize(new LogicalSize(newWidth, newHeight));
+          await Promise.all([
+            win.setPosition(
+              new LogicalPosition(origX - Math.round(dx / 2), origY)
+            ),
+            win.setSize(new LogicalSize(newWidth, newHeight)),
+          ]);
         } catch (err) {
           console.error("[session-dropdown] open resize failed:", err);
         }
@@ -86,18 +100,28 @@ function App() {
     }
 
     const savedPos = savedPosRef.current;
-    if (!savedPos) return;
+    if (!savedPos) {
+      // Nothing to revert — make sure we don't leave sessionClosing
+      // stuck true (onOpenChange flipped it optimistically).
+      setSessionClosing(false);
+      return;
+    }
     savedPosRef.current = null;
 
     void (async () => {
       try {
         const el = containerRef.current;
+        const ops: Promise<void>[] = [win.setPosition(savedPos)];
         if (el) {
-          await win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight));
+          ops.push(
+            win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))
+          );
         }
-        await win.setPosition(savedPos);
+        await Promise.all(ops);
       } catch (err) {
         console.error("[session-dropdown] close resize failed:", err);
+      } finally {
+        setSessionClosing(false);
       }
     })();
   }, [sessionOpen]);
@@ -120,7 +144,16 @@ function App() {
           status={status}
           glow={visible}
           disabled={status === "visiting"}
-          onOpenChange={setSessionOpen}
+          onOpenChange={(open) => {
+            // Flip sessionClosing to true in the SAME render batch that
+            // sessionOpen becomes false — this keeps useWindowAutoSize
+            // paused across the whole close transition, otherwise its
+            // effect re-runs synchronously with paused=false and fires
+            // an extra setSize that flashes the content at the wrong
+            // position for a frame.
+            if (!open) setSessionClosing(true);
+            setSessionOpen(open);
+          }}
         />
         {devMode && <DevTag />}
       </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -127,6 +128,12 @@ function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
     const pretty = pwd
       ? prettyPath(pwd, home)
       : list[0].title || `pid ${list[0].pid}`;
+    // Sort children within a group by pid so row order stays stable
+    // across refreshes. The backend returns sessions from a HashMap,
+    // so iteration order can change between invocations — without this
+    // sort, rows can swap under the cursor every 3s refresh and the
+    // CSS :hover highlight flickers off the row you're hovering.
+    list.sort((a, b) => a.pid - b.pid);
     groups.push({
       key,
       pwd,
@@ -228,6 +235,24 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const { enabled: lanListEnabled } = useLanList();
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
+
+  // --- Session-group path tooltip (portaled to body so the dropdown's
+  // overflow:auto doesn't clip it when it renders above the first row). ---
+  const [pathTooltip, setPathTooltip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const showPathTooltip = (el: HTMLElement, text: string) => {
+    const rect = el.getBoundingClientRect();
+    setPathTooltip({
+      text,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top),
+    });
+  };
+  const hidePathTooltip = () => setPathTooltip(null);
 
   useEffect(() => {
     onOpenChange?.(sessionOpen);
@@ -466,8 +491,11 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
                     {g.pretty && g.pretty !== groupBasename(g) && (
                       <span
                         className="session-group-info"
-                        data-path={g.pretty}
                         aria-label={`Full path: ${g.pretty}`}
+                        onMouseEnter={(e) =>
+                          showPathTooltip(e.currentTarget, g.pretty)
+                        }
+                        onMouseLeave={hidePathTooltip}
                       >
                         ?
                       </span>
@@ -541,6 +569,18 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
           )}
         </div>
       )}
+
+      {pathTooltip &&
+        createPortal(
+          <div
+            className="session-path-tooltip"
+            style={{ left: pathTooltip.x, top: pathTooltip.y }}
+            role="tooltip"
+          >
+            {pathTooltip.text}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
