@@ -82,6 +82,7 @@ function App() {
               key={v.instance_name || v.nickname || `${i}`}
               pet={v.pet}
               nickname={v.nickname}
+              message={v.message}
               index={i}
             />
           ))}

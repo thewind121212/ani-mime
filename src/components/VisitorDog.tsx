@@ -12,20 +12,29 @@ interface VisitorDogProps {
   pet: string;
   nickname: string;
   index: number;
+  /** Optional chat message from the sender. When present, replaces the
+   *  random greeting and stays visible the whole visit. */
+  message?: string;
 }
 
-export function VisitorDog({ pet, nickname, index }: VisitorDogProps) {
+export function VisitorDog({ pet, nickname, message, index }: VisitorDogProps) {
   const [entered, setEntered] = useState(false);
-  // Pick a greeting once on mount and show it briefly as a speech bubble.
-  // useMemo keeps the same line across re-renders (e.g. when scale changes).
-  const greeting = useMemo(() => randomGreeting(), []);
+  // If the sender attached a message, show that verbatim and keep it
+  // visible for the full visit. Otherwise pick a random greeting and
+  // auto-hide it after GREETING_DURATION_MS.
+  const hasMessage = !!message;
+  const greeting = useMemo(
+    () => message ?? randomGreeting(),
+    [message]
+  );
   const [greetingVisible, setGreetingVisible] = useState(true);
   const { scale } = useScale();
 
   useEffect(() => {
+    if (hasMessage) return; // messages stay visible for the whole visit
     const id = setTimeout(() => setGreetingVisible(false), GREETING_DURATION_MS);
     return () => clearTimeout(id);
-  }, []);
+  }, [hasMessage]);
 
   // Resolve the peer's advertised pet against pets we can actually render.
   // Peers can advertise custom-* mime ids that don't exist on this instance;
@@ -62,7 +71,7 @@ export function VisitorDog({ pet, nickname, index }: VisitorDogProps) {
     >
       {greetingVisible && (
         <div
-          className="visitor-greeting"
+          className={`visitor-greeting ${hasMessage ? "is-message" : ""}`}
           data-testid={`visitor-greeting-${index}`}
           onClick={() => setGreetingVisible(false)}
           title="Click to dismiss"
