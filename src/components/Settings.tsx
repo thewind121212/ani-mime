@@ -12,8 +12,10 @@ import { useAutoInstall } from "../hooks/useAutoInstall";
 import { useDockVisible } from "../hooks/useDockVisible";
 import { useTrayVisible } from "../hooks/useTrayVisible";
 import { useSessionList } from "../hooks/useSessionList";
+import { useLanList } from "../hooks/useLanList";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
+import { useOpacity, OPACITY_MIN, OPACITY_MAX } from "../hooks/useOpacity";
 import { effects, useEffectEnabled } from "../effects";
 import { useCustomMimes, ALL_STATUSES } from "../hooks/useCustomMimes";
 import { SmartImport } from "./SmartImport";
@@ -85,7 +87,35 @@ export function Settings() {
   const { hidden: dockHidden, setHidden: setDockHidden } = useDockVisible();
   const { hidden: trayHidden, setHidden: setTrayHidden } = useTrayVisible();
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
+  const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
+  const mimeOpacityHook = useOpacity("mime");
+  const statusOpacityHook = useOpacity("status");
+  const [draftMimeOpacity, setDraftMimeOpacity] = useState(1);
+  const [savedMimeOpacity, setSavedMimeOpacity] = useState(1);
+  const [mimeOpacityLoaded, setMimeOpacityLoaded] = useState(false);
+  const [draftStatusOpacity, setDraftStatusOpacity] = useState(1);
+  const [savedStatusOpacity, setSavedStatusOpacity] = useState(1);
+  const [statusOpacityLoaded, setStatusOpacityLoaded] = useState(false);
+  const mimeOpacityChanged = mimeOpacityLoaded && Math.abs(draftMimeOpacity - savedMimeOpacity) > 0.001;
+  const statusOpacityChanged = statusOpacityLoaded && Math.abs(draftStatusOpacity - savedStatusOpacity) > 0.001;
+
+  useEffect(() => {
+    mimeOpacityHook.loadSavedOpacity().then((v) => {
+      setDraftMimeOpacity(v);
+      setSavedMimeOpacity(v);
+      setMimeOpacityLoaded(true);
+    });
+    statusOpacityHook.loadSavedOpacity().then((v) => {
+      setDraftStatusOpacity(v);
+      setSavedStatusOpacity(v);
+      setStatusOpacityLoaded(true);
+    });
+    return () => {
+      mimeOpacityHook.loadSavedOpacity().then((v) => mimeOpacityHook.previewOpacity(v));
+      statusOpacityHook.loadSavedOpacity().then((v) => statusOpacityHook.previewOpacity(v));
+    };
+  }, []);
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
   const claude = useClaudeConfig();
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
@@ -390,6 +420,116 @@ export function Settings() {
             </div>
           </div>
           <div className="settings-section">
+            <div className="settings-section-title">Transparency</div>
+            <div className="settings-card">
+              <div className="settings-row-stack">
+                <div>
+                  <span className="settings-row-label">Mime Opacity</span>
+                  <span className="settings-row-hint">How transparent your mime looks. Drag to preview, Save to keep.</span>
+                </div>
+                <div className="opacity-slider-group">
+                  <input
+                    type="range"
+                    className="opacity-slider"
+                    min={OPACITY_MIN}
+                    max={OPACITY_MAX}
+                    step={0.05}
+                    value={draftMimeOpacity}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setDraftMimeOpacity(v);
+                      mimeOpacityHook.previewOpacity(v);
+                    }}
+                    data-testid="mime-opacity-slider"
+                    aria-label="Mime opacity"
+                  />
+                  <span className="opacity-value" data-testid="mime-opacity-value">
+                    {Math.round(draftMimeOpacity * 100)}%
+                  </span>
+                  <button
+                    className={`nickname-save ${mimeOpacityChanged ? "active" : ""}`}
+                    disabled={!mimeOpacityChanged}
+                    onClick={async () => {
+                      await mimeOpacityHook.setOpacity(draftMimeOpacity);
+                      setSavedMimeOpacity(draftMimeOpacity);
+                    }}
+                    data-testid="mime-opacity-save"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              <div className="settings-row-stack">
+                <div>
+                  <span className="settings-row-label">Status Bar Opacity</span>
+                  <span className="settings-row-hint">How transparent the status pill looks. Drag to preview, Save to keep.</span>
+                </div>
+                <div className="opacity-slider-group">
+                  <input
+                    type="range"
+                    className="opacity-slider"
+                    min={OPACITY_MIN}
+                    max={OPACITY_MAX}
+                    step={0.05}
+                    value={draftStatusOpacity}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setDraftStatusOpacity(v);
+                      statusOpacityHook.previewOpacity(v);
+                    }}
+                    data-testid="status-opacity-slider"
+                    aria-label="Status bar opacity"
+                  />
+                  <span className="opacity-value" data-testid="status-opacity-value">
+                    {Math.round(draftStatusOpacity * 100)}%
+                  </span>
+                  <button
+                    className={`nickname-save ${statusOpacityChanged ? "active" : ""}`}
+                    disabled={!statusOpacityChanged}
+                    onClick={async () => {
+                      await statusOpacityHook.setOpacity(draftStatusOpacity);
+                      setSavedStatusOpacity(draftStatusOpacity);
+                    }}
+                    data-testid="status-opacity-save"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="settings-section">
+            <div className="settings-section-title">Status Bar</div>
+            <div className="settings-card">
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Session List</span>
+                  <span className="settings-row-hint">Click the status pill to see all open terminals grouped by project, with click-to-focus.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${sessionListEnabled ? "active" : ""}`}
+                  onClick={() => setSessionListEnabled(!sessionListEnabled)}
+                  data-testid="session-list-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">LAN Peer List</span>
+                  <span className="settings-row-hint">Show the nearby-peers icon on the status pill. Turn off to hide it entirely.</span>
+                </div>
+                <button
+                  className={`toggle-switch ${lanListEnabled ? "active" : ""}`}
+                  onClick={() => setLanListEnabled(!lanListEnabled)}
+                  data-testid="lan-list-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="settings-section">
             <div className="settings-section-title">Behavior</div>
             <div className="settings-card">
               <div className="settings-row">
@@ -475,19 +615,6 @@ export function Settings() {
                   aria-disabled={dockHidden}
                   title={dockHidden ? "Locked on while Dock is hidden" : undefined}
                   data-testid="show-tray-toggle"
-                >
-                  <span className="toggle-knob" />
-                </button>
-              </div>
-              <div className="settings-row with-hint">
-                <div>
-                  <span className="settings-row-label">Session List</span>
-                  <span className="settings-row-hint">Click the status pill to see all open terminals grouped by project, with click-to-focus.</span>
-                </div>
-                <button
-                  className={`toggle-switch ${sessionListEnabled ? "active" : ""}`}
-                  onClick={() => setSessionListEnabled(!sessionListEnabled)}
-                  data-testid="session-list-toggle"
                 >
                   <span className="toggle-knob" />
                 </button>

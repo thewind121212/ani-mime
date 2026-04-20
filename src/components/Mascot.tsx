@@ -4,6 +4,7 @@ import { getSpriteMap, autoStopStatuses } from "../constants/sprites";
 import { usePet } from "../hooks/usePet";
 import { useGlow } from "../hooks/useGlow";
 import { useScale } from "../hooks/useScale";
+import { useOpacity } from "../hooks/useOpacity";
 import { useCustomMimes } from "../hooks/useCustomMimes";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
@@ -38,6 +39,7 @@ export function Mascot({ status }: MascotProps) {
   const { pet } = usePet();
   const { mode: glowMode } = useGlow();
   const { scale } = useScale();
+  const { opacity } = useOpacity("mime");
   const { mimes } = useCustomMimes();
   const [frozen, setFrozen] = useState(false);
   const [customSpriteUrl, setCustomSpriteUrl] = useState<string | null>(null);
@@ -173,6 +175,7 @@ export function Mascot({ status }: MascotProps) {
         width: frameSize,
         height: frameSize,
         backgroundSize: `${sheetWidth}px ${sheetHeight}px`,
+        opacity,
       }}
     />
   );
