@@ -27,12 +27,64 @@ export interface ProcessedStrip {
   frames: number;
 }
 
+/** Parse "1-5" or "1,2,3,5,6" into 0-based indices. Preserves order and duplicates. Ranges are directional: 3-1 → 3,2,1. */
+export function parseFrameInput(input: string, maxFrame: number): number[] {
+  const indices: number[] = [];
+  for (const part of input.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const range = trimmed.split("-");
+    if (range.length === 2) {
+      const start = parseInt(range[0]);
+      const end = parseInt(range[1]);
+      if (!isNaN(start) && !isNaN(end)) {
+        const step = start <= end ? 1 : -1;
+        for (let i = start; step === 1 ? i <= end : i >= end; i += step) {
+          if (i >= 1 && i <= maxFrame) {
+            indices.push(i - 1);
+          }
+        }
+      }
+    } else {
+      const n = parseInt(trimmed);
+      if (!isNaN(n) && n >= 1 && n <= maxFrame) {
+        indices.push(n - 1);
+      }
+    }
+  }
+  return indices;
+}
+
+/** Inverse of parseFrameInput. Collapses consecutive runs; preserves direction. */
+export function serializeFrames(nums: number[]): string {
+  if (nums.length === 0) return "";
+  const parts: string[] = [];
+  let i = 0;
+  while (i < nums.length) {
+    let j = i;
+    const prevDup = i > 0 && nums[i - 1] === nums[i];
+    const step = prevDup
+      ? 0
+      : nums[i + 1] === nums[i] + 1
+      ? 1
+      : nums[i + 1] === nums[i] - 1
+      ? -1
+      : 0;
+    if (step !== 0) {
+      while (j + 1 < nums.length && nums[j + 1] === nums[j] + step) j++;
+    }
+    parts.push(j === i ? `${nums[i]}` : `${nums[i]}-${nums[j]}`);
+    i = j + 1;
+  }
+  return parts.join(",");
+}
+
 /** Load an image from a file path or data URL */
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = reject;
+    img.onerror = () => reject(new Error(`Failed to decode image (src=${src.slice(0, 40)}...)`));
     img.src = src;
   });
 }

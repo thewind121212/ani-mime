@@ -6,15 +6,18 @@ import type { Status } from "../types/status";
 import {
   loadImage,
   prepareCanvas,
-  removeSmallComponents,
   detectRows,
   extractFrames,
   getFramePreview,
   createStripFromFrames,
+  parseFrameInput,
+  serializeFrames,
   type Frame,
 } from "../utils/spriteSheetProcessor";
 import { ALL_STATUSES } from "../hooks/useCustomMimes";
 import { AnimationPreview } from "./AnimationPreview";
+
+export { parseFrameInput, serializeFrames };
 
 interface SmartImportProps {
   onSave: (
@@ -51,58 +54,6 @@ const STATUS_DESCRIPTIONS: Record<Status, string> = {
   initializing: "First-launch setup in progress",
   visiting: "A friend's mime is visiting from the local network",
 };
-
-/** Parse "1-5" or "1,2,3,5,6" into 0-based indices. Preserves order and duplicates. Ranges are directional: 3-1 → 3,2,1. */
-export function parseFrameInput(input: string, maxFrame: number): number[] {
-  const indices: number[] = [];
-  for (const part of input.split(",")) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    const range = trimmed.split("-");
-    if (range.length === 2) {
-      const start = parseInt(range[0]);
-      const end = parseInt(range[1]);
-      if (!isNaN(start) && !isNaN(end)) {
-        const step = start <= end ? 1 : -1;
-        for (let i = start; step === 1 ? i <= end : i >= end; i += step) {
-          if (i >= 1 && i <= maxFrame) {
-            indices.push(i - 1);
-          }
-        }
-      }
-    } else {
-      const n = parseInt(trimmed);
-      if (!isNaN(n) && n >= 1 && n <= maxFrame) {
-        indices.push(n - 1);
-      }
-    }
-  }
-  return indices;
-}
-
-/** Inverse of parseFrameInput. Collapses consecutive runs; preserves direction. */
-export function serializeFrames(nums: number[]): string {
-  if (nums.length === 0) return "";
-  const parts: string[] = [];
-  let i = 0;
-  while (i < nums.length) {
-    let j = i;
-    const prevDup = i > 0 && nums[i - 1] === nums[i];
-    const step = prevDup
-      ? 0
-      : nums[i + 1] === nums[i] + 1
-      ? 1
-      : nums[i + 1] === nums[i] - 1
-      ? -1
-      : 0;
-    if (step !== 0) {
-      while (j + 1 < nums.length && nums[j + 1] === nums[j] + step) j++;
-    }
-    parts.push(j === i ? `${nums[i]}` : `${nums[i]}-${nums[j]}`);
-    i = j + 1;
-  }
-  return parts.join(",");
-}
 
 export function SmartImport({
   onSave,
@@ -154,7 +105,6 @@ export function SmartImport({
       URL.revokeObjectURL(src);
 
       const prepared = prepareCanvas(img).canvas;
-      removeSmallComponents(prepared);
       setCanvas(prepared);
       previewCache.current.clear();
 

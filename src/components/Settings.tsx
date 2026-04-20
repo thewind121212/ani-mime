@@ -96,6 +96,7 @@ export function Settings() {
   const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
   const [editingMime, setEditingMime] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [spriteInputs, setSpriteInputs] = useState<
     Record<Status, { path: string; frames: string }>
@@ -783,11 +784,14 @@ export function Settings() {
                       className="pet-card add-card"
                       data-testid="import-animime-btn"
                       onClick={async () => {
+                        setImportError(null);
                         try {
                           const id = await importMime();
                           if (id) setPet(id);
                         } catch (err) {
-                          logError(`[settings] import failed: ${err instanceof Error ? err.message : err}`);
+                          const msg = err instanceof Error ? err.message : String(err);
+                          logError(`[settings] import failed: ${msg}`);
+                          setImportError(msg);
                         }
                       }}
                     >
@@ -795,6 +799,11 @@ export function Settings() {
                       <span className="pet-name">Animime</span>
                     </button>
                   </div>
+                  {importError && (
+                    <div className="save-error" data-testid="import-error">
+                      Import failed: {importError}
+                    </div>
+                  )}
                 </>
               )}
             </div>

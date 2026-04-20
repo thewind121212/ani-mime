@@ -1,13 +1,20 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SmartImport, serializeFrames } from "../../components/SmartImport";
 
-// Stub the sprite-sheet processor so the test doesn't need a real canvas pipeline
-vi.mock("../../utils/spriteSheetProcessor", () => {
+// Stub the sprite-sheet processor so the test doesn't need a real canvas pipeline.
+// Keep the pure string helpers (parseFrameInput / serializeFrames) real since the
+// component and tests both use them for input normalization.
+vi.mock("../../utils/spriteSheetProcessor", async () => {
+  const actual = await vi.importActual<typeof import("../../utils/spriteSheetProcessor")>(
+    "../../utils/spriteSheetProcessor"
+  );
   const fakeCanvas = () => document.createElement("canvas");
   const fakeFrames = Array.from({ length: 7 }, (_, i) => ({
     index: i, x1: 0, y1: 0, x2: 10, y2: 10,
   }));
   return {
+    parseFrameInput: actual.parseFrameInput,
+    serializeFrames: actual.serializeFrames,
     loadImage: vi.fn(async () => ({} as HTMLImageElement)),
     prepareCanvas: vi.fn(() => ({ canvas: fakeCanvas(), ctx: null })),
     removeSmallComponents: vi.fn(),

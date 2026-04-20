@@ -5,8 +5,16 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { copyFile, mkdir, exists, remove, writeFile, readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { info } from "@tauri-apps/plugin-log";
+import { info, warn } from "@tauri-apps/plugin-log";
 import type { Status, CustomMimeData } from "../types/status";
+import {
+  loadImage,
+  prepareCanvas,
+  detectRows,
+  extractFrames,
+  createStripFromFrames,
+  parseFrameInput,
+} from "../utils/spriteSheetProcessor";
 
 const STORE_FILE = "settings.json";
 const STORE_KEY = "customMimes";
@@ -258,31 +266,34 @@ export function useCustomMimes() {
     if (!mime) return;
 
     const dir = await ensureSpritesDir();
-    const sprites: Record<string, { frames: number; data: string }> = {};
+    const bytesToBase64 = (bytes: Uint8Array) =>
+      btoa(Array.from(bytes).map((b) => String.fromCharCode(b)).join(""));
 
-    for (const status of ALL_STATUSES) {
-      const { fileName, frames } = mime.sprites[status];
-      const bytes = await readFile(`${dir}/${fileName}`);
-      const binary = Array.from(bytes).map((b) => String.fromCharCode(b)).join("");
-      sprites[status] = { frames, data: btoa(binary) };
-    }
+    let payloadObj: Record<string, unknown>;
 
-    let smartImportExport: { sourceSheet: string; frameInputs: Record<Status, string> } | undefined;
     if (mime.smartImportMeta) {
+      // v2: ship only sourceSheet + frameInputs. Per-status sprites are
+      // regenerable by re-running detection + cropping on import.
       const sheetBytes = await readFile(`${dir}/${mime.smartImportMeta.sheetFileName}`);
-      const sheetBinary = Array.from(sheetBytes).map((b) => String.fromCharCode(b)).join("");
-      smartImportExport = {
-        sourceSheet: btoa(sheetBinary),
-        frameInputs: mime.smartImportMeta.frameInputs,
+      payloadObj = {
+        version: 2,
+        name: mime.name,
+        smartImportMeta: {
+          sourceSheet: bytesToBase64(sheetBytes),
+          frameInputs: mime.smartImportMeta.frameInputs,
+        },
       };
+    } else {
+      const sprites: Record<string, { frames: number; data: string }> = {};
+      for (const status of ALL_STATUSES) {
+        const { fileName, frames } = mime.sprites[status];
+        const bytes = await readFile(`${dir}/${fileName}`);
+        sprites[status] = { frames, data: bytesToBase64(bytes) };
+      }
+      payloadObj = { version: 1, name: mime.name, sprites };
     }
 
-    const payload = JSON.stringify({
-      version: 1,
-      name: mime.name,
-      sprites,
-      ...(smartImportExport ? { smartImportMeta: smartImportExport } : {}),
-    }, null, 2);
+    const payload = JSON.stringify(payloadObj, null, 2);
     const date = new Date().toISOString().slice(0, 10);
     const safeName = mime.name.replace(/[^a-zA-Z0-9_-]/g, "-");
     const defaultName = `animime-${safeName}-${date}`;
@@ -296,7 +307,7 @@ export function useCustomMimes() {
     const path = dest.endsWith(".animime") ? dest : `${dest}.animime`;
     const encoder = new TextEncoder();
     await writeFile(path, encoder.encode(payload));
-    info(`[custom-mimes] exported "${mime.name}" to ${path}`);
+    info(`[custom-mimes] exported "${mime.name}" to ${path} (v${payloadObj.version}, ${payload.length} bytes)`);
   }, [mimes, ensureSpritesDir]);
 
   const importMime = useCallback(async (): Promise<string | null> => {
@@ -310,38 +321,93 @@ export function useCustomMimes() {
     const decoder = new TextDecoder();
     const payload = JSON.parse(decoder.decode(bytes));
 
-    if (payload.version !== 1 || !payload.name || !payload.sprites) {
+    if (!payload.name || (payload.version !== 1 && payload.version !== 2)) {
       throw new Error("Invalid .animime file");
     }
 
+    const base64ToBytes = (b64: string) => {
+      const binary = atob(b64);
+      const out = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+      return out;
+    };
+
     const id = `custom-${Date.now()}`;
-    info(`[custom-mimes] importMime: name="${payload.name}", id=${id}`);
+    info(`[custom-mimes] importMime: name="${payload.name}", id=${id}, version=${payload.version}`);
     const dir = await ensureSpritesDir();
 
     const sprites: Record<string, { fileName: string; frames: number }> = {};
-    for (const status of ALL_STATUSES) {
-      const entry = payload.sprites[status];
-      if (!entry || !entry.data) {
-        throw new Error(`Missing sprite data for "${status}"`);
-      }
-      const binary = atob(entry.data);
-      const blob = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) blob[i] = binary.charCodeAt(i);
-
-      const fileName = `${id}-${status}.png`;
-      await writeFile(`${dir}/${fileName}`, blob);
-      sprites[status] = { fileName, frames: entry.frames };
-    }
-
     let metaRecord: CustomMimeData["smartImportMeta"];
-    if (payload.smartImportMeta?.sourceSheet && payload.smartImportMeta?.frameInputs) {
-      const sheetBinary = atob(payload.smartImportMeta.sourceSheet);
-      const sheetBlob = new Uint8Array(sheetBinary.length);
-      for (let i = 0; i < sheetBinary.length; i++) sheetBlob[i] = sheetBinary.charCodeAt(i);
 
+    if (payload.version === 2) {
+      const meta = payload.smartImportMeta;
+      if (!meta?.sourceSheet || !meta?.frameInputs) {
+        throw new Error("v2 .animime file missing sourceSheet or frameInputs");
+      }
+
+      const sheetBytes = base64ToBytes(meta.sourceSheet);
       const sheetFileName = `${id}-source.png`;
-      await writeFile(`${dir}/${sheetFileName}`, sheetBlob);
-      metaRecord = { sheetFileName, frameInputs: payload.smartImportMeta.frameInputs };
+      info(`[custom-mimes] v2 import: decoded source sheet (${sheetBytes.length} bytes), writing to disk`);
+      await writeFile(`${dir}/${sheetFileName}`, sheetBytes);
+
+      const magicType =
+        sheetBytes[0] === 0x47 && sheetBytes[1] === 0x49 && sheetBytes[2] === 0x46 ? "image/gif" :
+        sheetBytes[0] === 0xff && sheetBytes[1] === 0xd8 ? "image/jpeg" :
+        "image/png";
+      const sheetBlob = new Blob([sheetBytes as BlobPart], { type: magicType });
+      const src = URL.createObjectURL(sheetBlob);
+      try {
+        const img = await loadImage(src);
+        info(`[custom-mimes] v2 import: loaded image ${img.width}x${img.height}`);
+        const prepared = prepareCanvas(img).canvas;
+        const detected = detectRows(prepared);
+        if (detected.length === 0) {
+          throw new Error("Could not detect sprite rows in source sheet");
+        }
+        const allFrames = extractFrames(detected);
+        info(`[custom-mimes] v2 import: detected ${detected.length} rows, ${allFrames.length} frames`);
+
+        for (const status of ALL_STATUSES) {
+          const input = meta.frameInputs[status] ?? "";
+          const indices = parseFrameInput(input, allFrames.length);
+          if (indices.length === 0) {
+            throw new Error(`No frames assigned to "${status}" (input="${input}", maxFrame=${allFrames.length})`);
+          }
+          const strip = await createStripFromFrames(prepared, allFrames, indices);
+          const fileName = `${id}-${status}.png`;
+          await writeFile(`${dir}/${fileName}`, strip.blob);
+          sprites[status] = { fileName, frames: strip.frames };
+        }
+        info(`[custom-mimes] v2 import: regenerated all ${ALL_STATUSES.length} status sprites`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warn(`[custom-mimes] v2 import failed: ${msg}`);
+        throw err instanceof Error ? err : new Error(msg);
+      } finally {
+        URL.revokeObjectURL(src);
+      }
+
+      metaRecord = { sheetFileName, frameInputs: meta.frameInputs };
+    } else {
+      if (!payload.sprites) throw new Error("v1 .animime file missing sprites");
+
+      for (const status of ALL_STATUSES) {
+        const entry = payload.sprites[status];
+        if (!entry || !entry.data) {
+          throw new Error(`Missing sprite data for "${status}"`);
+        }
+        const blob = base64ToBytes(entry.data);
+        const fileName = `${id}-${status}.png`;
+        await writeFile(`${dir}/${fileName}`, blob);
+        sprites[status] = { fileName, frames: entry.frames };
+      }
+
+      if (payload.smartImportMeta?.sourceSheet && payload.smartImportMeta?.frameInputs) {
+        const sheetBytes = base64ToBytes(payload.smartImportMeta.sourceSheet);
+        const sheetFileName = `${id}-source.png`;
+        await writeFile(`${dir}/${sheetFileName}`, sheetBytes);
+        metaRecord = { sheetFileName, frameInputs: payload.smartImportMeta.frameInputs };
+      }
     }
 
     const newMime: CustomMimeData = {
