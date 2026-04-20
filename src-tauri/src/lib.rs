@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate objc;
 
+mod broadcast;
 mod claude_config;
 mod discovery;
 mod focus;
@@ -552,6 +553,7 @@ pub fn run() {
                 discovery_instance: String::new(),
                 discovery_addrs: Vec::new(),
                 discovery_port: 0,
+                broadcast_seen: HashMap::new(),
                 pet: String::new(),
                 nickname: String::new(),
                 started_at: crate::helpers::now_secs(),
@@ -612,7 +614,13 @@ pub fn run() {
                     st.nickname = nickname.clone();
                 }
 
-                discovery::start_discovery(discovery_handle, discovery_state, nickname, pet);
+                discovery::start_discovery(
+                    discovery_handle.clone(),
+                    discovery_state.clone(),
+                    nickname.clone(),
+                    pet.clone(),
+                );
+                broadcast::start_broadcast(discovery_handle, discovery_state, nickname, pet);
             });
 
             Ok(())
