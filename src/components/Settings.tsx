@@ -15,6 +15,7 @@ import { useSessionList } from "../hooks/useSessionList";
 import { useLanList } from "../hooks/useLanList";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
+import { useOpacity, OPACITY_MIN, OPACITY_MAX } from "../hooks/useOpacity";
 import { effects, useEffectEnabled } from "../effects";
 import { useCustomMimes, ALL_STATUSES } from "../hooks/useCustomMimes";
 import { SmartImport } from "./SmartImport";
@@ -88,6 +89,22 @@ export function Settings() {
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
+  const { setOpacity, previewOpacity, loadSavedOpacity } = useOpacity();
+  const [draftOpacity, setDraftOpacity] = useState(1);
+  const [savedOpacity, setSavedOpacity] = useState(1);
+  const [opacityLoaded, setOpacityLoaded] = useState(false);
+  const opacityChanged = opacityLoaded && Math.abs(draftOpacity - savedOpacity) > 0.001;
+
+  useEffect(() => {
+    loadSavedOpacity().then((v) => {
+      setDraftOpacity(v);
+      setSavedOpacity(v);
+      setOpacityLoaded(true);
+    });
+    return () => {
+      loadSavedOpacity().then((v) => previewOpacity(v));
+    };
+  }, []);
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
   const claude = useClaudeConfig();
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
@@ -389,6 +406,48 @@ export function Settings() {
               {effects.map((effect) => (
                 <EffectToggle key={effect.id} effectId={effect.id} name={effect.name} />
               ))}
+            </div>
+          </div>
+          <div className="settings-section">
+            <div className="settings-section-title">Transparency</div>
+            <div className="settings-card">
+              <div className="settings-row-stack">
+                <div>
+                  <span className="settings-row-label">Pet Opacity</span>
+                  <span className="settings-row-hint">Adjust how transparent your pet appears on screen. Drag the slider to preview the change in real time, then click Save to keep it.</span>
+                </div>
+                <div className="opacity-slider-group">
+                  <input
+                    type="range"
+                    className="opacity-slider"
+                    min={OPACITY_MIN}
+                    max={OPACITY_MAX}
+                    step={0.05}
+                    value={draftOpacity}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setDraftOpacity(v);
+                      previewOpacity(v);
+                    }}
+                    data-testid="pet-opacity-slider"
+                    aria-label="Pet opacity"
+                  />
+                  <span className="opacity-value" data-testid="pet-opacity-value">
+                    {Math.round(draftOpacity * 100)}%
+                  </span>
+                  <button
+                    className={`nickname-save ${opacityChanged ? "active" : ""}`}
+                    disabled={!opacityChanged}
+                    onClick={async () => {
+                      await setOpacity(draftOpacity);
+                      setSavedOpacity(draftOpacity);
+                    }}
+                    data-testid="pet-opacity-save"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
           <div className="settings-section">
