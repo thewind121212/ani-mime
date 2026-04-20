@@ -1,4 +1,4 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::Emitter;
@@ -8,20 +8,35 @@ use crate::state::{AppState, PeerInfo};
 
 /// UDP port used for peer announcements. Intentionally separate from the HTTP port
 /// so a broken HTTP server doesn't block discovery (and vice versa).
-const BROADCAST_PORT: u16 = 1235;
+const MULTICAST_PORT: u16 = 1235;
+
+/// Site-local (organization-scoped) multicast group in the IANA-reserved range
+/// 239.0.0.0/8 for private apps. Not registered anywhere — just needs to be a
+/// stable value both peers agree on.
+///
+/// We use multicast instead of subnet broadcast (255.255.255.255) because many
+/// office / enterprise WiFi networks silently drop broadcast packets but still
+/// allow multicast (AirPlay / mDNS rely on it). Observed on the ani-mime dev
+/// network: _airplay._tcp multicast works fine, 255.255.255.255 broadcasts
+/// never reach peers.
+const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(239, 255, 42, 99);
+
 const ANNOUNCE_INTERVAL_SECS: u64 = 5;
 const PEER_EXPIRY_SECS: u64 = 30;
 const MAGIC: &str = "ani-mime/1";
 
-/// Detect the machine's primary LAN IP via the UDP-connect trick.
+/// Detect the machine's primary LAN IPv4 via the UDP-connect trick.
 /// No packet is actually sent — the kernel just picks the default source addr.
-fn detect_local_ip() -> Option<String> {
+fn detect_local_ipv4() -> Option<Ipv4Addr> {
     let s = UdpSocket::bind("0.0.0.0:0").ok()?;
     s.connect("8.8.8.8:80").ok()?;
-    Some(s.local_addr().ok()?.ip().to_string())
+    match s.local_addr().ok()?.ip() {
+        IpAddr::V4(addr) => Some(addr),
+        _ => None,
+    }
 }
 
-/// Start the UDP-broadcast peer discovery.
+/// Start the UDP-multicast peer discovery.
 ///
 /// Runs alongside mDNS (`discovery.rs`) — both write into `AppState.peers`
 /// keyed by `instance_name`, so duplicates from the two channels are collapsed.
@@ -35,29 +50,35 @@ pub fn start_broadcast(
     let instance_name = format!("{}-{}", nickname, std::process::id());
 
     crate::app_log!(
-        "[broadcast] starting (instance={}, nickname={}, pet={}, udp_port={}, http_port={}, announce_every={}s, expiry={}s)",
-        instance_name, nickname, pet, BROADCAST_PORT, http_port, ANNOUNCE_INTERVAL_SECS, PEER_EXPIRY_SECS
+        "[broadcast] starting (instance={}, nickname={}, pet={}, multicast={}:{}, http_port={}, announce_every={}s, expiry={}s)",
+        instance_name, nickname, pet, MULTICAST_ADDR, MULTICAST_PORT, http_port, ANNOUNCE_INTERVAL_SECS, PEER_EXPIRY_SECS
     );
 
-    match detect_local_ip() {
-        Some(ip) => crate::app_log!("[broadcast] detected local IP: {}", ip),
-        None => crate::app_warn!("[broadcast] could not detect local IP (no default route?)"),
+    let iface_ip = detect_local_ipv4();
+    match iface_ip {
+        Some(ip) => crate::app_log!("[broadcast] detected local IPv4: {}", ip),
+        None => crate::app_warn!("[broadcast] could not detect local IPv4 — joining multicast via 0.0.0.0 (kernel picks interface)"),
     }
 
-    // ---- Listen socket (shared with OS) ------------------------------------
-    let listen_socket = match bind_listen_socket() {
+    // ---- Listen socket (also used for sending) -----------------------------
+    let listen_socket = match bind_multicast_socket(iface_ip) {
         Ok(s) => {
-            crate::app_log!("[broadcast] listen socket bound on 0.0.0.0:{}", BROADCAST_PORT);
+            crate::app_log!(
+                "[broadcast] listen socket bound on 0.0.0.0:{}, joined multicast group {} on iface={}",
+                MULTICAST_PORT,
+                MULTICAST_ADDR,
+                iface_ip.map(|i| i.to_string()).unwrap_or_else(|| "0.0.0.0 (kernel)".into())
+            );
             Arc::new(s)
         }
         Err(e) => {
             crate::app_error!(
-                "[broadcast] FAILED to bind listen socket on :{} — {} (check Local Network permission / firewall / port conflict)",
-                BROADCAST_PORT, e
+                "[broadcast] FAILED to bind/join multicast {}:{} — {} (check Local Network permission / firewall / interface IPv4)",
+                MULTICAST_ADDR, MULTICAST_PORT, e
             );
             let _ = app_handle.emit(
                 "discovery-error",
-                format!("broadcast listen bind failed: {}", e),
+                format!("broadcast multicast setup failed: {}", e),
             );
             return;
         }
@@ -86,14 +107,25 @@ pub fn start_broadcast(
     });
 }
 
-/// Bind a UDP socket that can both receive broadcasts and send them.
-/// Uses `SO_REUSEADDR` so multiple instances on the same machine can coexist
-/// during development.
-fn bind_listen_socket() -> std::io::Result<UdpSocket> {
-    let s = UdpSocket::bind(SocketAddr::from(([0u8, 0, 0, 0], BROADCAST_PORT)))?;
-    s.set_broadcast(true)?;
-    // Non-blocking would complicate the loop; a modest read timeout keeps the
-    // listener responsive so it can exit cleanly if we ever add shutdown.
+/// Bind a UDP socket on the multicast port and join the group. The socket
+/// will both receive multicast announces (via the group join) and send them
+/// (via send_to to the multicast address).
+///
+/// `iface_ip` is the interface to join on. Passing `None` → `0.0.0.0`, which
+/// tells the kernel to pick. Passing a specific IP binds the join to that
+/// interface — useful on multi-homed machines (e.g. Mac mini with en0 + en1).
+fn bind_multicast_socket(iface_ip: Option<Ipv4Addr>) -> std::io::Result<UdpSocket> {
+    let s = UdpSocket::bind(SocketAddr::from(([0u8, 0, 0, 0], MULTICAST_PORT)))?;
+    let join_iface = iface_ip.unwrap_or(Ipv4Addr::UNSPECIFIED);
+    s.join_multicast_v4(&MULTICAST_ADDR, &join_iface)?;
+    // TTL=1 keeps packets on the local segment — same as mDNS.
+    s.set_multicast_ttl_v4(1)?;
+    // Receive our own packets too (handle_announce filters self by instance_name).
+    // Useful as a self-test: if we see our own announce come back in, we know
+    // send+receive are both working on the right interface.
+    s.set_multicast_loop_v4(true)?;
+    // Short read timeout so the listen loop can eventually exit cleanly
+    // if we ever add shutdown handling.
     s.set_read_timeout(Some(Duration::from_secs(1)))?;
     Ok(s)
 }
@@ -125,30 +157,37 @@ fn announce_loop(
     pet: String,
     http_port: u16,
 ) {
-    let broadcast_addr: SocketAddr = SocketAddr::from(([255u8, 255, 255, 255], BROADCAST_PORT));
-    let mut tick: u64 = 0;
+    let multicast_addr: SocketAddr = SocketAddr::from((MULTICAST_ADDR, MULTICAST_PORT));
 
+    // Give the network stack a moment to finish setting up the multicast
+    // membership before the first send — eliminates the "No route to host"
+    // on send #1 we saw on some Macs when the send raced the kernel.
+    std::thread::sleep(Duration::from_millis(500));
+
+    let mut tick: u64 = 0;
     loop {
         tick += 1;
-        let ip = detect_local_ip().unwrap_or_default();
+        let ip = detect_local_ipv4()
+            .map(|v| v.to_string())
+            .unwrap_or_default();
         let payload = build_payload(&instance_name, &nickname, &pet, &ip, http_port);
         let size = payload.len();
 
-        match socket.send_to(&payload, broadcast_addr) {
+        match socket.send_to(&payload, multicast_addr) {
             Ok(sent) => {
                 // Log every tick for the first few (so users see it working),
                 // then once per minute to avoid log spam.
                 if tick <= 3 || tick % 12 == 0 {
                     crate::app_log!(
-                        "[broadcast] announced #{} ({} bytes, sent={}, ip={}, http_port={})",
-                        tick, size, sent, ip, http_port
+                        "[broadcast] announced #{} ({} bytes, sent={}, ip={}, http_port={}, via multicast {}:{})",
+                        tick, size, sent, ip, http_port, MULTICAST_ADDR, MULTICAST_PORT
                     );
                 }
             }
             Err(e) => {
                 crate::app_error!(
-                    "[broadcast] send_to 255.255.255.255:{} failed: {} (firewall? network entitlement missing?)",
-                    BROADCAST_PORT, e
+                    "[broadcast] send_to {}:{} failed: {} (interface gone? multicast route missing? permission revoked?)",
+                    MULTICAST_ADDR, MULTICAST_PORT, e
                 );
             }
         }
@@ -164,7 +203,10 @@ fn listen_loop(
     my_instance: String,
 ) {
     let mut buf = [0u8; 1500];
-    crate::app_log!("[broadcast] listening for peer announcements on 0.0.0.0:{}", BROADCAST_PORT);
+    crate::app_log!(
+        "[broadcast] listening for peer announcements on 0.0.0.0:{} (multicast group {})",
+        MULTICAST_PORT, MULTICAST_ADDR
+    );
 
     loop {
         match socket.recv_from(&mut buf) {
@@ -215,7 +257,7 @@ fn handle_announce(
     };
 
     if instance_name == my_instance {
-        return; // our own broadcast bouncing back
+        return; // our own multicast looping back
     }
 
     let nickname = v["nickname"].as_str().unwrap_or("Unknown").to_string();
