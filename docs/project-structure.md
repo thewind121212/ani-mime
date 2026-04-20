@@ -104,6 +104,7 @@ src-tauri/
 │   ├── proc_scan.rs           # Background thread (2s): libproc OS scan — discovers shells, fills pwd/tty/fg_cmd, detects claude, drops zombies
 │   ├── focus.rs               # focus_terminal_for_pid() — activates owning terminal app + targets specific tab (iTerm/Terminal/VSCode/Cursor/tmux)
 │   ├── discovery.rs           # mDNS peer discovery (register, browse, resolve)
+│   ├── broadcast.rs           # UDP peer discovery: multicast (224.0.0.200:1235) + unicast /24 scan + self-loop diagnostic (4 threads: announce, scan, listen, expire)
 │   ├── helpers.rs             # Utilities: now_secs(), get_port(), get_query_param()
 │   ├── logger.rs              # Global log buffer + app_log!/app_warn!/app_error! macros
 │   ├── updater.rs             # GitHub release checker + native update dialog
@@ -176,9 +177,10 @@ MCP server.mjs ──HTTP──► server.rs /mcp/* ──emit──► useBubbl
 
 Settings.tsx ──Store──► settings.json ──event──► useTheme/usePet/... ──► App.tsx
 
-discovery.rs ──mDNS──► peers ──event──► usePeers.ts ──► context menu
-                                                              │
-                                                    start_visit command
-                                                              │
-                                              lib.rs ──HTTP──► peer's server.rs
+discovery.rs ──mDNS──────┐
+                         ├─► AppState.peers ──event──► usePeers.ts ──► context menu
+broadcast.rs ──UDP(1235)─┘                                            │
+ ├── multicast 224.0.0.200 (announce every 5s)         start_visit command
+ ├── unicast /24 scan (every 30s)                                     │
+ └── listen + expiry                            lib.rs ──HTTP──► peer's server.rs
 ```

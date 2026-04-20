@@ -110,6 +110,9 @@ pub struct AppState {
     pub discovery_instance: String,
     pub discovery_addrs: Vec<String>,
     pub discovery_port: u16,
+    /// Last time each peer was heard from via UDP broadcast (unix secs).
+    /// Peers only in this map (not refreshed by mDNS) are pruned by the broadcast watchdog.
+    pub broadcast_seen: HashMap<String, u64>,
     // --- Identity (for MCP pet-status) ---
     pub pet: String,
     pub nickname: String,

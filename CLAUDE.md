@@ -33,6 +33,7 @@ See `docs/ARCHITECTURE.md` for full details. Key data flow:
 ```
 Shell hooks (curl) → HTTP :1234 → Rust state → Tauri event → React UI
 Claude Code ←stdio→ MCP server (Node.js) ←HTTP→ :1234 → Tauri event → React UI
+Peer announces ←UDP :1235 (mDNS + multicast + unicast scan)→ AppState.peers → peers-changed event → UI
 ```
 
 ### Backend (`src-tauri/src/`)
@@ -45,6 +46,8 @@ Claude Code ←stdio→ MCP server (Node.js) ←HTTP→ :1234 → Tauri event �
 | `watchdog.rs` | Background thread: service→idle transition, stale session cleanup |
 | `proc_scan.rs` | Background thread (2s): libproc-based OS scan — auto-discovers shells, fills `pwd`/`tty`/`fg_cmd`, detects `claude` via `KERN_PROCARGS2` argv, drops zombie sessions |
 | `focus.rs` | `focus_terminal_for_pid()` — walks parent chain to find owning terminal app (iTerm/Terminal/VS Code/Cursor/tmux/etc.), activates via `open -a`, optionally targets tab via AppleScript |
+| `discovery.rs` | mDNS peer discovery — registers `_ani-mime._tcp.local.`, browses peers, emits `peers-changed` |
+| `broadcast.rs` | UDP peer discovery on `:1235` — multicast announce (224.0.0.200 every 5s), unicast `/24` scan (every 30s), receive loop, expiry loop. Writes into the same `AppState.peers` as `discovery.rs` keyed by `instance_name` |
 | `helpers.rs` | `now_secs()`, `get_query_param()` |
 | `setup/mod.rs` | First-launch auto-setup orchestrator |
 | `setup/shell.rs` | Shell detection, RC file injection, shell-selection prompt (via `platform::show_dialog`) |
@@ -93,6 +96,7 @@ When multiple terminals are open, the UI shows one winner: `busy > service > idl
 ## Important Details
 
 - HTTP server runs on `127.0.0.1:1234` — this port is hardcoded in shell scripts, Claude hooks, and Rust server
+- Peer discovery runs on UDP `:1235` (multicast group `224.0.0.200` + unicast /24 scan) in addition to mDNS — all three channels feed the same `AppState.peers` HashMap keyed by `instance_name`, so peers discovered by multiple channels appear once
 - pid=0 is reserved for Claude Code hooks (virtual session)
 - Heartbeats only refresh `last_seen` for non-busy sessions (prevents stuck commands from staying alive)
 - `/status` and `/heartbeat` reject with 410 when the pid isn't a live OS process — stops orphaned heartbeat subshells from re-registering dead sessions
@@ -158,6 +162,7 @@ Every interactive or observable UI element must be locatable by automated tests 
 - **New shell**: Add script in `src-tauri/script/`, add `ShellInfo` in `setup/shell.rs`, add to `tauri.conf.json` bundle resources
 - **New terminal app for click-to-focus**: Add an entry to `classify_bundle()` in `proc_scan.rs`, dispatch in `focus.rs` with either an existing strategy (`open -a` + AppleScript tab selection) or a new strategy
 - **New persistent setting**: Follow the `useDockVisible` pattern — hook uses `load("settings.json")` + `listen`/`emit` on a `*-changed` event; add a row in `Settings.tsx`
+- **New peer-discovery channel**: Create a new module in `src-tauri/src/` (or extend `broadcast.rs`). Spawn worker threads from `lib.rs::run()` alongside `start_discovery` / `start_broadcast`. Write peers into the existing `AppState.peers` HashMap keyed by `instance_name` — **do not** maintain a separate peers map. Emit the existing `peers-changed` event when the set mutates. If your channel has freshness/expiry semantics, track them in a dedicated `HashMap<String, u64>` on `AppState` (see `broadcast_seen` for the pattern) and expire under a dedicated loop. Use the `[your-channel]` log tag and include a `self-loop confirmed` style health check where applicable.
 - **Storage**: See `docs/storage.md` for the planned approach (tauri-plugin-store for prefs, SQLite for history)
 
 ## Releasing a New Version

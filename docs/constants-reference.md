@@ -12,6 +12,10 @@ All hardcoded values, timeouts, and configurable parameters in the codebase.
 | `SERVICE_DISPLAY_SECS` | 2 | `watchdog.rs` | How long service state shows before auto-transitioning to idle |
 | `IDLE_TO_SLEEP_SECS` | 120 | `watchdog.rs` | Idle duration before entering sleep mode (suppresses emits) |
 | `VISIT_DURATION_SECS` | 15 | `lib.rs` | How long a dog visit lasts |
+| `ANNOUNCE_INTERVAL_SECS` | 5 | `broadcast.rs` | UDP multicast announce cadence |
+| `PEER_EXPIRY_SECS` | 30 | `broadcast.rs` | Remove broadcast peer after this many seconds of silence |
+| `UNICAST_SCAN_INTERVAL_SECS` | 30 | `broadcast.rs` | How often to sweep the local /24 via unicast |
+| `UNICAST_SEND_SPACING_MS` | 10 | `broadcast.rs` | Delay between per-host sends within one scan (keeps peak <100 pps) |
 | Watchdog tick | 2s | `watchdog.rs` | Background thread check interval |
 | Discovery heartbeat | 30s | `discovery.rs` | Peer count check and hint interval |
 | Update check delay | 3s | `updater.rs` | Delay before first background update check |
@@ -20,9 +24,12 @@ All hardcoded values, timeouts, and configurable parameters in the codebase.
 
 | Value | File | Purpose |
 |-------|------|---------|
-| Default port: `1234` | `helpers.rs` | HTTP server port (overridable via `ANI_MIME_PORT` env var) |
+| Default HTTP port: `1234` | `helpers.rs` | HTTP server port (overridable via `ANI_MIME_PORT` env var) |
 | Bind address: `0.0.0.0` | `server.rs` | Listen on all interfaces (for peer visits) |
-| mDNS service: `_ani-mime._tcp.local.` | `discovery.rs` | Service type for peer discovery |
+| mDNS service: `_ani-mime._tcp.local.` | `discovery.rs` | mDNS service type |
+| `MULTICAST_PORT`: `1235` | `broadcast.rs` | UDP port for multicast + unicast announces |
+| `MULTICAST_ADDR`: `224.0.0.200` | `broadcast.rs` | Link-local multicast group (in `224.0.0.0/24` flooded range — same class as AirPlay/mDNS) |
+| `MAGIC`: `"ani-mime/1"` | `broadcast.rs` | Protocol tag in announce payloads; foreign UDP on `:1235` is dropped |
 | curl timeout: `1s` | shell scripts | `--max-time 1` on all curl calls |
 
 ### Limits
