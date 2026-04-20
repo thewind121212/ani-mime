@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.17.0] - 2026-04-20
+
+### Added
+- **Chat-message visits** — click the new chat icon next to any peer in the network list to open a compose dialog. Write up to 100 chars, press Enter (or Send), and your pet visits theirs for 8 seconds carrying the message as a persistent speech bubble. Uses the existing `/visit` HTTP route + `visitor-arrived` event with an optional `message` field — no new endpoints, no stored history. (#101)
+- **Unified status bar** — the status pill and the peer (p2p) button are merged into a single action bar: `● Free ——— [task] [lan]`. Left: status dot + label. Right: task icon opens the session list, lan icon opens the peer list. Peer-count badge shows on the lan icon when peers are nearby. (#101)
+- **Peer list in a dedicated Tauri popover window** — `Mime Around You` no longer grows the main widget. Clicking the lan icon opens a transparent popover next to the pet; the popover follows the pet when you drag, closes on focus loss / Escape. (#101)
+- **Visitor greeting bubbles** — each arriving visitor now shows a random one-line greeting (5s auto-fade) from a 16-line pool. When a visit carries a chat message, that message is shown instead and stays visible for the full visit. (#101)
+- **Visitors scenario** in SuperpowerTool — emits the same `visitor-arrived` / `visitor-left` events real peers use, so multi-pet layout + greeting bubbles can be previewed without a live LAN peer. (#101)
+- **`.animime` v2 export format** for Smart Import mimes — embeds only the source sheet + frame-input strings instead of per-status base64 sprite blobs. Cuts typical export size ~8x (Naruto Kyuubi: 2.2 MB → 1.2 MB, now under the 2 MB marketplace upload cap). v1 files (manual-creator mimes, older Smart Import exports) continue to import via the unchanged v1 code path. (#100, @yanmad27)
+- **Import errors now surface in the Settings UI** instead of being swallowed into the log. (#100, @yanmad27)
+
+### Fixed
+- **Smart Import was silently dropping sprite frames** — `removeSmallComponents()` was filtering every detected region classified as "text noise", shrinking the Naruto Kyuubi sheet from 277 → 228 frames and breaking round-trips for any frame range above 228. Removed the filter so every detected region survives. (#100, @yanmad27)
+- **Session-list dropdown clipping on the left edge** — the dropdown was centered on the status pill, but the pill sits near the window's left edge so half the dropdown was cut off by the window bounds. Dropdown is now fixed-positioned and centered on the viewport instead of the pill. Max-height 280px with internal vertical scroll so many-session lists don't produce a comically tall window. (#101)
+- **Peer icon being pushed to the right when session list opened** — the session dropdown was inflating the pill-wrap's width, shifting the peer button. Session dropdown is now absolute-positioned and doesn't affect layout; the main window grows only when the dropdown opens. (#101)
+
+### Changed
+- **Visit duration 15s → 8s.** Both plain visits and message visits last the same 8s. Kept as separate constants (`VISIT_DURATION_SECS`, `MESSAGE_VISIT_DURATION_SECS`) so they can diverge later without touching the plain-visit path. (#101)
+- **Visitor name tag moved below the sprite** (was above). (#101)
+- **Status bar is tighter** — label font 13px → 11px, action buttons 24×24 → 20×20, dot 8px → 7px. Whole bar is ~20% shorter vertically. (#101)
+- `parseFrameInput` / `serializeFrames` moved to `spriteSheetProcessor.ts` to break the `useCustomMimes` ↔ `SmartImport` import cycle. `SmartImport` re-exports them for existing test imports. (#100, @yanmad27)
+
 ## [0.16.6] - 2026-04-20
 
 ### Added
