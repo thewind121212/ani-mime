@@ -418,6 +418,10 @@
   padding: 10px 12px;
 }
 
+.settings-row-stack + .settings-row-stack {
+  border-top: 1px solid rgba(128, 128, 128, 0.15);
+}
+
 .opacity-slider-group {
   display: flex;
   align-items: center;

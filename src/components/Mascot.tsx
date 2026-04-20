@@ -39,7 +39,7 @@ export function Mascot({ status }: MascotProps) {
   const { pet } = usePet();
   const { mode: glowMode } = useGlow();
   const { scale } = useScale();
-  const { opacity } = useOpacity();
+  const { opacity } = useOpacity("mime");
   const { mimes } = useCustomMimes();
   const [frozen, setFrozen] = useState(false);
   const [customSpriteUrl, setCustomSpriteUrl] = useState<string | null>(null);

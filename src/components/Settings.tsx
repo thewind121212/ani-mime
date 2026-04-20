@@ -89,20 +89,31 @@ export function Settings() {
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
   const { scale, setScale, SCALE_PRESETS } = useScale();
-  const { setOpacity, previewOpacity, loadSavedOpacity } = useOpacity();
-  const [draftOpacity, setDraftOpacity] = useState(1);
-  const [savedOpacity, setSavedOpacity] = useState(1);
-  const [opacityLoaded, setOpacityLoaded] = useState(false);
-  const opacityChanged = opacityLoaded && Math.abs(draftOpacity - savedOpacity) > 0.001;
+  const mimeOpacityHook = useOpacity("mime");
+  const statusOpacityHook = useOpacity("status");
+  const [draftMimeOpacity, setDraftMimeOpacity] = useState(1);
+  const [savedMimeOpacity, setSavedMimeOpacity] = useState(1);
+  const [mimeOpacityLoaded, setMimeOpacityLoaded] = useState(false);
+  const [draftStatusOpacity, setDraftStatusOpacity] = useState(1);
+  const [savedStatusOpacity, setSavedStatusOpacity] = useState(1);
+  const [statusOpacityLoaded, setStatusOpacityLoaded] = useState(false);
+  const mimeOpacityChanged = mimeOpacityLoaded && Math.abs(draftMimeOpacity - savedMimeOpacity) > 0.001;
+  const statusOpacityChanged = statusOpacityLoaded && Math.abs(draftStatusOpacity - savedStatusOpacity) > 0.001;
 
   useEffect(() => {
-    loadSavedOpacity().then((v) => {
-      setDraftOpacity(v);
-      setSavedOpacity(v);
-      setOpacityLoaded(true);
+    mimeOpacityHook.loadSavedOpacity().then((v) => {
+      setDraftMimeOpacity(v);
+      setSavedMimeOpacity(v);
+      setMimeOpacityLoaded(true);
+    });
+    statusOpacityHook.loadSavedOpacity().then((v) => {
+      setDraftStatusOpacity(v);
+      setSavedStatusOpacity(v);
+      setStatusOpacityLoaded(true);
     });
     return () => {
-      loadSavedOpacity().then((v) => previewOpacity(v));
+      mimeOpacityHook.loadSavedOpacity().then((v) => mimeOpacityHook.previewOpacity(v));
+      statusOpacityHook.loadSavedOpacity().then((v) => statusOpacityHook.previewOpacity(v));
     };
   }, []);
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
@@ -413,8 +424,8 @@ export function Settings() {
             <div className="settings-card">
               <div className="settings-row-stack">
                 <div>
-                  <span className="settings-row-label">Pet Opacity</span>
-                  <span className="settings-row-hint">Adjust how transparent your pet appears on screen. Drag the slider to preview the change in real time, then click Save to keep it.</span>
+                  <span className="settings-row-label">Mime Opacity</span>
+                  <span className="settings-row-hint">How transparent your mime looks. Drag to preview, Save to keep.</span>
                 </div>
                 <div className="opacity-slider-group">
                   <input
@@ -423,26 +434,63 @@ export function Settings() {
                     min={OPACITY_MIN}
                     max={OPACITY_MAX}
                     step={0.05}
-                    value={draftOpacity}
+                    value={draftMimeOpacity}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value);
-                      setDraftOpacity(v);
-                      previewOpacity(v);
+                      setDraftMimeOpacity(v);
+                      mimeOpacityHook.previewOpacity(v);
                     }}
-                    data-testid="pet-opacity-slider"
-                    aria-label="Pet opacity"
+                    data-testid="mime-opacity-slider"
+                    aria-label="Mime opacity"
                   />
-                  <span className="opacity-value" data-testid="pet-opacity-value">
-                    {Math.round(draftOpacity * 100)}%
+                  <span className="opacity-value" data-testid="mime-opacity-value">
+                    {Math.round(draftMimeOpacity * 100)}%
                   </span>
                   <button
-                    className={`nickname-save ${opacityChanged ? "active" : ""}`}
-                    disabled={!opacityChanged}
+                    className={`nickname-save ${mimeOpacityChanged ? "active" : ""}`}
+                    disabled={!mimeOpacityChanged}
                     onClick={async () => {
-                      await setOpacity(draftOpacity);
-                      setSavedOpacity(draftOpacity);
+                      await mimeOpacityHook.setOpacity(draftMimeOpacity);
+                      setSavedMimeOpacity(draftMimeOpacity);
                     }}
-                    data-testid="pet-opacity-save"
+                    data-testid="mime-opacity-save"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+              <div className="settings-row-stack">
+                <div>
+                  <span className="settings-row-label">Status Bar Opacity</span>
+                  <span className="settings-row-hint">How transparent the status pill looks. Drag to preview, Save to keep.</span>
+                </div>
+                <div className="opacity-slider-group">
+                  <input
+                    type="range"
+                    className="opacity-slider"
+                    min={OPACITY_MIN}
+                    max={OPACITY_MAX}
+                    step={0.05}
+                    value={draftStatusOpacity}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value);
+                      setDraftStatusOpacity(v);
+                      statusOpacityHook.previewOpacity(v);
+                    }}
+                    data-testid="status-opacity-slider"
+                    aria-label="Status bar opacity"
+                  />
+                  <span className="opacity-value" data-testid="status-opacity-value">
+                    {Math.round(draftStatusOpacity * 100)}%
+                  </span>
+                  <button
+                    className={`nickname-save ${statusOpacityChanged ? "active" : ""}`}
+                    disabled={!statusOpacityChanged}
+                    onClick={async () => {
+                      await statusOpacityHook.setOpacity(draftStatusOpacity);
+                      setSavedStatusOpacity(draftStatusOpacity);
+                    }}
+                    data-testid="status-opacity-save"
                   >
                     Save
                   </button>

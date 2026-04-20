@@ -12,6 +12,7 @@ import type { Status } from "../types/status";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useLanList } from "../hooks/useLanList";
+import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import { usePeers } from "../hooks/usePeers";
 import "../styles/status-pill.css";
@@ -233,6 +234,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   // --- Peer popover state ---
   const peers = usePeers();
   const { enabled: lanListEnabled } = useLanList();
+  const { opacity: statusOpacity } = useOpacity("status");
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -400,7 +402,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       : `${peers.length} peer${peers.length === 1 ? "" : "s"} nearby`;
 
   return (
-    <div ref={wrapRef} className="pill-wrap" data-testid="status-pill-wrap">
+    <div ref={wrapRef} className="pill-wrap" data-testid="status-pill-wrap" style={{ opacity: statusOpacity }}>
       <div
         data-testid="status-pill"
         className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${sessionOpen || peerOpen ? "is-open" : ""} ${!lanListEnabled ? "no-lan" : ""} ${!sessionListEnabled ? "no-tasks" : ""}`}
