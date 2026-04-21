@@ -50,6 +50,15 @@ body {
   flex-shrink: 0;
 }
 
+/* Anchor for the absolute-positioned speech bubble. Sized to the sprite
+   by its Mascot child; the bubble lives on top of the sprite without
+   adding to the flex flow, so bubble visibility can't shift the sprite
+   vertically. */
+.mascot-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
 
 .container.dragging {
   cursor: grabbing;

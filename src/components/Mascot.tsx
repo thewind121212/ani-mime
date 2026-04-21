@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import type { Status } from "../types/status";
 import { getSpriteMap, autoStopStatuses } from "../constants/sprites";
 import { usePet } from "../hooks/usePet";
@@ -108,9 +108,16 @@ export function Mascot({ status }: MascotProps) {
 
   const frameSize = FRAME_BASE_PX * scale;
 
-  // Read sheet dimensions when URL changes (needed to compute grid layout)
-  useEffect(() => {
+  // Read sheet dimensions when URL changes (needed to compute grid layout).
+  // useLayoutEffect so setSheetDims(null) commits before paint — otherwise
+  // the first render after a status change uses the NEW spriteUrl + frames
+  // with the OLD sheetDims, which inferGrid turns into a wildly stretched
+  // backgroundSize for one frame. Also reset backgroundPosition so the
+  // stale offset from the previous status' rAF loop doesn't briefly show
+  // an off-grid region of the new sprite.
+  useLayoutEffect(() => {
     setSheetDims(null);
+    if (spriteRef.current) spriteRef.current.style.backgroundPosition = "0 0";
     if (!spriteUrl) return;
     let cancelled = false;
     const img = new Image();
