@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ani-mime",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "identifier": "com.vietnguyenwsilentium.ani-mime",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -14,8 +14,8 @@
     "windows": [
       {
         "title": "Ani-Mime",
-        "width": 250,
-        "height": 220,
+        "width": 320,
+        "height": 250,
         "resizable": false,
         "fullscreen": false,
         "alwaysOnTop": true,
