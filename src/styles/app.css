@@ -36,13 +36,22 @@ body {
   user-select: none;
   -webkit-user-select: none;
   position: relative;
+  /* 320px is the baseline "root" width. useWindowAutoSize reads
+     offsetWidth, so enforcing a min-width here guarantees the Tauri
+     window is always at least 320px after any transient growth
+     (session dropdown, bubble grow) collapses. */
+  min-width: 320px;
+  /* Center main-col (and visitors-col, when present) horizontally
+     inside the 320px baseline so the sprite sits at the window's
+     midpoint instead of flex-starting at the left. */
+  justify-content: center;
   /* Padding has two jobs:
      - Base values (20 / 30 / 30 / 20) reserve room for the status pill's
        neon-glow box-shadow — offsetWidth doesn't include box-shadow, so
        without this reserve the glow gets clipped by the Tauri window.
      - --bubble-extra-top and --bubble-extra-h are set from App.tsx when
-       the speech bubble grows beyond its default footprint. Adding them
-       here makes the container grow the same amount, which (paired with
+       the speech bubble is WIDER than the 320px baseline. Adding them
+       here pushes content + padding past min-width, which (paired with
        the setSize + setPosition effect in App.tsx) expands the Tauri
        window around the bubble without jittering the sprite. */
   padding-top: calc(20px + var(--bubble-extra-top, 0px));

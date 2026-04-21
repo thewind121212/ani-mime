@@ -37,16 +37,18 @@ const SESSION_DROPDOWN_MIN_WIDTH = 320;
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
 // needs so the bubble fits inside the window without clipping.
-const BASE_PAD_LEFT = 20;
 const BASE_PAD_TOP = 20;
+const BASE_PAD_HORIZONTAL = 50; // padding-left + padding-right base
 // The bubble overlaps the top 46*scale px of the sprite (see
 // speech-bubble.css `bottom` calc). Anything taller than the overlap
 // plus the container's base top padding needs extra vertical room.
 const BUBBLE_OVERLAP_PX = 46;
-// Half the sprite's native frame — the bubble is centered on the
-// sprite's horizontal midpoint, so half of the sprite width is the
-// horizontal budget before the bubble overflows the container edge.
-const SPRITE_HALF_PX = 64;
+// The sprite's native frame width (css px, pre-scale).
+const SPRITE_NATIVE_WIDTH = 128;
+// Baseline root width — see app.css .container min-width. The bubble
+// grow effect only kicks in horizontally when the bubble exceeds this,
+// because anything narrower already fits inside the min-width baseline.
+const BASELINE_WIDTH = 320;
 
 function App() {
   const { status, scenario } = useStatus();
@@ -113,15 +115,20 @@ function App() {
 
     const recompute = () => {
       const rect = el.getBoundingClientRect();
-      // Horizontal: bubble is centered on the sprite. Budget before
-      // overflow = SPRITE_HALF_PX * scale (distance from mascot center
-      // to mascot edge) + BASE_PAD_LEFT (distance from mascot edge to
-      // container edge). We add the same extraH to both left and right
-      // padding so the bubble stays centered.
-      const extraH = Math.max(
-        0,
-        Math.ceil(rect.width / 2 - SPRITE_HALF_PX * scale - BASE_PAD_LEFT)
-      );
+      // Horizontal: container is centered (justify-content: center) and
+      // guaranteed BASELINE_WIDTH by min-width, so any bubble that fits
+      // within 320px needs zero extras. For wider bubbles we add enough
+      // padding to push `content + padding` past min-width and match
+      // the bubble's actual width, split evenly across both sides.
+      const extraH =
+        rect.width > BASELINE_WIDTH
+          ? Math.max(
+              0,
+              Math.ceil(
+                (rect.width - SPRITE_NATIVE_WIDTH * scale - BASE_PAD_HORIZONTAL) / 2
+              )
+            )
+          : 0;
       // Vertical: bubble bottom is at BUBBLE_OVERLAP_PX * scale below
       // the mascot top. Budget above = overlap + BASE_PAD_TOP.
       const extraTop = Math.max(
