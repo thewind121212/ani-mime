@@ -1,0 +1,334 @@
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { fetchSessions, type SessionInfo } from "./hooks/useSessions";
+import { useCollapsedSessionGroups } from "./hooks/useCollapsedSessionGroups";
+import { useTheme } from "./hooks/useTheme";
+import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
+import "./styles/theme.css";
+import "./styles/session-list-window.css";
+
+const statePriority: Record<string, number> = {
+  busy: 3,
+  service: 2,
+  idle: 1,
+};
+
+function groupState(sessions: SessionInfo[]): string {
+  let best = "idle";
+  let bestP = 0;
+  for (const s of sessions) {
+    const p = statePriority[s.ui_state] ?? 0;
+    if (p > bestP) {
+      bestP = p;
+      best = s.ui_state;
+    }
+  }
+  return best;
+}
+
+function prettyPath(pwd: string, home?: string): string {
+  if (!pwd) return "";
+  if (home && pwd.startsWith(home)) return "~" + pwd.slice(home.length);
+  return pwd;
+}
+
+function groupBasename(g: {
+  pwd: string;
+  pretty: string;
+  sessions: SessionInfo[];
+}): string {
+  if (g.pwd) {
+    const leaf = g.pwd.split("/").filter(Boolean).pop();
+    if (leaf) return leaf;
+  }
+  return g.pretty || g.sessions[0]?.title || "";
+}
+
+function shellLabel(s: SessionInfo): string {
+  if (s.has_claude) return "claude";
+  if (s.fg_cmd) return s.fg_cmd.replace(/^-/, "");
+  if (s.ui_state === "busy" && s.busy_type) return s.busy_type;
+  if (s.ui_state === "service") return "service";
+  return "idle";
+}
+
+interface Group {
+  key: string;
+  pwd: string;
+  pretty: string;
+  sessions: SessionInfo[];
+  state: string;
+  isClaudeFallback: boolean;
+}
+
+function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
+  const claudeVirtual = sessions.find((s) => s.pid === 0);
+  const anyShellHasClaude = sessions.some((s) => s.pid !== 0 && s.has_claude);
+
+  const byKey = new Map<string, { pwd: string; list: SessionInfo[] }>();
+  for (const s of sessions) {
+    if (s.pid === 0) continue;
+    if (s.is_claude_proc) continue;
+    const key = s.pwd || s.title || String(s.pid);
+    if (!byKey.has(key)) byKey.set(key, { pwd: s.pwd, list: [] });
+    byKey.get(key)!.list.push(s);
+  }
+
+  const groups: Group[] = [];
+  for (const [key, { pwd, list }] of byKey.entries()) {
+    const pretty = pwd
+      ? prettyPath(pwd, home)
+      : list[0].title || `pid ${list[0].pid}`;
+    // Sort children by pid so refresh-induced HashMap reorders don't
+    // shuffle rows under the cursor and break :hover.
+    list.sort((a, b) => a.pid - b.pid);
+    groups.push({
+      key,
+      pwd,
+      pretty,
+      sessions: list,
+      state: groupState(list),
+      isClaudeFallback: false,
+    });
+  }
+
+  groups.sort((a, b) => {
+    const pa = statePriority[a.state] ?? 0;
+    const pb = statePriority[b.state] ?? 0;
+    if (pa !== pb) return pb - pa;
+    return a.pretty.localeCompare(b.pretty);
+  });
+
+  if (claudeVirtual && !anyShellHasClaude) {
+    groups.push({
+      key: "claude-virtual",
+      pwd: "",
+      pretty: "Claude Code",
+      sessions: [claudeVirtual],
+      state: claudeVirtual.ui_state,
+      isClaudeFallback: true,
+    });
+  }
+
+  return groups;
+}
+
+function detectHome(sessions: SessionInfo[]): string | undefined {
+  for (const s of sessions) {
+    const m = s.pwd.match(/^(\/Users\/[^/]+|\/home\/[^/]+)/);
+    if (m) return m[1];
+  }
+  return undefined;
+}
+
+function reflectActiveServices(sessions: SessionInfo[]): SessionInfo[] {
+  return sessions.map((s) =>
+    s.busy_type === "service" && s.ui_state === "idle"
+      ? { ...s, ui_state: "service" }
+      : s
+  );
+}
+
+function overlayClaudeState(sessions: SessionInfo[]): SessionInfo[] {
+  const sessionByPid = new Map<number, SessionInfo>();
+  for (const s of sessions) sessionByPid.set(s.pid, s);
+
+  return sessions.map((s) => {
+    if (!s.has_claude) return s;
+    const claudeSession =
+      (s.claude_pid != null && sessionByPid.get(s.claude_pid)) ||
+      sessionByPid.get(0);
+    if (!claudeSession) return s;
+    const claudeP = statePriority[claudeSession.ui_state] ?? 0;
+    const ownP = statePriority[s.ui_state] ?? 0;
+    return ownP >= claudeP ? s : { ...s, ui_state: claudeSession.ui_state };
+  });
+}
+
+export function SessionListApp() {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const { collapsed, toggle: toggleCollapsed } = useCollapsedSessionGroups();
+  const [pathTooltip, setPathTooltip] = useState<{
+    text: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  useTheme();
+  useWindowAutoSize(rootRef);
+
+  // Refresh sessions on mount, on status-changed, and every 3s while shown.
+  useEffect(() => {
+    let cancelled = false;
+
+    const refresh = async () => {
+      const list = await fetchSessions();
+      if (cancelled) return;
+      const overlaid = overlayClaudeState(reflectActiveServices(list));
+      setGroups(groupSessions(overlaid, detectHome(overlaid)));
+    };
+
+    void refresh();
+
+    const unlistenP = listen("status-changed", () => {
+      void refresh();
+    });
+    const id = setInterval(refresh, 3000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      unlistenP.then((fn) => fn());
+    };
+  }, []);
+
+  // Hide on focus loss or Escape.
+  useEffect(() => {
+    const win = getCurrentWindow();
+    const unlistenP = win.onFocusChanged(({ payload: focused }) => {
+      if (!focused) void win.hide();
+    });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") void win.hide();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      unlistenP.then((fn) => fn());
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  const showPathTooltip = (el: HTMLElement, text: string) => {
+    const rect = el.getBoundingClientRect();
+    setPathTooltip({
+      text,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top),
+    });
+  };
+  const hidePathTooltip = () => setPathTooltip(null);
+
+  const onItemClick = (s: SessionInfo) => {
+    invoke("focus_terminal", { pid: s.pid, tty: s.tty || null }).catch((err) =>
+      console.error("[session-list] focus_terminal", err)
+    );
+    void getCurrentWindow().hide();
+  };
+
+  return (
+    <div ref={rootRef} className="session-list-shell">
+      <div
+        className="session-list-root"
+        data-testid="session-list-root"
+        role="menu"
+      >
+        {groups.length === 0 ? (
+          <div className="session-empty">No active terminals</div>
+        ) : (
+          groups.map((g) => {
+            const isCollapsed = collapsed.has(g.key);
+            const headContent = (
+              <>
+                {!g.isClaudeFallback && (
+                  <span className="session-group-caret" aria-hidden="true" />
+                )}
+                <span className={`dot small ${g.state}`} />
+                <span className="session-group-title-row">
+                  <span className="session-group-title">{groupBasename(g)}</span>
+                  {g.pretty && g.pretty !== groupBasename(g) && (
+                    <span
+                      className="session-group-info"
+                      aria-label={`Full path: ${g.pretty}`}
+                      onMouseEnter={(e) =>
+                        showPathTooltip(e.currentTarget, g.pretty)
+                      }
+                      onMouseLeave={hidePathTooltip}
+                    >
+                      ?
+                    </span>
+                  )}
+                </span>
+                {g.sessions.length > 1 && (
+                  <span className="session-count">{g.sessions.length}</span>
+                )}
+              </>
+            );
+            return (
+              <div
+                key={g.key}
+                className={`session-group ${g.isClaudeFallback ? "claude" : ""}`}
+                data-testid={`session-group-${g.key}`}
+              >
+                {g.isClaudeFallback ? (
+                  <div className="session-group-head">{headContent}</div>
+                ) : (
+                  <button
+                    type="button"
+                    className={`session-group-head clickable ${isCollapsed ? "collapsed" : ""}`}
+                    data-testid={`session-group-head-${g.key}`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={`session-children-${g.key}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void toggleCollapsed(g.key);
+                    }}
+                  >
+                    {headContent}
+                  </button>
+                )}
+
+                {!g.isClaudeFallback && !isCollapsed && (
+                  <div
+                    className="session-children"
+                    id={`session-children-${g.key}`}
+                  >
+                    {g.sessions.map((s) => (
+                      <button
+                        key={s.pid}
+                        type="button"
+                        className={`session-child ${s.has_claude ? "has-claude" : ""}`}
+                        data-testid={`session-item-${s.pid}`}
+                        title="Click to bring this terminal to the front"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onItemClick(s);
+                        }}
+                      >
+                        <span className={`dot small ${s.ui_state}`} />
+                        <span className="session-child-label-row">
+                          <span className="session-child-label">{shellLabel(s)}</span>
+                          {s.has_claude && (
+                            <span
+                              className="session-child-claude"
+                              aria-label="Claude Code running"
+                            />
+                          )}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {pathTooltip &&
+        createPortal(
+          <div
+            className="session-path-tooltip"
+            style={{ left: pathTooltip.x, top: pathTooltip.y }}
+            role="tooltip"
+          >
+            {pathTooltip.text}
+          </div>,
+          document.body
+        )}
+    </div>
+  );
+}
