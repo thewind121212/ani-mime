@@ -275,6 +275,13 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       setSessionOpen(false);
       return;
     }
+    // Only one popover at a time — hide the peer popover before showing
+    // the session dropdown.
+    if (peerOpen) {
+      const popover = await WebviewWindow.getByLabel("peer-list");
+      await popover?.hide().catch(() => {});
+      setPeerOpen(false);
+    }
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
     setGroups(groupSessions(overlaid, detectHome(overlaid)));
@@ -387,6 +394,10 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       setPeerOpen(false);
       return;
     }
+
+    // Only one popover at a time — close the session dropdown before
+    // showing the peer list.
+    if (sessionOpen) setSessionOpen(false);
 
     const pos = await computePopoverScreenPos(lanButtonRef.current);
     await popover.setPosition(pos);
