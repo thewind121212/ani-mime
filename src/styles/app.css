@@ -36,10 +36,19 @@ body {
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  /* Right/bottom/top padding gives the status pill's neon-glow box-shadow
-     room to render — the window auto-sizes to offsetWidth/Height, which
-     does NOT include box-shadow, so without this the glow is clipped. */
-  padding: 20px 30px 30px 20px;
+  /* Padding has two jobs:
+     - Base values (20 / 30 / 30 / 20) reserve room for the status pill's
+       neon-glow box-shadow — offsetWidth doesn't include box-shadow, so
+       without this reserve the glow gets clipped by the Tauri window.
+     - --bubble-extra-top and --bubble-extra-h are set from App.tsx when
+       the speech bubble grows beyond its default footprint. Adding them
+       here makes the container grow the same amount, which (paired with
+       the setSize + setPosition effect in App.tsx) expands the Tauri
+       window around the bubble without jittering the sprite. */
+  padding-top: calc(20px + var(--bubble-extra-top, 0px));
+  padding-right: calc(30px + var(--bubble-extra-h, 0px));
+  padding-bottom: 30px;
+  padding-left: calc(20px + var(--bubble-extra-h, 0px));
 }
 
 .main-col {
@@ -82,10 +91,13 @@ body {
 .container.dev-container-bounds::before {
   content: "";
   position: absolute;
-  top: 20px;
-  right: 30px;
+  /* Track the same padding formulas the container uses, so when the
+     bubble-extra vars grow the padding, the content-bounds overlay
+     grows with them and keeps marking the real content box. */
+  top: calc(20px + var(--bubble-extra-top, 0px));
+  right: calc(30px + var(--bubble-extra-h, 0px));
   bottom: 30px;
-  left: 20px;
+  left: calc(20px + var(--bubble-extra-h, 0px));
   outline: 1px dashed #ff3b30;
   outline-offset: -1px;
   background: rgba(255, 59, 48, 0.06);

@@ -16,7 +16,7 @@ import { useDevAppBounds } from "./hooks/useDevAppBounds";
 import { useDevContainerBounds } from "./hooks/useDevContainerBounds";
 import { useDevRootBounds } from "./hooks/useDevRootBounds";
 import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getCurrentWindow,
   LogicalPosition,
@@ -33,6 +33,20 @@ import "./styles/app.css";
 // max-height (280px) + top gap (6) + shadow buffer (~14).
 const SESSION_DROPDOWN_EXTRA_HEIGHT = 300;
 const SESSION_DROPDOWN_MIN_WIDTH = 320;
+
+// Base container padding, duplicated from app.css. Used by the bubble
+// window-grow logic to compute how much extra padding the container
+// needs so the bubble fits inside the window without clipping.
+const BASE_PAD_LEFT = 20;
+const BASE_PAD_TOP = 20;
+// The bubble overlaps the top 46*scale px of the sprite (see
+// speech-bubble.css `bottom` calc). Anything taller than the overlap
+// plus the container's base top padding needs extra vertical room.
+const BUBBLE_OVERLAP_PX = 46;
+// Half the sprite's native frame — the bubble is centered on the
+// sprite's horizontal midpoint, so half of the sprite width is the
+// horizontal budget before the bubble overflows the container edge.
+const SPRITE_HALF_PX = 64;
 
 function App() {
   const { status, scenario } = useStatus();
@@ -64,11 +78,132 @@ function App() {
   // Window position captured when the dropdown opens, restored on close.
   // Keeping this as a ref avoids triggering a re-render when we record it.
   const savedPosRef = useRef<LogicalPosition | null>(null);
+  // Extra padding the container needs so a multi-line / wide bubble
+  // fits inside the window without clipping. Driven by a ResizeObserver
+  // on the bubble; applied via CSS vars on .container.
+  const [bubbleExtra, setBubbleExtra] = useState<{ top: number; horizontal: number }>({ top: 0, horizontal: 0 });
+  // Window position recorded at the moment the bubble first starts
+  // growing the window, used to restore position on hide.
+  const bubbleSavedPosRef = useRef<LogicalPosition | null>(null);
+  // True while our bubble effect owns the window geometry — pauses
+  // useWindowAutoSize so it doesn't race our setSize/setPosition.
+  const bubbleGrowActive = visible && (bubbleExtra.top > 0 || bubbleExtra.horizontal > 0);
   useTheme();
   useWindowAutoSize(
     containerRef,
-    effectActive || sessionOpen || sessionClosing
+    effectActive || sessionOpen || sessionClosing || bubbleGrowActive
   );
+
+  // Measure the rendered speech bubble (via ResizeObserver) and compute
+  // how much extra container padding is needed so the bubble fits
+  // inside the window. Extras are applied via CSS variables (see
+  // `.container` in app.css) so `container.offsetWidth/offsetHeight`
+  // reflects the new size — that's what the window-grow effect reads
+  // to compute the setSize target.
+  useLayoutEffect(() => {
+    if (!visible) {
+      setBubbleExtra((prev) =>
+        prev.top === 0 && prev.horizontal === 0 ? prev : { top: 0, horizontal: 0 }
+      );
+      return;
+    }
+
+    const el = document.querySelector<HTMLDivElement>('[data-testid="speech-bubble"]');
+    if (!el) return;
+
+    const recompute = () => {
+      const rect = el.getBoundingClientRect();
+      // Horizontal: bubble is centered on the sprite. Budget before
+      // overflow = SPRITE_HALF_PX * scale (distance from mascot center
+      // to mascot edge) + BASE_PAD_LEFT (distance from mascot edge to
+      // container edge). We add the same extraH to both left and right
+      // padding so the bubble stays centered.
+      const extraH = Math.max(
+        0,
+        Math.ceil(rect.width / 2 - SPRITE_HALF_PX * scale - BASE_PAD_LEFT)
+      );
+      // Vertical: bubble bottom is at BUBBLE_OVERLAP_PX * scale below
+      // the mascot top. Budget above = overlap + BASE_PAD_TOP.
+      const extraTop = Math.max(
+        0,
+        Math.ceil(rect.height - BUBBLE_OVERLAP_PX * scale - BASE_PAD_TOP)
+      );
+      setBubbleExtra((prev) =>
+        prev.top === extraTop && prev.horizontal === extraH
+          ? prev
+          : { top: extraTop, horizontal: extraH }
+      );
+    };
+
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [visible, scale]);
+
+  // Grow the window around the bubble so it doesn't clip at the window
+  // edge, and keep the sprite visually anchored by shifting window
+  // position by the same deltas. Mirrors the session-dropdown pattern
+  // above; skipped while the session is resizing the window so the
+  // two effects don't fight.
+  useEffect(() => {
+    if (sessionOpen || sessionClosing) return;
+
+    const win = getCurrentWindow();
+    const { top: extraTop, horizontal: extraH } = bubbleExtra;
+    const shouldGrow = visible && (extraTop > 0 || extraH > 0);
+
+    if (shouldGrow) {
+      void (async () => {
+        try {
+          const el = containerRef.current;
+          if (!el) return;
+
+          if (!bubbleSavedPosRef.current) {
+            const sf = await win.scaleFactor();
+            const pos = await win.outerPosition();
+            const logical = pos.toLogical(sf);
+            bubbleSavedPosRef.current = new LogicalPosition(
+              Math.round(logical.x),
+              Math.round(logical.y)
+            );
+          }
+          const savedPos = bubbleSavedPosRef.current;
+          const newWidth = el.offsetWidth;
+          const newHeight = el.offsetHeight;
+
+          await Promise.all([
+            win.setPosition(
+              new LogicalPosition(savedPos.x - extraH, savedPos.y - extraTop)
+            ),
+            win.setSize(new LogicalSize(newWidth, newHeight)),
+          ]);
+        } catch (err) {
+          console.error("[bubble-grow] resize failed:", err);
+        }
+      })();
+      return;
+    }
+
+    if (bubbleSavedPosRef.current) {
+      const savedPos = bubbleSavedPosRef.current;
+      bubbleSavedPosRef.current = null;
+      void (async () => {
+        try {
+          const el = containerRef.current;
+          const ops: Promise<void>[] = [win.setPosition(savedPos)];
+          if (el) {
+            ops.push(
+              win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))
+            );
+          }
+          await Promise.all(ops);
+        } catch (err) {
+          console.error("[bubble-grow] restore failed:", err);
+        }
+      })();
+    }
+  }, [visible, bubbleExtra, sessionOpen, sessionClosing]);
 
   // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
   // Because #root centers its content, a wider window visibly shifts the
@@ -145,6 +280,12 @@ function App() {
       ref={containerRef}
       data-testid="app-container"
       className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
+      style={{
+        // Driven by the bubble measurement effect above. 0 when the
+        // bubble is hidden or fits in the default padding.
+        "--bubble-extra-top": `${bubbleExtra.top}px`,
+        "--bubble-extra-h": `${bubbleExtra.horizontal}px`,
+      } as React.CSSProperties}
       onMouseDown={onMouseDown}
     >
       <div className="main-col">
