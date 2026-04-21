@@ -15,7 +15,7 @@
       {
         "title": "Ani-Mime",
         "width": 320,
-        "height": 220,
+        "height": 250,
         "resizable": false,
         "fullscreen": false,
         "alwaysOnTop": true,

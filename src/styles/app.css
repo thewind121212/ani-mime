@@ -36,11 +36,16 @@ body {
   user-select: none;
   -webkit-user-select: none;
   position: relative;
-  /* 320px is the baseline "root" width. useWindowAutoSize reads
-     offsetWidth, so enforcing a min-width here guarantees the Tauri
-     window is always at least 320px after any transient growth
-     (session dropdown, bubble grow) collapses. */
+  /* 320 × 250 is the baseline "root" size. useWindowAutoSize reads
+     offsetWidth/offsetHeight, so enforcing both min-width and
+     min-height here guarantees the Tauri window is always at least
+     320 × 250 after any transient growth (session dropdown, bubble
+     grow) collapses.
+     While visitors are present the baseline widens to 500 (see
+     .container.has-visitors below) so 1–3 visiting pets fit without
+     the window expanding further each time a greeting appears. */
   min-width: 320px;
+  min-height: 250px;
   /* Center main-col (and visitors-col, when present) horizontally
      inside the 320px baseline so the sprite sits at the window's
      midpoint instead of flex-starting at the left. */
@@ -80,6 +85,16 @@ body {
 
 .container.dragging {
   cursor: grabbing;
+}
+
+/* Visitor mode baseline: up to 3 other pets visit at once, each
+   ~96 * scale wide with a transient greeting up to 180 wide. 500px
+   fits all three sprites + greetings next to the host pet without
+   the window having to resize mid-visit. When the last visitor
+   leaves, this class is removed and the container snaps back to
+   the 320 baseline via min-width. */
+.container.has-visitors {
+  min-width: 500px;
 }
 
 /* Dev tool: outlines the container (== the auto-sized Tauri window)

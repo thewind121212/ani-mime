@@ -25,13 +25,12 @@ import {
 import "./styles/theme.css";
 import "./styles/app.css";
 
-// Extra height to add to the widget window while the fixed-positioned
-// session-list dropdown is open. Gives the dropdown room to render
-// without being clipped (the dropdown itself is position: fixed so it
-// doesn't inflate the container, which means useWindowAutoSize would
-// otherwise leave the window at its compact size). 300 = dropdown
-// max-height (280px) + top gap (6) + shadow buffer (~14).
-const SESSION_DROPDOWN_EXTRA_HEIGHT = 300;
+// Total window height while the session-list dropdown is open.
+// The dropdown itself is position: fixed so it doesn't inflate the
+// container; StatusPill caps the dropdown's max-height to
+// (this value - dropdownTop - bottom margin) so long lists scroll
+// inside this budget instead of running past the window edge.
+const SESSION_DROPDOWN_WINDOW_HEIGHT = 400;
 const SESSION_DROPDOWN_MIN_WIDTH = 320;
 
 // Base container padding, duplicated from app.css. Used by the bubble
@@ -57,9 +56,17 @@ function App() {
   const visitors = useVisitors();
   const { scale } = useScale();
   const devMode = useDevMode();
-  const devAppBounds = useDevAppBounds();
-  const devContainerBounds = useDevContainerBounds();
-  const devRootBounds = useDevRootBounds();
+  const appBoundsToggle = useDevAppBounds();
+  const containerBoundsToggle = useDevContainerBounds();
+  const rootBoundsToggle = useDevRootBounds();
+  // Outline visibility is gated behind dev mode so the outlines never
+  // show for normal users: toggling them individually in the Superpower
+  // tool is only meaningful while dev mode is active. If dev mode is
+  // ever turned off, all three outlines hide regardless of their
+  // individual toggle state.
+  const devAppBounds = devMode && appBoundsToggle;
+  const devContainerBounds = devMode && containerBoundsToggle;
+  const devRootBounds = devMode && rootBoundsToggle;
 
   // #root lives in the HTML template outside React's tree, so we toggle
   // its class imperatively when the dev toggle flips.
@@ -91,9 +98,13 @@ function App() {
   // useWindowAutoSize so it doesn't race our setSize/setPosition.
   const bubbleGrowActive = visible && (bubbleExtra.top > 0 || bubbleExtra.horizontal > 0);
   useTheme();
+  // Pause useWindowAutoSize while visitors are present — the visitor
+  // effect below owns the window size in that mode (fixed 500 wide)
+  // and useWindowAutoSize would otherwise shrink back to whatever
+  // container.offsetWidth reports.
   useWindowAutoSize(
     containerRef,
-    effectActive || sessionOpen || sessionClosing || bubbleGrowActive
+    effectActive || sessionOpen || sessionClosing || bubbleGrowActive || visitors.length > 0
   );
 
   // Measure the rendered speech bubble (via ResizeObserver) and compute
@@ -212,6 +223,81 @@ function App() {
     }
   }, [visible, bubbleExtra, sessionOpen, sessionClosing]);
 
+  // Visitor count change → drive the window size directly.
+  //
+  // With visitors: window fixed at 500 wide × max(250, content-height).
+  // Without visitors: hand control back to useWindowAutoSize, which
+  // will resize to container.offsetWidth (>= 320 via min-width) on
+  // its next ResizeObserver tick.
+  //
+  // requestAnimationFrame waits one frame so React/CSS have committed
+  // the new layout (visitor-col mounted/unmounted) before we measure.
+  // Saved position when visitor mode grows the window, restored on
+  // last-visitor-leaves. Parallel to savedPosRef used by the session
+  // dropdown effect.
+  const visitorSavedPosRef = useRef<LogicalPosition | null>(null);
+
+  // When visitors arrive, grow the window to 500px wide and shift it
+  // left by half the delta so the sprite stays visually anchored —
+  // same pattern the session-dropdown effect uses for its own resize.
+  // On the last visitor leaving, restore the saved position and let
+  // the container's natural (min-width 320) size take over via setSize.
+  useEffect(() => {
+    const win = getCurrentWindow();
+
+    if (visitors.length > 0) {
+      const el = containerRef.current;
+      if (!el) return;
+      const currentWidth = el.offsetWidth;
+      const currentHeight = el.offsetHeight;
+      const newWidth = 500;
+      const newHeight = Math.max(250, currentHeight);
+      const dx = newWidth - currentWidth;
+
+      void (async () => {
+        try {
+          const sf = await win.scaleFactor();
+          const pos = await win.outerPosition();
+          const logical = pos.toLogical(sf);
+          const origX = Math.round(logical.x);
+          const origY = Math.round(logical.y);
+          if (!visitorSavedPosRef.current) {
+            visitorSavedPosRef.current = new LogicalPosition(origX, origY);
+          }
+          await Promise.all([
+            win.setPosition(
+              new LogicalPosition(origX - Math.round(dx / 2), origY)
+            ),
+            win.setSize(new LogicalSize(newWidth, newHeight)),
+          ]);
+        } catch (err) {
+          console.error("[visitors] grow failed:", err);
+        }
+      })();
+      return;
+    }
+
+    // Restore path
+    const savedPos = visitorSavedPosRef.current;
+    if (!savedPos) return;
+    visitorSavedPosRef.current = null;
+
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        const ops: Promise<void>[] = [win.setPosition(savedPos)];
+        if (el) {
+          ops.push(
+            win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))
+          );
+        }
+        await Promise.all(ops);
+      } catch (err) {
+        console.error("[visitors] restore failed:", err);
+      }
+    })();
+  }, [visitors.length]);
+
   // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
   // Because #root centers its content, a wider window visibly shifts the
   // pet + pill rightward. To keep the pet visually anchored we also move
@@ -231,7 +317,10 @@ function App() {
       const currentWidth = el.offsetWidth;
       const currentHeight = el.offsetHeight;
       const newWidth = Math.max(currentWidth, SESSION_DROPDOWN_MIN_WIDTH);
-      const newHeight = currentHeight + SESSION_DROPDOWN_EXTRA_HEIGHT;
+      // Cap total window height at SESSION_DROPDOWN_WINDOW_HEIGHT (400).
+      // Uses max() so taller pre-existing content (e.g. a multi-line
+      // bubble) keeps its height rather than being squeezed.
+      const newHeight = Math.max(currentHeight, SESSION_DROPDOWN_WINDOW_HEIGHT);
       const dx = newWidth - currentWidth;
 
       void (async () => {
@@ -286,12 +375,18 @@ function App() {
     <div
       ref={containerRef}
       data-testid="app-container"
-      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
+      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${visitors.length > 0 ? "has-visitors" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
       style={{
         // Driven by the bubble measurement effect above. 0 when the
         // bubble is hidden or fits in the default padding.
         "--bubble-extra-top": `${bubbleExtra.top}px`,
         "--bubble-extra-h": `${bubbleExtra.horizontal}px`,
+        // Enforced inline (as well as via .has-visitors CSS rule) to
+        // guarantee the highest specificity wins: whichever stylesheet
+        // ordering or hot-reload state we're in, the min-width here
+        // is authoritative.
+        minWidth: visitors.length > 0 ? "500px" : "320px",
+        minHeight: "250px",
       } as React.CSSProperties}
       onMouseDown={onMouseDown}
     >
