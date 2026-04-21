@@ -136,9 +136,14 @@ function App() {
       <div className="main-col">
         {scenario && <div data-testid="scenario-badge" className="scenario-badge">SCENARIO</div>}
         <EffectOverlay onActiveChange={setEffectActive} />
-        <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
-        {status !== "visiting" && <Mascot status={status} />}
-        {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
+        {/* mascot-wrap anchors the absolute-positioned speech bubble.
+            Keeping the bubble out of the flex flow prevents it from
+            nudging the sprite's Y position when it appears/disappears. */}
+        <div className="mascot-wrap">
+          <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
+          {status !== "visiting" && <Mascot status={status} />}
+          {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
+        </div>
         <DevBuildBadge />
         <StatusPill
           status={status}
