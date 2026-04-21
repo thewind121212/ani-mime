@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.17.2] - 2026-04-21
+
+### Added
+- **Stable root-window baseline** — the main window is always at least 320 × 250 and collapses back to that size after any transient growth (bubble, session list, visiting pets). Three named growth modes: session list → 400 tall, 1–3 visitors → 500 wide, speech bubble → grows container padding to fit multi-line messages. See `docs/window-sizing.md`.
+- **Multi-line speech bubble** — long messages wrap to multiple lines (cap 280 px wide) instead of extending past the window. Tail re-centered so it always points at the pet.
+- **Dev-build badge hover tooltip** — hovering the centered "DEV" badge (dev builds only) shows a guideline: "Click Version in Settings 10× to unlock Superpower."
+- **Dev layout outlines** auto-enable when dev mode is activated (and auto-hide when it's off). Three toggleable outlines in the Superpower tool: App Bounds (purple), Container (red), Root (green).
+- **Ultra-long-bubble scenario** in Superpower → Scenarios → Pet Status, for overflow testing.
+- **Docs: `docs/window-sizing.md`** — full reference for the baseline + growth modes + change recipes.
+
+### Changed
+- **Local Network permission** — the Settings button now reliably opens System Settings → Privacy & Security and uses `osascript reveal anchor` on Ventura+ to scroll to the Local Network row. Hint text tells the user which toggle to flip.
+- **Session list dropdown** — caps total window height at 400 and scrolls inside that budget when the list is long, instead of growing the window taller every open.
+
+### Fixed
+- **Mascot jitter on status change** (busy → idle flash + one-frame stretch) caused by stale sheet dimensions during sprite swap.
+- **Sprite shift when speech bubble appears/disappears** — bubble moved out of the flex flow so its visibility no longer nudges the pet.
+- **Pill popovers no longer overlap** — opening the session list closes the peer list and vice versa.
+- **Duplicate visitors on a single arrival** — React Strict Mode's useEffect double-invoke was adding each visitor twice; now deduped by instance name.
+- **`useScale` hardcoded window sizes** removed — was forcing the window to 500 × 220 at sprite scale 1 on every launch, fighting the auto-size pipeline.
+
 ## [0.17.1] - 2026-04-20
 
 ### Added
