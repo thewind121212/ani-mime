@@ -52,7 +52,7 @@ export const STATUS_SOUND_CASES: readonly SoundCase[] = [
     id: "working",
     label: "Working",
     description: "A terminal command is actively running (looped while busy).",
-    sound: "page-turn",
+    sound: "kalimba",
     playOptions: { loop: true, volume: 3 },
   },
   {

@@ -12,6 +12,8 @@ import {
   createStripFromFrames,
   parseFrameInput,
   serializeFrames,
+  combineImageBytesVertically,
+  mimeForExt,
   type Frame,
 } from "../utils/spriteSheetProcessor";
 import { ALL_STATUSES } from "../hooks/useCustomMimes";
@@ -30,6 +32,10 @@ interface SmartImportProps {
   ) => Promise<void>;
   onCancel: () => void;
   initialFilePath?: string;
+  /** A list of file paths to seed the source file list with (used when the
+   *  caller has already asked the user to multi-select images). Each path
+   *  becomes its own removable tag in the SmartImport UI. */
+  initialFilePaths?: string[];
   initialName?: string;
   initialFrameInputs?: Record<Status, string>;
   editingId?: string;
@@ -55,14 +61,27 @@ const STATUS_DESCRIPTIONS: Record<Status, string> = {
   visiting: "A friend's mime is visiting from the local network",
 };
 
+interface SourceFile {
+  id: string;
+  fileName: string;
+  bytes: Uint8Array;
+  path?: string;
+}
+
+function nextSourceId(): string {
+  return `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 export function SmartImport({
   onSave,
   onCancel,
   initialFilePath,
+  initialFilePaths,
   initialName,
   initialFrameInputs,
   editingId: _editingId,
 }: SmartImportProps) {
+  const [sourceFiles, setSourceFiles] = useState<SourceFile[]>([]);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [frameInputs, setFrameInputs] = useState<Record<Status, string>>(() => {
@@ -72,7 +91,6 @@ export function SmartImport({
   });
   const [name, setName] = useState(initialName ?? "");
   const [processing, setProcessing] = useState(false);
-  const [fileName, setFileName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [allFramePreviews, setAllFramePreviews] = useState<string[]>([]);
@@ -87,19 +105,32 @@ export function SmartImport({
   const [dragging, setDragging] = useState<{ status: Status; index: number } | null>(null);
   const [dropTarget, setDropTarget] = useState<{ status: Status; index: number } | null>(null);
 
-  const processFile = useCallback(async (filePath: string) => {
+  // First processBytes call after mount honors `initialFrameInputs` so edit
+  // sessions preserve the user's existing assignments. Subsequent calls —
+  // triggered by the user adding/removing source files — preserve whatever
+  // the user has already assigned (dropping any frame numbers that no longer
+  // exist after a removal) rather than wiping back to auto-distribute.
+  const hasProcessedOnce = useRef(false);
+  // Ref mirror of frameInputs so processBytes can read the latest value
+  // without being in the callback's dep array (which would cause the reprocess
+  // effect to re-run every time the user edits an assignment).
+  const frameInputsRef = useRef(frameInputs);
+  useEffect(() => {
+    frameInputsRef.current = frameInputs;
+  }, [frameInputs]);
+
+  const processBytes = useCallback(async (
+    bytes: Uint8Array,
+    displayName: string,
+    mime: string
+  ) => {
     setError(null);
     try {
-      const rawName = filePath.split("/").pop() ?? "";
-      setFileName(rawName);
-      if (!initialName) {
-        setName(rawName.replace(/\.[^.]+$/, ""));
+      if (!initialName && !hasProcessedOnce.current) {
+        setName(displayName.replace(/\.[^.]+$/, ""));
       }
-      const bytes = await readFile(filePath);
-      setRawBytes(new Uint8Array(bytes));
-      const ext = filePath.split(".").pop()?.toLowerCase() ?? "png";
-      const mime = ext === "gif" ? "image/gif" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
-      const blob = new Blob([bytes], { type: mime });
+      setRawBytes(bytes);
+      const blob = new Blob([bytes as BlobPart], { type: mime });
       const src = URL.createObjectURL(blob);
       const img = await loadImage(src);
       URL.revokeObjectURL(src);
@@ -117,52 +148,161 @@ export function SmartImport({
       const allFrames = extractFrames(detected);
       setFrames(allFrames);
 
-      // Auto-assign: distribute frames evenly across statuses (skipped in edit mode)
-      const autoInputs: Record<string, string> = {};
-      if (initialFrameInputs) {
-        for (const s of ALL_STATUSES) autoInputs[s] = initialFrameInputs[s] ?? "";
+      const nextInputs: Record<string, string> = {};
+      if (hasProcessedOnce.current) {
+        // Preserve the user's existing assignments across add/remove. parseFrameInput
+        // clamps to allFrames.length, so adding files is a no-op for the serialized
+        // string (same numbers remain valid) and removing files drops any numbers
+        // that fell off the end.
+        const current = frameInputsRef.current;
+        for (const s of ALL_STATUSES) {
+          const indices = parseFrameInput(current[s] ?? "", allFrames.length);
+          nextInputs[s] = serializeFrames(indices.map((i) => i + 1));
+        }
+      } else if (initialFrameInputs) {
+        for (const s of ALL_STATUSES) nextInputs[s] = initialFrameInputs[s] ?? "";
       } else {
+        // Fresh load with no prior assignments — distribute evenly.
         const perStatus = Math.max(1, Math.floor(allFrames.length / ALL_STATUSES.length));
         for (let si = 0; si < ALL_STATUSES.length; si++) {
           const start = si * perStatus + 1;
           const end = si === ALL_STATUSES.length - 1
             ? allFrames.length
             : Math.min((si + 1) * perStatus, allFrames.length);
-          autoInputs[ALL_STATUSES[si]] = `${start}-${end}`;
+          nextInputs[ALL_STATUSES[si]] = `${start}-${end}`;
         }
       }
-      setFrameInputs(autoInputs as Record<Status, string>);
+      setFrameInputs(nextInputs as Record<Status, string>);
 
-      // Generate initial thumbnails
       const initThumbs: Record<string, { src: string; num: number }[]> = {};
       for (const s of ALL_STATUSES) {
-        const indices = parseFrameInput(autoInputs[s], allFrames.length);
+        const indices = parseFrameInput(nextInputs[s], allFrames.length);
         initThumbs[s] = indices.map((i) => ({ src: getFramePreview(prepared, allFrames[i], 72), num: i + 1 }));
       }
       setFrameThumbs(initThumbs as Record<Status, { src: string; num: number }[]>);
+      hasProcessedOnce.current = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to load image";
-      logError(`[smart-import] processFile failed: ${msg}`);
+      logError(`[smart-import] processBytes failed: ${msg}`);
       setError(msg);
     }
-  }, []);
+  }, [initialName, initialFrameInputs]);
 
+  // Seed sourceFiles from the initial props exactly once. After this the
+  // sourceFiles state is the source of truth — the reprocess effect below
+  // re-renders canvas + frames whenever the user adds or removes a file.
+  // initialFilePaths takes precedence; each path becomes its own tag so the
+  // user can remove any individual file (and its frames) later.
+  const didSeed = useRef(false);
+  useEffect(() => {
+    if (didSeed.current) return;
+    didSeed.current = true;
+    const paths = initialFilePaths && initialFilePaths.length > 0
+      ? initialFilePaths
+      : initialFilePath
+        ? [initialFilePath]
+        : [];
+    if (paths.length === 0) return;
+    void (async () => {
+      const seeds: SourceFile[] = [];
+      for (const p of paths) {
+        try {
+          const bytes = await readFile(p);
+          seeds.push({
+            id: nextSourceId(),
+            fileName: p.split("/").pop() ?? "sheet.png",
+            path: p,
+            bytes: new Uint8Array(bytes),
+          });
+        } catch (err) {
+          logError(`[smart-import] initial seed failed for ${p}: ${err}`);
+        }
+      }
+      if (seeds.length > 0) setSourceFiles(seeds);
+    })();
+  }, [initialFilePath, initialFilePaths]);
+
+  // Reprocess whenever the source file list changes. With one file we hand
+  // bytes straight through; with ≥2 files we vertically stack them first so
+  // row detection sees every source's rows as neighbours.
+  useEffect(() => {
+    if (sourceFiles.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        if (sourceFiles.length === 1) {
+          const f = sourceFiles[0];
+          const ext = (f.path ?? f.fileName).split(".").pop() ?? "png";
+          if (cancelled) return;
+          await processBytes(f.bytes, f.fileName, mimeForExt(ext));
+          return;
+        }
+        const items = sourceFiles.map((f) => {
+          const ext = (f.path ?? f.fileName).split(".").pop() ?? "png";
+          return { bytes: f.bytes, mime: mimeForExt(ext) };
+        });
+        const combined = await combineImageBytesVertically(items);
+        if (cancelled) return;
+        info(`[smart-import] reprocess combined ${sourceFiles.length} sources into ${combined.length} bytes`);
+        await processBytes(combined, `${sourceFiles.length} images`, "image/png");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logError(`[smart-import] reprocess failed: ${msg}`);
+        if (!cancelled) setError(msg);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sourceFiles, processBytes]);
+
+  /** Open the picker (multi-select) and append the chosen files to the list. */
   const handlePickSheet = useCallback(async () => {
     const result = await open({
-      multiple: false,
+      multiple: true,
       filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
     });
     if (!result) return;
-    await processFile(result);
-  }, [processFile]);
-
-  const didAutoLoad = useRef(false);
-  useEffect(() => {
-    if (initialFilePath && !didAutoLoad.current) {
-      didAutoLoad.current = true;
-      processFile(initialFilePath);
+    const paths = Array.isArray(result) ? result : [result];
+    if (paths.length === 0) return;
+    const added: SourceFile[] = [];
+    for (const p of paths) {
+      try {
+        const bytes = await readFile(p);
+        added.push({
+          id: nextSourceId(),
+          fileName: p.split("/").pop() ?? "unknown",
+          path: p,
+          bytes: new Uint8Array(bytes),
+        });
+      } catch (err) {
+        logError(`[smart-import] failed to read ${p}: ${err}`);
+      }
     }
-  }, [initialFilePath, processFile]);
+    if (added.length > 0) setSourceFiles((prev) => [...prev, ...added]);
+  }, []);
+
+  const handleRemoveSource = useCallback((id: string) => {
+    setSourceFiles((prev) => {
+      const next = prev.filter((f) => f.id !== id);
+      // Last file removed — drop back to the initial picker view.
+      if (next.length === 0) {
+        setCanvas(null);
+        setFrames([]);
+        setRawBytes(null);
+        previewCache.current.clear();
+        const emptyInputs: Record<string, string> = {};
+        const emptyThumbs: Record<string, { src: string; num: number }[]> = {};
+        for (const s of ALL_STATUSES) {
+          emptyInputs[s] = "";
+          emptyThumbs[s] = [];
+        }
+        setFrameInputs(emptyInputs as Record<Status, string>);
+        setFrameThumbs(emptyThumbs as Record<Status, { src: string; num: number }[]>);
+      }
+      return next;
+    });
+  }, []);
 
   const applyFramesChange = useCallback((status: Status, nextNums: number[]) => {
     if (!canvas || frames.length === 0) return;
@@ -341,9 +481,37 @@ export function SmartImport({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            <div className="settings-row">
-              <span className="settings-row-label">File</span>
-              <span className="smart-import-file">{fileName}</span>
+            <div className="settings-row with-hint">
+              <div>
+                <span className="settings-row-label">Files</span>
+                <span className="settings-row-hint">Cmd+click (or Shift+click) in the picker to pick several at once — or press + Add repeatedly.</span>
+              </div>
+              <div className="smart-import-file-tags" data-testid="smart-import-file-tags">
+                {sourceFiles.map((f) => (
+                  <span key={f.id} className="smart-import-file-tag" data-testid={`smart-import-file-tag-${f.id}`}>
+                    <span className="smart-import-file-tag-name" title={f.fileName}>{f.fileName}</span>
+                    <button
+                      type="button"
+                      className="smart-import-file-tag-remove"
+                      onClick={() => handleRemoveSource(f.id)}
+                      aria-label={`Remove ${f.fileName}`}
+                      title="Remove this image (and its frames)"
+                      data-testid={`smart-import-file-tag-remove-${f.id}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  className="smart-import-file-tag-add"
+                  onClick={handlePickSheet}
+                  data-testid="smart-import-file-tag-add"
+                  title="Add one or more images to this sheet"
+                >
+                  + Add
+                </button>
+              </div>
             </div>
             <div className="settings-row">
               <span className="settings-row-label">Frames</span>
@@ -408,6 +576,20 @@ export function SmartImport({
                       >
                         <img src={thumb.src} alt={`Frame ${thumb.num}`} className="smart-import-frame-thumb" draggable={false} />
                         <span className="smart-import-frame-num">{thumb.num}</span>
+                        <button
+                          type="button"
+                          className="smart-import-frame-thumb-duplicate"
+                          aria-label={`Duplicate frame ${thumb.num}`}
+                          title="Duplicate this frame"
+                          data-testid={`frame-duplicate-${status}-${thumb.num}`}
+                          onClick={() => {
+                            const nums = frameThumbs[status].map((t) => t.num);
+                            nums.splice(i + 1, 0, thumb.num);
+                            applyFramesChange(status, nums);
+                          }}
+                        >
+                          +
+                        </button>
                         <button
                           type="button"
                           className="smart-import-frame-thumb-remove"

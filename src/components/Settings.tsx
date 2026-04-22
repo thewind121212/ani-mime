@@ -144,6 +144,7 @@ export function Settings() {
   const [tab, setTab] = useState<Tab>("general");
   const [creating, setCreating] = useState<false | "manual" | "smart">(false);
   const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
+  const [smartImportPaths, setSmartImportPaths] = useState<string[] | null>(null);
   const [editingMime, setEditingMime] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -837,6 +838,7 @@ export function Settings() {
               ) : creating === "smart" ? (
                 <SmartImport
                   initialFilePath={smartImportPath ?? undefined}
+                  initialFilePaths={smartImportPaths ?? undefined}
                   initialName={editingMime ? customMimes.find((m) => m.id === editingMime)?.name : undefined}
                   initialFrameInputs={
                     editingMime
@@ -860,8 +862,9 @@ export function Settings() {
                     }
                     setCreating(false);
                     setSmartImportPath(null);
+                    setSmartImportPaths(null);
                   }}
-                  onCancel={() => { handleCancelCreate(); setSmartImportPath(null); }}
+                  onCancel={() => { handleCancelCreate(); setSmartImportPath(null); setSmartImportPaths(null); }}
                 />
               ) : (
                 <>
@@ -921,11 +924,22 @@ export function Settings() {
                     </button>
                     <button className="pet-card add-card" onClick={async () => {
                       const result = await open({
-                        multiple: false,
+                        multiple: true,
                         filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
                       });
                       if (!result) return;
-                      setSmartImportPath(result);
+                      const paths = Array.isArray(result) ? result : [result];
+                      if (paths.length === 0) return;
+                      // Hand the paths through to SmartImport so each file gets
+                      // its own removable tag in the file list. SmartImport
+                      // handles the combining internally.
+                      if (paths.length === 1) {
+                        setSmartImportPath(paths[0]);
+                        setSmartImportPaths(null);
+                      } else {
+                        setSmartImportPath(null);
+                        setSmartImportPaths(paths);
+                      }
                       setCreating("smart");
                     }}>
                       <div className="add-icon">*</div>
