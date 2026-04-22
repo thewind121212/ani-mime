@@ -4,6 +4,7 @@ extern crate objc;
 
 mod broadcast;
 mod claude_config;
+mod deeplink;
 mod discovery;
 mod focus;
 mod helpers;
@@ -422,11 +423,12 @@ pub fn run() {
                 .max_file_size(1_000_000)
                 .build(),
         )
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
@@ -657,6 +659,16 @@ pub fn run() {
                     pet.clone(),
                 );
                 broadcast::start_broadcast(discovery_handle, discovery_state, nickname, pet);
+            });
+
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    let h = handle.clone();
+                    let raw = url.to_string();
+                    tauri::async_runtime::spawn_blocking(move || crate::deeplink::handle(h, raw));
+                }
             });
 
             Ok(())

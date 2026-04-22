@@ -1,0 +1,16 @@
+.install-prompt {
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: rgba(0,0,0,0.4);
+  z-index: 100;
+}
+.install-prompt__card {
+  background: var(--bg-pill);
+  border-radius: 12px;
+  padding: 1.5rem;
+  min-width: 260px;
+  display: grid; gap: 0.75rem; justify-items: center;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+}
+.install-prompt__actions { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.install-prompt__error { color: #c00; font-size: 0.8rem; }
