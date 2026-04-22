@@ -15,6 +15,8 @@ import { useLanList } from "../hooks/useLanList";
 import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import { usePeers } from "../hooks/usePeers";
+import { useSoundSettings } from "../hooks/useSoundSettings";
+import { playAudio } from "../utils/audio";
 import "../styles/status-pill.css";
 
 interface StatusPillProps {
@@ -239,6 +241,13 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
 
+  // UI click feedback — short tap on either pill button. Gated by the
+  // master sound toggle so fully silencing the app silences these too.
+  const soundSettings = useSoundSettings();
+  const playClickTap = () => {
+    if (soundSettings.master) playAudio("tap");
+  };
+
   // --- Session-group path tooltip (portaled to body so the dropdown's
   // overflow:auto doesn't clip it when it renders above the first row). ---
   const [pathTooltip, setPathTooltip] = useState<{
@@ -283,6 +292,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     if (!sessionListEnabled) return;
     e.preventDefault();
     e.stopPropagation();
+    playClickTap();
     if (sessionOpen) {
       setSessionOpen(false);
       return;
@@ -393,6 +403,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     e.preventDefault();
     e.stopPropagation();
     if (!lanButtonRef.current) return;
+    playClickTap();
 
     const popover = await WebviewWindow.getByLabel("peer-list");
     if (!popover) {

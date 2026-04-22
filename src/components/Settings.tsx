@@ -28,6 +28,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { error as logError } from "@tauri-apps/plugin-log";
 import { useClaudeConfig } from "../hooks/useClaudeConfig";
+import { useSoundSettings } from "../hooks/useSoundSettings";
+import { useSoundOverrides } from "../hooks/useSoundOverrides";
+import { useCustomSounds, type CustomSound, MAX_SIZE_BYTES } from "../hooks/useCustomSounds";
+import { STATUS_SOUND_CASES, VISIT_SOUND_CASES, playSoundCase, playChoice, NONE, type SoundCase, type SoundChoice, type SoundOverrides } from "../constants/sounds";
+import { AUDIO_NAMES, AUDIO_LABELS } from "../utils/audio";
 import "../styles/settings.css";
 
 const STATUS_DESCRIPTIONS: Record<Status, string> = {
@@ -66,11 +71,12 @@ function parseFrameSpec(spec: string): number {
 
 export { parseFrameSpec };
 
-type Tab = "general" | "mime" | "claude" | "about";
+type Tab = "general" | "mime" | "sound" | "claude" | "about";
 
 const tabTitles: Record<Tab, string> = {
   general: "General",
   mime: "Mime",
+  sound: "Sound",
   claude: "Claude Code",
   about: "About",
 };
@@ -118,12 +124,27 @@ export function Settings() {
   }, []);
   const { mimes: customMimes, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime } = useCustomMimes();
   const claude = useClaudeConfig();
+  const soundSettings = useSoundSettings();
+  const { overrides: soundOverrides, setOverride: setSoundOverride } = useSoundOverrides();
+  const { sounds: customSounds, importSound, deleteSound, getSoundUrl } = useCustomSounds();
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [soundImportError, setSoundImportError] = useState<string | null>(null);
+  const [expandedCases, setExpandedCases] = useState<Set<string>>(new Set());
+  const toggleCase = (id: string) => {
+    setExpandedCases((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
   const [commandContent, setCommandContent] = useState<Record<string, string>>({});
   // const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
   const [tab, setTab] = useState<Tab>("general");
   const [creating, setCreating] = useState<false | "manual" | "smart">(false);
   const [smartImportPath, setSmartImportPath] = useState<string | null>(null);
+  const [smartImportPaths, setSmartImportPaths] = useState<string[] | null>(null);
   const [editingMime, setEditingMime] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
@@ -369,7 +390,7 @@ export function Settings() {
   return (
     <div className="settings">
       <nav className="settings-sidebar">
-        {(["general", "mime", "claude", "about"] as Tab[]).map((t) => (
+        {(["general", "mime", "sound", "claude", "about"] as Tab[]).map((t) => (
           <button
             key={t}
             className={`sidebar-item ${tab === t ? "active" : ""}`}
@@ -817,6 +838,7 @@ export function Settings() {
               ) : creating === "smart" ? (
                 <SmartImport
                   initialFilePath={smartImportPath ?? undefined}
+                  initialFilePaths={smartImportPaths ?? undefined}
                   initialName={editingMime ? customMimes.find((m) => m.id === editingMime)?.name : undefined}
                   initialFrameInputs={
                     editingMime
@@ -840,8 +862,9 @@ export function Settings() {
                     }
                     setCreating(false);
                     setSmartImportPath(null);
+                    setSmartImportPaths(null);
                   }}
-                  onCancel={() => { handleCancelCreate(); setSmartImportPath(null); }}
+                  onCancel={() => { handleCancelCreate(); setSmartImportPath(null); setSmartImportPaths(null); }}
                 />
               ) : (
                 <>
@@ -901,11 +924,22 @@ export function Settings() {
                     </button>
                     <button className="pet-card add-card" onClick={async () => {
                       const result = await open({
-                        multiple: false,
+                        multiple: true,
                         filters: [{ name: "Sprite Sheet", extensions: ["png", "gif", "jpg", "jpeg"] }],
                       });
                       if (!result) return;
-                      setSmartImportPath(result);
+                      const paths = Array.isArray(result) ? result : [result];
+                      if (paths.length === 0) return;
+                      // Hand the paths through to SmartImport so each file gets
+                      // its own removable tag in the file list. SmartImport
+                      // handles the combining internally.
+                      if (paths.length === 1) {
+                        setSmartImportPath(paths[0]);
+                        setSmartImportPaths(null);
+                      } else {
+                        setSmartImportPath(null);
+                        setSmartImportPaths(paths);
+                      }
                       setCreating("smart");
                     }}>
                       <div className="add-icon">*</div>
@@ -938,6 +972,283 @@ export function Settings() {
                 </>
               )}
             </div>
+          </>
+        )}
+        {tab === "sound" && (
+          <>
+            <div className="settings-section">
+              <div className="settings-section-title">Master</div>
+              <div className="settings-card">
+                <div className="settings-row with-hint">
+                  <div>
+                    <span className="settings-row-label">Enable Sound</span>
+                    <span className="settings-row-hint">Turn all Ani-Mime sound effects on or off. When off, the toggles below have no effect.</span>
+                  </div>
+                  <button
+                    className={`toggle-switch ${soundSettings.master ? "active" : ""}`}
+                    onClick={() => soundSettings.setMaster(!soundSettings.master)}
+                    data-testid="sound-master-toggle"
+                    aria-label="Enable all sounds"
+                  >
+                    <span className="toggle-knob" />
+                  </button>
+                </div>
+                {soundSettings.master && (
+                  <div className="settings-row with-hint">
+                    <div>
+                      <span className="settings-row-label">Sound Library</span>
+                      <span className="settings-row-hint">Manage the pool of sounds available in the dropdowns below. Defaults are bundled and cannot be removed; you can import your own up to 2 MB.</span>
+                    </div>
+                    <button
+                      className="settings-action-btn"
+                      onClick={() => setLibraryOpen((v) => !v)}
+                      data-testid="sound-library-toggle"
+                    >
+                      {libraryOpen ? "Hide" : "Open"}
+                    </button>
+                  </div>
+                )}
+              </div>
+              {soundSettings.master && libraryOpen && (
+                <>
+                  <div className="settings-card" style={{ marginTop: 8 }} data-testid="sound-library-default">
+                    <div className="claude-sub-header">Default</div>
+                    {AUDIO_NAMES.map((n) => (
+                      <div key={n} className="settings-row" data-testid={`sound-library-default-${n}`}>
+                        <span className="settings-row-label">{AUDIO_LABELS[n]}</span>
+                        <button
+                          className="sound-play-btn"
+                          onClick={() => playChoice(n, getSoundUrl)}
+                          aria-label={`Play ${AUDIO_LABELS[n]}`}
+                          title="Play preview"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="settings-card" style={{ marginTop: 12 }} data-testid="sound-library-custom">
+                    <div className="claude-sub-header">Your Sounds</div>
+                    {customSounds.length === 0 ? (
+                      <div className="settings-row">
+                        <span className="settings-row-hint" style={{ opacity: 0.55 }}>
+                          No custom sounds yet — import one below.
+                        </span>
+                      </div>
+                    ) : (
+                      customSounds.map((s) => (
+                        <div key={s.id} className="settings-row" data-testid={`sound-library-custom-${s.id}`}>
+                          <div className="claude-item-info">
+                            <span className="settings-row-label">{s.name}</span>
+                            <span className="claude-cmd-preview">{(s.sizeBytes / 1024).toFixed(0)} KB</span>
+                          </div>
+                          <div className="sound-case-controls">
+                            <button
+                              className="sound-play-btn"
+                              onClick={() => playChoice(s.id, getSoundUrl)}
+                              aria-label={`Play ${s.name}`}
+                              title="Play preview"
+                            >
+                              ▶
+                            </button>
+                            <button
+                              className="claude-delete-btn"
+                              onClick={() => {
+                                // Any case still pointing at this custom sound falls back
+                                // to its default on the next render because resolveSound
+                                // returns null for unknown choices.
+                                deleteSound(s.id);
+                              }}
+                              title="Delete sound"
+                              data-testid={`sound-library-delete-${s.id}`}
+                              aria-label={`Delete ${s.name}`}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div className="settings-row">
+                      <span className="settings-row-hint">
+                        Accepted: .mp3, .wav, .ogg, .m4a, .aac, .flac · max {(MAX_SIZE_BYTES / 1024 / 1024).toFixed(0)} MB
+                      </span>
+                      <button
+                        className="settings-action-btn"
+                        data-testid="sound-library-import"
+                        onClick={async () => {
+                          setSoundImportError(null);
+                          try {
+                            await importSound();
+                          } catch (err) {
+                            setSoundImportError(err instanceof Error ? err.message : String(err));
+                          }
+                        }}
+                      >
+                        Import Sound
+                      </button>
+                    </div>
+                    {soundImportError && (
+                      <div className="save-error" data-testid="sound-import-error">
+                        Import failed: {soundImportError}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {soundSettings.master && (
+              <>
+                <div className="settings-section">
+                  <div className="settings-section-title">Status Sounds</div>
+                  <div className="settings-card">
+                    <div className="settings-row with-hint">
+                      <div>
+                        <span className="settings-row-label">Enable Status Sounds</span>
+                        <span className="settings-row-hint">Plays while a task is running (working loop) and on every status change.</span>
+                      </div>
+                      <button
+                        className={`toggle-switch ${soundSettings.status ? "active" : ""}`}
+                        onClick={() => soundSettings.setStatus(!soundSettings.status)}
+                        data-testid="sound-status-toggle"
+                        aria-label="Status sounds"
+                      >
+                        <span className="toggle-knob" />
+                      </button>
+                    </div>
+                  </div>
+                  {soundSettings.status && STATUS_SOUND_CASES.map((c) => {
+                    const expanded = expandedCases.has(c.id);
+                    const currentLabel = getChoiceLabel(
+                      soundOverrides[c.id],
+                      c.sound,
+                      customSounds
+                    );
+                    return (
+                      <div
+                        key={c.id}
+                        className={`settings-card sound-case-card ${expanded ? "expanded" : ""}`}
+                        style={{ marginTop: 8 }}
+                        data-testid={`sound-case-status-${c.id}`}
+                      >
+                        <button
+                          className="sound-case-header"
+                          onClick={() => toggleCase(c.id)}
+                          aria-expanded={expanded}
+                          data-testid={`sound-case-status-${c.id}-header`}
+                        >
+                          <span className="sound-case-header-label">{c.label}</span>
+                          <span className="sound-case-header-right">
+                            <span className="sound-case-current-badge">{currentLabel}</span>
+                            <span className="sound-case-chevron">{expanded ? "▾" : "▸"}</span>
+                          </span>
+                        </button>
+                        {expanded && (
+                          <div className="sound-case-body">
+                            <div className="sound-case-desc">{c.description}</div>
+                            <div className="sound-case-field">
+                              <span className="sound-case-field-label">Sound</span>
+                              <div className="sound-case-controls">
+                                <select
+                                  className="sound-select"
+                                  value={soundOverrides[c.id] ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setSoundOverride(c.id, v === "" ? null : (v as SoundChoice));
+                                  }}
+                                  data-testid={`sound-case-status-${c.id}-select`}
+                                  aria-label={`Sound for ${c.label}`}
+                                >
+                                  <option value="">Default ({AUDIO_LABELS[c.sound]})</option>
+                                  <optgroup label="Bundled">
+                                    {AUDIO_NAMES.map((n) => (
+                                      <option key={n} value={n}>
+                                        {AUDIO_LABELS[n]}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                  {customSounds.length > 0 && (
+                                    <optgroup label="Custom">
+                                      {customSounds.map((s) => (
+                                        <option key={s.id} value={s.id}>
+                                          {s.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  <option value={NONE}>None (silent)</option>
+                                </select>
+                                <button
+                                  className="sound-play-btn"
+                                  onClick={() => playSoundCase(c, soundOverrides, getSoundUrl)}
+                                  disabled={soundOverrides[c.id] === NONE}
+                                  data-testid={`sound-case-status-${c.id}-play`}
+                                  aria-label={`Play ${c.label}`}
+                                  title={soundOverrides[c.id] === NONE ? "Silenced" : "Play preview"}
+                                >
+                                  ▶
+                                </button>
+                              </div>
+                            </div>
+                            {c.id === "working" && (
+                              <div className="sound-case-field" data-testid="sound-working-loop-row">
+                                <div>
+                                  <span className="sound-case-field-label">Loop While Busy</span>
+                                  <span className="settings-row-hint" style={{ display: "block" }}>
+                                    When on, the Working sound loops until the task ends. When off, it plays once at the start.
+                                  </span>
+                                </div>
+                                <button
+                                  className={`toggle-switch ${soundSettings.workingLoop ? "active" : ""}`}
+                                  onClick={() => soundSettings.setWorkingLoop(!soundSettings.workingLoop)}
+                                  data-testid="sound-working-loop-toggle"
+                                  aria-label="Loop working sound"
+                                >
+                                  <span className="toggle-knob" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-title">Visit Sounds</div>
+                  <div className="settings-card">
+                    <div className="settings-row with-hint">
+                      <div>
+                        <span className="settings-row-label">Enable Visit Sounds</span>
+                        <span className="settings-row-hint">Doorbell when a friend's mime visits from the local network.</span>
+                      </div>
+                      <button
+                        className={`toggle-switch ${soundSettings.visit ? "active" : ""}`}
+                        onClick={() => soundSettings.setVisit(!soundSettings.visit)}
+                        data-testid="sound-visit-toggle"
+                        aria-label="Visit sounds"
+                      >
+                        <span className="toggle-knob" />
+                      </button>
+                    </div>
+                    {soundSettings.visit && VISIT_SOUND_CASES.map((c) => (
+                      <SoundCaseRow
+                        key={c.id}
+                        soundCase={c}
+                        overrides={soundOverrides}
+                        customSounds={customSounds}
+                        getSoundUrl={getSoundUrl}
+                        onChoiceChange={(v) => setSoundOverride(c.id, v)}
+                        testid={`sound-case-visit-${c.id}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
         {tab === "claude" && (
@@ -1234,6 +1545,94 @@ export function Settings() {
           />
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * Resolve the short label that a case's header badge should show for its
+ * current choice — the user's override if one is set (falling back through
+ * bundled names, custom imports, the None sentinel), otherwise the case's
+ * built-in default.
+ */
+function getChoiceLabel(
+  choice: SoundChoice | undefined,
+  fallbackSound: string,
+  customSounds: CustomSound[]
+): string {
+  if (choice === NONE) return "None";
+  if (!choice) return AUDIO_LABELS[fallbackSound as keyof typeof AUDIO_LABELS] ?? fallbackSound;
+  if (choice in AUDIO_LABELS) return AUDIO_LABELS[choice as keyof typeof AUDIO_LABELS];
+  const custom = customSounds.find((s) => s.id === choice);
+  if (custom) return custom.name;
+  return "Unknown";
+}
+
+function SoundCaseRow({
+  soundCase,
+  overrides,
+  customSounds,
+  getSoundUrl,
+  onChoiceChange,
+  testid,
+}: {
+  soundCase: SoundCase;
+  overrides: SoundOverrides;
+  customSounds: CustomSound[];
+  getSoundUrl: (id: string) => Promise<string | null>;
+  onChoiceChange: (choice: SoundChoice | null) => void;
+  testid: string;
+}) {
+  const current = overrides[soundCase.id];
+  // Select value: "" means fall back to the case's built-in default.
+  const selectValue: string = current ?? "";
+  return (
+    <div className="settings-row with-hint" data-testid={testid}>
+      <div>
+        <span className="settings-row-label">{soundCase.label}</span>
+        <span className="settings-row-hint">{soundCase.description}</span>
+      </div>
+      <div className="sound-case-controls">
+        <select
+          className="sound-select"
+          value={selectValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            onChoiceChange(v === "" ? null : (v as SoundChoice));
+          }}
+          data-testid={`${testid}-select`}
+          aria-label={`Sound for ${soundCase.label}`}
+        >
+          <option value="">Default ({AUDIO_LABELS[soundCase.sound]})</option>
+          <optgroup label="Bundled">
+            {AUDIO_NAMES.map((n) => (
+              <option key={n} value={n}>
+                {AUDIO_LABELS[n]}
+              </option>
+            ))}
+          </optgroup>
+          {customSounds.length > 0 && (
+            <optgroup label="Custom">
+              {customSounds.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <option value={NONE}>None (silent)</option>
+        </select>
+        <button
+          className="sound-play-btn"
+          onClick={() => playSoundCase(soundCase, overrides, getSoundUrl)}
+          disabled={current === NONE}
+          data-testid={`${testid}-play`}
+          aria-label={`Play ${soundCase.label} sound`}
+          title={current === NONE ? "Silenced" : "Play preview"}
+        >
+          ▶
+        </button>
+      </div>
     </div>
   );
 }

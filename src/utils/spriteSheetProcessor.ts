@@ -89,6 +89,80 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+function mimeForExt(ext: string): string {
+  const e = ext.toLowerCase();
+  if (e === "gif") return "image/gif";
+  if (e === "jpg" || e === "jpeg") return "image/jpeg";
+  return "image/png";
+}
+
+async function bytesToImage(bytes: Uint8Array, mime: string): Promise<HTMLImageElement> {
+  const blob = new Blob([bytes as BlobPart], { type: mime });
+  const url = URL.createObjectURL(blob);
+  try {
+    return await loadImage(url);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/**
+ * Vertically stack a list of pre-loaded image byte buffers into one PNG sheet.
+ * Width = max natural width across inputs; each image is centered horizontally
+ * inside that width. Downstream row detection sees every source row, so the
+ * behaviour is identical to a single pre-composed sprite sheet.
+ */
+export async function combineImageBytesVertically(
+  items: { bytes: Uint8Array; mime: string }[]
+): Promise<Uint8Array> {
+  if (items.length === 0) throw new Error("No images to combine");
+  const images: HTMLImageElement[] = [];
+  for (const it of items) images.push(await bytesToImage(it.bytes, it.mime));
+
+  const maxWidth = Math.max(...images.map((i) => i.naturalWidth));
+  const totalHeight = images.reduce((sum, i) => sum + i.naturalHeight, 0);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = maxWidth;
+  canvas.height = totalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+
+  let y = 0;
+  for (const img of images) {
+    const x = Math.floor((maxWidth - img.naturalWidth) / 2);
+    ctx.drawImage(img, x, y);
+    y += img.naturalHeight;
+  }
+
+  const blob: Blob | null = await new Promise((resolve) =>
+    canvas.toBlob((b) => resolve(b), "image/png")
+  );
+  if (!blob) throw new Error("Failed to encode combined PNG");
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/**
+ * Convenience wrapper over combineImageBytesVertically that reads files from
+ * paths first. Kept for callers that hand in file paths (e.g. the Settings
+ * pet-grid Import Sheet button).
+ */
+export async function combineImagesVertically(
+  paths: string[],
+  readFile: (p: string) => Promise<Uint8Array>
+): Promise<Uint8Array> {
+  if (paths.length === 0) throw new Error("No images to combine");
+  const items: { bytes: Uint8Array; mime: string }[] = [];
+  for (const p of paths) {
+    const bytes = await readFile(p);
+    const ext = p.split(".").pop() ?? "png";
+    items.push({ bytes, mime: mimeForExt(ext) });
+  }
+  return combineImageBytesVertically(items);
+}
+
+export { mimeForExt };
+
 export type BgColor = { r: number; g: number; b: number };
 
 function colorDistance(a: BgColor, b: BgColor): number {
