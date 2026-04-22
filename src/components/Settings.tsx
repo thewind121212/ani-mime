@@ -30,7 +30,8 @@ import { error as logError } from "@tauri-apps/plugin-log";
 import { useClaudeConfig } from "../hooks/useClaudeConfig";
 import { useSoundSettings } from "../hooks/useSoundSettings";
 import { useSoundOverrides } from "../hooks/useSoundOverrides";
-import { STATUS_SOUND_CASES, VISIT_SOUND_CASES, playSoundCase, NONE, type SoundCase, type SoundChoice, type SoundOverrides } from "../constants/sounds";
+import { useCustomSounds, type CustomSound, MAX_SIZE_BYTES } from "../hooks/useCustomSounds";
+import { STATUS_SOUND_CASES, VISIT_SOUND_CASES, playSoundCase, playChoice, NONE, type SoundCase, type SoundChoice, type SoundOverrides } from "../constants/sounds";
 import { AUDIO_NAMES, AUDIO_LABELS } from "../utils/audio";
 import "../styles/settings.css";
 
@@ -125,6 +126,9 @@ export function Settings() {
   const claude = useClaudeConfig();
   const soundSettings = useSoundSettings();
   const { overrides: soundOverrides, setOverride: setSoundOverride } = useSoundOverrides();
+  const { sounds: customSounds, importSound, deleteSound, getSoundUrl } = useCustomSounds();
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [soundImportError, setSoundImportError] = useState<string | null>(null);
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
   const [commandContent, setCommandContent] = useState<Record<string, string>>({});
   // const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
@@ -966,7 +970,110 @@ export function Settings() {
                     <span className="toggle-knob" />
                   </button>
                 </div>
+                {soundSettings.master && (
+                  <div className="settings-row with-hint">
+                    <div>
+                      <span className="settings-row-label">Sound Library</span>
+                      <span className="settings-row-hint">Manage the pool of sounds available in the dropdowns below. Defaults are bundled and cannot be removed; you can import your own up to 2 MB.</span>
+                    </div>
+                    <button
+                      className="settings-action-btn"
+                      onClick={() => setLibraryOpen((v) => !v)}
+                      data-testid="sound-library-toggle"
+                    >
+                      {libraryOpen ? "Hide" : "Open"}
+                    </button>
+                  </div>
+                )}
               </div>
+              {soundSettings.master && libraryOpen && (
+                <>
+                  <div className="settings-card" style={{ marginTop: 8 }} data-testid="sound-library-default">
+                    <div className="claude-sub-header">Default</div>
+                    {AUDIO_NAMES.map((n) => (
+                      <div key={n} className="settings-row" data-testid={`sound-library-default-${n}`}>
+                        <span className="settings-row-label">{AUDIO_LABELS[n]}</span>
+                        <button
+                          className="sound-play-btn"
+                          onClick={() => playChoice(n, getSoundUrl)}
+                          aria-label={`Play ${AUDIO_LABELS[n]}`}
+                          title="Play preview"
+                        >
+                          ▶
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="settings-card" style={{ marginTop: 12 }} data-testid="sound-library-custom">
+                    <div className="claude-sub-header">Your Sounds</div>
+                    {customSounds.length === 0 ? (
+                      <div className="settings-row">
+                        <span className="settings-row-hint" style={{ opacity: 0.55 }}>
+                          No custom sounds yet — import one below.
+                        </span>
+                      </div>
+                    ) : (
+                      customSounds.map((s) => (
+                        <div key={s.id} className="settings-row" data-testid={`sound-library-custom-${s.id}`}>
+                          <div className="claude-item-info">
+                            <span className="settings-row-label">{s.name}</span>
+                            <span className="claude-cmd-preview">{(s.sizeBytes / 1024).toFixed(0)} KB</span>
+                          </div>
+                          <div className="sound-case-controls">
+                            <button
+                              className="sound-play-btn"
+                              onClick={() => playChoice(s.id, getSoundUrl)}
+                              aria-label={`Play ${s.name}`}
+                              title="Play preview"
+                            >
+                              ▶
+                            </button>
+                            <button
+                              className="claude-delete-btn"
+                              onClick={() => {
+                                // Any case still pointing at this custom sound falls back
+                                // to its default on the next render because resolveSound
+                                // returns null for unknown choices.
+                                deleteSound(s.id);
+                              }}
+                              title="Delete sound"
+                              data-testid={`sound-library-delete-${s.id}`}
+                              aria-label={`Delete ${s.name}`}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div className="settings-row">
+                      <span className="settings-row-hint">
+                        Accepted: .mp3, .wav, .ogg, .m4a, .aac, .flac · max {(MAX_SIZE_BYTES / 1024 / 1024).toFixed(0)} MB
+                      </span>
+                      <button
+                        className="settings-action-btn"
+                        data-testid="sound-library-import"
+                        onClick={async () => {
+                          setSoundImportError(null);
+                          try {
+                            await importSound();
+                          } catch (err) {
+                            setSoundImportError(err instanceof Error ? err.message : String(err));
+                          }
+                        }}
+                      >
+                        Import Sound
+                      </button>
+                    </div>
+                    {soundImportError && (
+                      <div className="save-error" data-testid="sound-import-error">
+                        Import failed: {soundImportError}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             {soundSettings.master && (
@@ -993,6 +1100,8 @@ export function Settings() {
                         key={c.id}
                         soundCase={c}
                         overrides={soundOverrides}
+                        customSounds={customSounds}
+                        getSoundUrl={getSoundUrl}
                         onChoiceChange={(v) => setSoundOverride(c.id, v)}
                         testid={`sound-case-status-${c.id}`}
                       />
@@ -1022,6 +1131,8 @@ export function Settings() {
                         key={c.id}
                         soundCase={c}
                         overrides={soundOverrides}
+                        customSounds={customSounds}
+                        getSoundUrl={getSoundUrl}
                         onChoiceChange={(v) => setSoundOverride(c.id, v)}
                         testid={`sound-case-visit-${c.id}`}
                       />
@@ -1333,11 +1444,15 @@ export function Settings() {
 function SoundCaseRow({
   soundCase,
   overrides,
+  customSounds,
+  getSoundUrl,
   onChoiceChange,
   testid,
 }: {
   soundCase: SoundCase;
   overrides: SoundOverrides;
+  customSounds: CustomSound[];
+  getSoundUrl: (id: string) => Promise<string | null>;
   onChoiceChange: (choice: SoundChoice | null) => void;
   testid: string;
 }) {
@@ -1362,16 +1477,27 @@ function SoundCaseRow({
           aria-label={`Sound for ${soundCase.label}`}
         >
           <option value="">Default ({AUDIO_LABELS[soundCase.sound]})</option>
-          {AUDIO_NAMES.map((n) => (
-            <option key={n} value={n}>
-              {AUDIO_LABELS[n]}
-            </option>
-          ))}
+          <optgroup label="Bundled">
+            {AUDIO_NAMES.map((n) => (
+              <option key={n} value={n}>
+                {AUDIO_LABELS[n]}
+              </option>
+            ))}
+          </optgroup>
+          {customSounds.length > 0 && (
+            <optgroup label="Custom">
+              {customSounds.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
           <option value={NONE}>None (silent)</option>
         </select>
         <button
           className="sound-play-btn"
-          onClick={() => playSoundCase(soundCase, overrides)}
+          onClick={() => playSoundCase(soundCase, overrides, getSoundUrl)}
           disabled={current === NONE}
           data-testid={`${testid}-play`}
           aria-label={`Play ${soundCase.label} sound`}

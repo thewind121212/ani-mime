@@ -18,8 +18,9 @@ import { useDevRootBounds } from "./hooks/useDevRootBounds";
 import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
 import { useSoundSettings } from "./hooks/useSoundSettings";
 import { useSoundOverrides } from "./hooks/useSoundOverrides";
-import { findStatusCase, findVisitCase, resolveSound } from "./constants/sounds";
-import { playAudio, stopAudio } from "./utils/audio";
+import { useCustomSounds } from "./hooks/useCustomSounds";
+import { findStatusCase, findVisitCase, resolveSound, playResolvedSound } from "./constants/sounds";
+import { stopAudio } from "./utils/audio";
 import type { Status } from "./types/status";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -89,6 +90,7 @@ function App() {
   const devRootBounds = devMode && rootBoundsToggle;
   const sound = useSoundSettings();
   const { overrides: soundOverrides } = useSoundOverrides();
+  const { getSoundUrl } = useCustomSounds();
 
   // #root lives in the HTML template outside React's tree, so we toggle
   // its class imperatively when the dev toggle flips.
@@ -106,10 +108,10 @@ function App() {
     if (visitors.length > prevVisitorCountRef.current && sound.isCategoryEnabled("visit")) {
       const c = findVisitCase("visitor-arrived");
       const resolved = c ? resolveSound(c, soundOverrides) : null;
-      if (c && resolved) playAudio(resolved, c.playOptions);
+      if (c && resolved) void playResolvedSound(resolved, c.playOptions, getSoundUrl);
     }
     prevVisitorCountRef.current = visitors.length;
-  }, [visitors.length, sound.master, sound.visit, soundOverrides]);
+  }, [visitors.length, sound.master, sound.visit, soundOverrides, getSoundUrl]);
 
   // Working-status audio: loop the working sound while busy, play the
   // done sound once when the task finishes (busy → anything else).
@@ -139,16 +141,18 @@ function App() {
 
     if (caseId === "working") {
       if (resolved) {
-        busyLoopRef.current = playAudio(resolved, { ...c.playOptions, loop: true });
+        void playResolvedSound(resolved, { ...c.playOptions, loop: true }, getSoundUrl).then((el) => {
+          busyLoopRef.current = el;
+        });
       }
     } else if (caseId === "done") {
       stopAudio(busyLoopRef.current);
       busyLoopRef.current = null;
-      if (resolved) playAudio(resolved, c.playOptions);
+      if (resolved) void playResolvedSound(resolved, c.playOptions, getSoundUrl);
     } else if (resolved) {
-      playAudio(resolved, c.playOptions);
+      void playResolvedSound(resolved, c.playOptions, getSoundUrl);
     }
-  }, [status, sound.master, sound.status, soundOverrides]);
+  }, [status, sound.master, sound.status, soundOverrides, getSoundUrl]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);

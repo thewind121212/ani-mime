@@ -58,9 +58,11 @@ function applyGain(el: HTMLAudioElement, gainValue: number): void {
   }
 }
 
-export function playAudio(name: AudioName, options: PlayAudioOptions = {}): HTMLAudioElement {
-  const base = getAudio(name);
-  const el = base.cloneNode(true) as HTMLAudioElement;
+function configureAndPlay(
+  el: HTMLAudioElement,
+  options: PlayAudioOptions,
+  label: string
+): HTMLAudioElement {
   const volume = options.volume ?? 1;
   if (volume > 1) {
     applyGain(el, volume);
@@ -70,9 +72,25 @@ export function playAudio(name: AudioName, options: PlayAudioOptions = {}): HTML
   el.playbackRate = options.playbackRate ?? 1;
   el.loop = options.loop ?? false;
   el.play().catch((err) => {
-    console.warn(`[audio] failed to play "${name}":`, err);
+    console.warn(`[audio] failed to play "${label}":`, err);
   });
   return el;
+}
+
+export function playAudio(name: AudioName, options: PlayAudioOptions = {}): HTMLAudioElement {
+  const base = getAudio(name);
+  const el = base.cloneNode(true) as HTMLAudioElement;
+  return configureAndPlay(el, options, name);
+}
+
+/**
+ * Play an arbitrary audio URL (blob URL or asset URL). Used for user-imported
+ * custom sounds whose content isn't statically bundled.
+ */
+export function playAudioFromUrl(url: string, options: PlayAudioOptions = {}): HTMLAudioElement {
+  const el = new Audio(url);
+  el.preload = "auto";
+  return configureAndPlay(el, options, url);
 }
 
 export function stopAudio(el: HTMLAudioElement | null | undefined): void {
