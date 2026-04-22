@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.0] - 2026-04-22
+
+### Added
+- **Sound effects** — Ani-Mime now reacts audibly to meaningful events: a kalimba chime on status transitions (searching, idle, service, disconnected, visiting), an optional working loop while a task runs, a "Done" chime when it finishes, a doorbell when a peer's mime visits, and a tap when you click the session or LAN peer icon.
+- **Sound tab in Settings** — master toggle, per-category toggles (Status / Visit), and a collapsible card per status case so each transition's sound can be swapped, silenced, or previewed with ▶.
+- **Sound Library** — import your own audio files (MP3/WAV/OGG/M4A/AAC/FLAC up to 2 MB), delete customs you don't want, and pick them in any case dropdown. Bundled defaults are read-only.
+- **Loop While Busy** toggle in the Working case (default off) — choose between a looped working sound or a single tap at task start.
+- **Multi-image Smart Import** — the Import Sheet flow now accepts multiple images at once (Cmd+click in the picker). Each imported image shows as a removable tag; adding more preserves your existing frame assignments, removing one drops only that image's frames.
+- **Duplicate frame (+)** — each frame chip in Smart Import has a + button that inserts a copy of that frame right after itself, handy for repeated frames in an animation.
+- **Deep-link install** (`animime://`) — install marketplace mimes by clicking an `animime://` URL. Thanks @cuongtranba (#114)
+
+### Changed
+- **Working sound default** — now Kalimba, matching the other status defaults.
+
 ## [0.17.2] - 2026-04-21
 
 ### Added
