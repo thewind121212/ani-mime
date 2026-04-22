@@ -271,6 +271,70 @@
   opacity: 0.7;
 }
 
+/* Sound case controls: dropdown + play button, grouped on the right */
+.sound-case-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.settings-row.with-hint > .sound-case-controls {
+  margin-top: 2px;
+}
+
+.sound-select {
+  padding: 2px 4px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.08);
+  font-family: inherit;
+  font-size: 10px;
+  color: inherit;
+  cursor: pointer;
+  max-width: 130px;
+  height: 22px;
+  line-height: 1;
+}
+
+.sound-select:hover {
+  background: rgba(128, 128, 128, 0.18);
+}
+
+.sound-play-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Sound preview play button */
+.sound-play-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 50%;
+  background: rgba(128, 128, 128, 0.1);
+  font-family: inherit;
+  font-size: 8px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.sound-play-btn:hover {
+  background: rgba(128, 128, 128, 0.25);
+}
+
+.sound-play-btn:active {
+  transform: scale(0.92);
+}
+
 /* About */
 .about-info {
   padding: 10px 12px;

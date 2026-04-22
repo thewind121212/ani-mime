@@ -16,6 +16,11 @@ import { useDevAppBounds } from "./hooks/useDevAppBounds";
 import { useDevContainerBounds } from "./hooks/useDevContainerBounds";
 import { useDevRootBounds } from "./hooks/useDevRootBounds";
 import { useWindowAutoSize } from "./hooks/useWindowAutoSize";
+import { useSoundSettings } from "./hooks/useSoundSettings";
+import { useSoundOverrides } from "./hooks/useSoundOverrides";
+import { findStatusCase, findVisitCase, resolveSound } from "./constants/sounds";
+import { playAudio, stopAudio } from "./utils/audio";
+import type { Status } from "./types/status";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   getCurrentWindow,
@@ -49,6 +54,21 @@ const SPRITE_NATIVE_WIDTH = 128;
 // because anything narrower already fits inside the min-width baseline.
 const BASELINE_WIDTH = 320;
 
+/**
+ * Map a status transition to the id of the sound case it should trigger.
+ * Returns null when no sound should fire (no change, or coming from
+ * "initializing" which is treated as silent startup).
+ */
+function transitionToCaseId(prev: Status, next: Status): string | null {
+  if (prev === next) return null;
+  if (prev === "initializing") return null;
+  if (next === "busy" && prev !== "busy") return "working";
+  if (prev === "busy" && next !== "busy") return "done";
+  // For all other transitions the case id matches the status name
+  // (idle/searching/service/disconnected/visiting).
+  return next;
+}
+
 function App() {
   const { status, scenario } = useStatus();
   const { dragging, onMouseDown } = useDrag();
@@ -67,6 +87,8 @@ function App() {
   const devAppBounds = devMode && appBoundsToggle;
   const devContainerBounds = devMode && containerBoundsToggle;
   const devRootBounds = devMode && rootBoundsToggle;
+  const sound = useSoundSettings();
+  const { overrides: soundOverrides } = useSoundOverrides();
 
   // #root lives in the HTML template outside React's tree, so we toggle
   // its class imperatively when the dev toggle flips.
@@ -75,6 +97,58 @@ function App() {
     if (!root) return;
     root.classList.toggle("dev-root-bounds", devRootBounds);
   }, [devRootBounds]);
+
+  // Ring the doorbell when a peer's dog arrives. Compares against the
+  // previous visitor count so we only fire on growth (arrivals), not on
+  // departures or initial mount when the list is already populated.
+  const prevVisitorCountRef = useRef(visitors.length);
+  useEffect(() => {
+    if (visitors.length > prevVisitorCountRef.current && sound.isCategoryEnabled("visit")) {
+      const c = findVisitCase("visitor-arrived");
+      const resolved = c ? resolveSound(c, soundOverrides) : null;
+      if (c && resolved) playAudio(resolved, c.playOptions);
+    }
+    prevVisitorCountRef.current = visitors.length;
+  }, [visitors.length, sound.master, sound.visit, soundOverrides]);
+
+  // Working-status audio: loop the working sound while busy, play the
+  // done sound once when the task finishes (busy → anything else).
+  // Every transition maps to a case id whose sound is resolved through
+  // the override map — lets users swap or silence any specific case.
+  const busyLoopRef = useRef<HTMLAudioElement | null>(null);
+  const prevStatusRef = useRef(status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    const statusEnabled = sound.isCategoryEnabled("status");
+
+    // If status sounds (or master) got disabled mid-loop, cut it
+    // immediately rather than waiting for the busy→idle transition.
+    if (!statusEnabled && busyLoopRef.current) {
+      stopAudio(busyLoopRef.current);
+      busyLoopRef.current = null;
+    }
+
+    if (!statusEnabled) return;
+
+    const caseId = transitionToCaseId(prev, status);
+    if (!caseId) return;
+    const c = findStatusCase(caseId);
+    if (!c) return;
+    const resolved = resolveSound(c, soundOverrides);
+
+    if (caseId === "working") {
+      if (resolved) {
+        busyLoopRef.current = playAudio(resolved, { ...c.playOptions, loop: true });
+      }
+    } else if (caseId === "done") {
+      stopAudio(busyLoopRef.current);
+      busyLoopRef.current = null;
+      if (resolved) playAudio(resolved, c.playOptions);
+    } else if (resolved) {
+      playAudio(resolved, c.playOptions);
+    }
+  }, [status, sound.master, sound.status, soundOverrides]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
