@@ -123,7 +123,7 @@ describe("InstallPromptDialog", () => {
     const fakeBytes = new Uint8Array([1, 2, 3]);
     const fakeBuffer = fakeBytes.buffer;
 
-    global.fetch = vi.fn().mockResolvedValueOnce({
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       arrayBuffer: vi.fn().mockResolvedValueOnce(fakeBuffer),
     } as unknown as Response);
@@ -145,7 +145,7 @@ describe("InstallPromptDialog", () => {
   it("shows error and clears busy when fetch fails", async () => {
     const onDone = vi.fn();
 
-    global.fetch = vi.fn().mockResolvedValueOnce({
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: false,
       status: 503,
     } as unknown as Response);
@@ -167,7 +167,7 @@ describe("InstallPromptDialog", () => {
     const onDone = vi.fn();
     const fakeBytes = new Uint8Array([1]).buffer;
 
-    global.fetch = vi.fn().mockResolvedValueOnce({
+    globalThis.fetch = vi.fn().mockResolvedValueOnce({
       ok: true,
       arrayBuffer: vi.fn().mockResolvedValueOnce(fakeBytes),
     } as unknown as Response);

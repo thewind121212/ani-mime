@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.18.0] - 2026-04-22
+## [0.17.3] - 2026-04-22
 
 ### Added
 - **Sound effects** — Ani-Mime now reacts audibly to meaningful events: a kalimba chime on status transitions (searching, idle, service, disconnected, visiting), an optional working loop while a task runs, a "Done" chime when it finishes, a doorbell when a peer's mime visits, and a tap when you click the session or LAN peer icon.
