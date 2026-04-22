@@ -310,14 +310,7 @@ export function useCustomMimes() {
     info(`[custom-mimes] exported "${mime.name}" to ${path} (v${payloadObj.version}, ${payload.length} bytes)`);
   }, [mimes, ensureSpritesDir]);
 
-  const importMime = useCallback(async (): Promise<string | null> => {
-    const result = await open({
-      multiple: false,
-      filters: [{ name: "Ani-Mime Export", extensions: ["animime"] }],
-    });
-    if (!result) return null;
-
-    const bytes = await readFile(result);
+  const importFromBytes = useCallback(async (bytes: Uint8Array, _filename: string): Promise<string> => {
     const decoder = new TextDecoder();
     const payload = JSON.parse(decoder.decode(bytes));
 
@@ -333,7 +326,7 @@ export function useCustomMimes() {
     };
 
     const id = `custom-${Date.now()}`;
-    info(`[custom-mimes] importMime: name="${payload.name}", id=${id}, version=${payload.version}`);
+    info(`[custom-mimes] importFromBytes: name="${payload.name}", id=${id}, version=${payload.version}`);
     const dir = await ensureSpritesDir();
 
     const sprites: Record<string, { fileName: string; frames: number }> = {};
@@ -422,6 +415,17 @@ export function useCustomMimes() {
     return id;
   }, [mimes, saveMimes, ensureSpritesDir]);
 
+  const importMime = useCallback(async (): Promise<string | null> => {
+    const result = await open({
+      multiple: false,
+      filters: [{ name: "Ani-Mime Export", extensions: ["animime"] }],
+    });
+    if (!result) return null;
+
+    const bytes = await readFile(result);
+    return importFromBytes(bytes, result);
+  }, [importFromBytes]);
+
   const getSpriteUrl = useCallback(
     async (fileName: string): Promise<string> => {
       const base = await appDataDir();
@@ -431,5 +435,5 @@ export function useCustomMimes() {
     []
   );
 
-  return { mimes, loaded, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime, getSpriteUrl };
+  return { mimes, loaded, pickSpriteFile, addMime, addMimeFromBlobs, updateMime, updateMimeFromSmartImport, deleteMime, exportMime, importMime, importFromBytes, getSpriteUrl };
 }

@@ -28,8 +28,11 @@ import {
   LogicalPosition,
   LogicalSize,
 } from "@tauri-apps/api/window";
+import { useInstallPrompt } from "./hooks/useInstallPrompt";
+import { InstallPromptDialog } from "./components/InstallPromptDialog";
 import "./styles/theme.css";
 import "./styles/app.css";
+import "./styles/install-prompt.css";
 
 // Total window height while the session-list dropdown is open.
 // The dropdown itself is position: fixed so it doesn't inflate the
@@ -71,6 +74,7 @@ function transitionToCaseId(prev: Status, next: Status): string | null {
 }
 
 function App() {
+  const { prompt, error: installError, clear } = useInstallPrompt();
   const { status, scenario } = useStatus();
   const { dragging, onMouseDown } = useDrag();
   const { visible, message, dismiss } = useBubble();
@@ -458,6 +462,7 @@ function App() {
   }, [sessionOpen]);
 
   return (
+    <>
     <div
       ref={containerRef}
       data-testid="app-container"
@@ -519,6 +524,8 @@ function App() {
         </div>
       )}
     </div>
+    <InstallPromptDialog prompt={prompt} error={installError} onDone={clear} />
+    </>
   );
 }
 

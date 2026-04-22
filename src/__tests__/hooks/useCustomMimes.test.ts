@@ -356,6 +356,78 @@ describe("useCustomMimes", () => {
     expect(sheetRemove).toBeDefined();
   });
 
+  describe("importFromBytes", () => {
+    function makeV1Payload(name: string): Uint8Array {
+      const sprites: Record<string, { frames: number; data: string }> = {};
+      for (const status of ALL_STATUSES) {
+        sprites[status] = { frames: 3, data: btoa("fakepng") };
+      }
+      const payload = JSON.stringify({ version: 1, name, sprites });
+      return new TextEncoder().encode(payload);
+    }
+
+    it("imports a v1 .animime bytes buffer and returns an id", async () => {
+      vi.mocked(exists).mockResolvedValue(true);
+
+      const { result } = renderHook(() => useCustomMimes());
+      await act(async () => {});
+
+      let returnedId: string | null | undefined;
+      await act(async () => {
+        returnedId = await result.current.importFromBytes(
+          makeV1Payload("BytesMime"),
+          "byte-pet.animime"
+        );
+      });
+
+      expect(returnedId).toMatch(/^custom-\d+$/);
+      expect(result.current.mimes).toHaveLength(1);
+      expect(result.current.mimes[0].name).toBe("BytesMime");
+      for (const status of ALL_STATUSES) {
+        expect(result.current.mimes[0].sprites[status]).toBeDefined();
+        expect(result.current.mimes[0].sprites[status].frames).toBe(3);
+      }
+    });
+
+    it("throws on invalid .animime bytes", async () => {
+      vi.mocked(exists).mockResolvedValue(true);
+
+      const { result } = renderHook(() => useCustomMimes());
+      await act(async () => {});
+
+      await expect(
+        act(async () => {
+          await result.current.importFromBytes(
+            new TextEncoder().encode('{"version":99,"name":"x"}'),
+            "bad.animime"
+          );
+        })
+      ).rejects.toThrow("Invalid .animime file");
+    });
+
+    it("importMime delegates to importFromBytes (file picker path still works)", async () => {
+      vi.mocked(exists).mockResolvedValue(true);
+
+      const { readFile: mockReadFile } = await import(
+        "@tauri-apps/plugin-fs"
+      );
+      const { open: mockOpen } = await import("@tauri-apps/plugin-dialog");
+      vi.mocked(mockOpen).mockResolvedValue("/tmp/pet.animime");
+      vi.mocked(mockReadFile).mockResolvedValue(makeV1Payload("FileMime"));
+
+      const { result } = renderHook(() => useCustomMimes());
+      await act(async () => {});
+
+      let returnedId: string | null | undefined;
+      await act(async () => {
+        returnedId = await result.current.importMime();
+      });
+
+      expect(returnedId).toMatch(/^custom-\d+$/);
+      expect(result.current.mimes[0].name).toBe("FileMime");
+    });
+  });
+
   it("cleans up listener on unmount", async () => {
     const { result, unmount } = renderHook(() => useCustomMimes());
     await act(async () => {});

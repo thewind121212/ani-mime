@@ -70,6 +70,13 @@
       "csp": null
     }
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["animime"]
+      }
+    }
+  },
   "bundle": {
     "resources": [
       "script/terminal-mirror.zsh",
