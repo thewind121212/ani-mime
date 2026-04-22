@@ -141,8 +141,16 @@ function App() {
 
     if (caseId === "working") {
       if (resolved) {
-        void playResolvedSound(resolved, { ...c.playOptions, loop: true }, getSoundUrl).then((el) => {
-          busyLoopRef.current = el;
+        const shouldLoop = sound.workingLoop;
+        void playResolvedSound(
+          resolved,
+          { ...c.playOptions, loop: shouldLoop },
+          getSoundUrl
+        ).then((el) => {
+          // Only track the element if we actually looped — a one-shot
+          // working sound ends on its own and doesn't need stopping on
+          // the busy→idle transition.
+          busyLoopRef.current = shouldLoop ? el : null;
         });
       }
     } else if (caseId === "done") {
@@ -152,7 +160,7 @@ function App() {
     } else if (resolved) {
       void playResolvedSound(resolved, c.playOptions, getSoundUrl);
     }
-  }, [status, sound.master, sound.status, soundOverrides, getSoundUrl]);
+  }, [status, sound.master, sound.status, sound.workingLoop, soundOverrides, getSoundUrl]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);

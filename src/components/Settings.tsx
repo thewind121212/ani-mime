@@ -129,6 +129,15 @@ export function Settings() {
   const { sounds: customSounds, importSound, deleteSound, getSoundUrl } = useCustomSounds();
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [soundImportError, setSoundImportError] = useState<string | null>(null);
+  const [expandedCases, setExpandedCases] = useState<Set<string>>(new Set());
+  const toggleCase = (id: string) => {
+    setExpandedCases((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
   const [commandContent, setCommandContent] = useState<Record<string, string>>({});
   // const [expandedPluginSkills, setExpandedPluginSkills] = useState<Record<string, boolean>>({});
@@ -1095,18 +1104,103 @@ export function Settings() {
                         <span className="toggle-knob" />
                       </button>
                     </div>
-                    {soundSettings.status && STATUS_SOUND_CASES.map((c) => (
-                      <SoundCaseRow
-                        key={c.id}
-                        soundCase={c}
-                        overrides={soundOverrides}
-                        customSounds={customSounds}
-                        getSoundUrl={getSoundUrl}
-                        onChoiceChange={(v) => setSoundOverride(c.id, v)}
-                        testid={`sound-case-status-${c.id}`}
-                      />
-                    ))}
                   </div>
+                  {soundSettings.status && STATUS_SOUND_CASES.map((c) => {
+                    const expanded = expandedCases.has(c.id);
+                    const currentLabel = getChoiceLabel(
+                      soundOverrides[c.id],
+                      c.sound,
+                      customSounds
+                    );
+                    return (
+                      <div
+                        key={c.id}
+                        className={`settings-card sound-case-card ${expanded ? "expanded" : ""}`}
+                        style={{ marginTop: 8 }}
+                        data-testid={`sound-case-status-${c.id}`}
+                      >
+                        <button
+                          className="sound-case-header"
+                          onClick={() => toggleCase(c.id)}
+                          aria-expanded={expanded}
+                          data-testid={`sound-case-status-${c.id}-header`}
+                        >
+                          <span className="sound-case-header-label">{c.label}</span>
+                          <span className="sound-case-header-right">
+                            <span className="sound-case-current-badge">{currentLabel}</span>
+                            <span className="sound-case-chevron">{expanded ? "▾" : "▸"}</span>
+                          </span>
+                        </button>
+                        {expanded && (
+                          <div className="sound-case-body">
+                            <div className="sound-case-desc">{c.description}</div>
+                            <div className="sound-case-field">
+                              <span className="sound-case-field-label">Sound</span>
+                              <div className="sound-case-controls">
+                                <select
+                                  className="sound-select"
+                                  value={soundOverrides[c.id] ?? ""}
+                                  onChange={(e) => {
+                                    const v = e.target.value;
+                                    setSoundOverride(c.id, v === "" ? null : (v as SoundChoice));
+                                  }}
+                                  data-testid={`sound-case-status-${c.id}-select`}
+                                  aria-label={`Sound for ${c.label}`}
+                                >
+                                  <option value="">Default ({AUDIO_LABELS[c.sound]})</option>
+                                  <optgroup label="Bundled">
+                                    {AUDIO_NAMES.map((n) => (
+                                      <option key={n} value={n}>
+                                        {AUDIO_LABELS[n]}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                  {customSounds.length > 0 && (
+                                    <optgroup label="Custom">
+                                      {customSounds.map((s) => (
+                                        <option key={s.id} value={s.id}>
+                                          {s.name}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  <option value={NONE}>None (silent)</option>
+                                </select>
+                                <button
+                                  className="sound-play-btn"
+                                  onClick={() => playSoundCase(c, soundOverrides, getSoundUrl)}
+                                  disabled={soundOverrides[c.id] === NONE}
+                                  data-testid={`sound-case-status-${c.id}-play`}
+                                  aria-label={`Play ${c.label}`}
+                                  title={soundOverrides[c.id] === NONE ? "Silenced" : "Play preview"}
+                                >
+                                  ▶
+                                </button>
+                              </div>
+                            </div>
+                            {c.id === "working" && (
+                              <div className="sound-case-field" data-testid="sound-working-loop-row">
+                                <div>
+                                  <span className="sound-case-field-label">Loop While Busy</span>
+                                  <span className="settings-row-hint" style={{ display: "block" }}>
+                                    When on, the Working sound loops until the task ends. When off, it plays once at the start.
+                                  </span>
+                                </div>
+                                <button
+                                  className={`toggle-switch ${soundSettings.workingLoop ? "active" : ""}`}
+                                  onClick={() => soundSettings.setWorkingLoop(!soundSettings.workingLoop)}
+                                  data-testid="sound-working-loop-toggle"
+                                  aria-label="Loop working sound"
+                                >
+                                  <span className="toggle-knob" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="settings-section">
@@ -1439,6 +1533,25 @@ export function Settings() {
       </main>
     </div>
   );
+}
+
+/**
+ * Resolve the short label that a case's header badge should show for its
+ * current choice — the user's override if one is set (falling back through
+ * bundled names, custom imports, the None sentinel), otherwise the case's
+ * built-in default.
+ */
+function getChoiceLabel(
+  choice: SoundChoice | undefined,
+  fallbackSound: string,
+  customSounds: CustomSound[]
+): string {
+  if (choice === NONE) return "None";
+  if (!choice) return AUDIO_LABELS[fallbackSound as keyof typeof AUDIO_LABELS] ?? fallbackSound;
+  if (choice in AUDIO_LABELS) return AUDIO_LABELS[choice as keyof typeof AUDIO_LABELS];
+  const custom = customSounds.find((s) => s.id === choice);
+  if (custom) return custom.name;
+  return "Unknown";
 }
 
 function SoundCaseRow({

@@ -8,20 +8,24 @@ interface SoundSettings {
   master: boolean;
   status: boolean;
   visit: boolean;
+  /** When true the Working case plays its sound on a loop while busy; when false it plays once at the busy transition. */
+  workingLoop: boolean;
 }
 
-const DEFAULTS: SoundSettings = { master: true, status: true, visit: true };
+const DEFAULTS: SoundSettings = { master: true, status: true, visit: true, workingLoop: false };
 
 const STORE_KEYS = {
   master: "soundMaster",
   status: "soundStatus",
   visit: "soundVisit",
+  workingLoop: "soundWorkingLoop",
 } as const;
 
 const EVENT_NAMES = {
   master: "sound-master-changed",
   status: "sound-status-changed",
   visit: "sound-visit-changed",
+  workingLoop: "sound-working-loop-changed",
 } as const;
 
 export function useSoundSettings() {
@@ -65,6 +69,7 @@ export function useSoundSettings() {
     setMaster: (v: boolean) => setFlag("master", v),
     setStatus: (v: boolean) => setFlag("status", v),
     setVisit: (v: boolean) => setFlag("visit", v),
+    setWorkingLoop: (v: boolean) => setFlag("workingLoop", v),
     isCategoryEnabled,
   };
 }

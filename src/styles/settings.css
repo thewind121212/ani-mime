@@ -271,6 +271,106 @@
   opacity: 0.7;
 }
 
+/* Sub-option row attached to a sound case (e.g. Working → Loop While Busy) */
+.sound-case-suboption {
+  padding-left: 28px;
+  background: rgba(128, 128, 128, 0.04);
+}
+
+/* Collapsible per-case card (Searching / Idle / Working / ...) */
+.sound-case-card {
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+
+.sound-case-card.expanded {
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.25);
+}
+
+.sound-case-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.sound-case-header:hover {
+  background: rgba(128, 128, 128, 0.06);
+}
+
+.sound-case-card.expanded .sound-case-header {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+}
+
+.sound-case-header-label {
+  font-weight: 500;
+}
+
+.sound-case-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.sound-case-current-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(128, 128, 128, 0.15);
+  color: inherit;
+  opacity: 0.75;
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sound-case-chevron {
+  font-size: 10px;
+  opacity: 0.5;
+  width: 12px;
+  text-align: center;
+}
+
+.sound-case-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sound-case-desc {
+  font-size: 11px;
+  opacity: 0.55;
+  line-height: 1.4;
+}
+
+.sound-case-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sound-case-field > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.sound-case-field-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* Sound case controls: dropdown + play button, grouped on the right */
 .sound-case-controls {
   display: inline-flex;
