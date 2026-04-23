@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.4] - 2026-04-23
+
+### Added
+- **Session-count badge** on the pill task icon, showing the number of active session groups (grouped by pwd) — matches the peer-count badge style.
+- **Expo / React Native command classification** — `bun run ios`, `bun run android`, `expo run:*`, `npx expo …` now classify as `service` across zsh / bash / fish. Previously stayed busy indefinitely.
+
+### Changed
+- **Event-driven session updates** — backend emits a fingerprint-gated `sessions-changed` event whenever session state mutates (including `proc_scan` passes, which used to mutate silently). `useSessionGroupCount`, the `StatusPill` dropdown, and the `SessionListApp` window all drop their 3-second polls and listen to the event instead.
+- Removed the redundant per-group child-count pill inside dropdown rows.
+
+### Fixed
+- **Peer-count badge** now survives window reload / HMR — added a `get_peers` Tauri command; `usePeers` seeds from it on mount instead of waiting for a `peers-changed` event that only fires on add/expire.
+- **Path tooltip** no longer gets clipped by the window edge — it measures itself after render and clamps both axes to the viewport, wrapping long paths instead of overflowing. Arrow tracks the `?` icon after clamping and flips automatically when placed below.
+
 ## [0.17.3] - 2026-04-22
 
 ### Added
