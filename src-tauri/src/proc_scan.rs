@@ -547,7 +547,7 @@ fn title_from_pwd(pwd: &str) -> String {
     pwd.rsplit('/').next().unwrap_or("").to_string()
 }
 
-fn reconcile(app_state: &Arc<Mutex<AppState>>) {
+fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
     let procs = scan_processes();
     if procs.is_empty() {
         return;
@@ -650,9 +650,14 @@ fn reconcile(app_state: &Arc<Mutex<AppState>>) {
     for (pid, session) in st.sessions.iter_mut() {
         session.is_claude_proc = claude_pids.contains(pid);
     }
+
+    // Fire `status-changed` / `sessions-changed` if this pass actually
+    // mutated anything the UI cares about. Before this, proc_scan mutated
+    // silently and the frontend had to poll.
+    crate::state::emit_if_changed(app_handle, &mut st);
 }
 
-pub fn start_proc_scanner(app_state: Arc<Mutex<AppState>>) {
+pub fn start_proc_scanner(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
     crate::app_log!(
         "[proc_scan] starting (interval={}s)",
         SCAN_INTERVAL_SECS
@@ -660,6 +665,6 @@ pub fn start_proc_scanner(app_state: Arc<Mutex<AppState>>) {
 
     std::thread::spawn(move || loop {
         std::thread::sleep(std::time::Duration::from_secs(SCAN_INTERVAL_SECS));
-        reconcile(&app_state);
+        reconcile(&app_handle, &app_state);
     });
 }

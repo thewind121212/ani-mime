@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -154,14 +154,17 @@ export function SessionListApp() {
   const { collapsed, toggle: toggleCollapsed } = useCollapsedSessionGroups();
   const [pathTooltip, setPathTooltip] = useState<{
     text: string;
-    x: number;
-    y: number;
+    anchorX: number;
+    anchorTop: number;
+    anchorBottom: number;
   } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   useTheme();
   useWindowAutoSize(rootRef);
 
-  // Refresh sessions on mount, on status-changed, and every 3s while shown.
+  // Refresh sessions on mount and whenever the backend fires
+  // `sessions-changed` (fingerprint-gated emit). No polling.
   useEffect(() => {
     let cancelled = false;
 
@@ -174,14 +177,12 @@ export function SessionListApp() {
 
     void refresh();
 
-    const unlistenP = listen("status-changed", () => {
+    const unlistenP = listen("sessions-changed", () => {
       void refresh();
     });
-    const id = setInterval(refresh, 3000);
 
     return () => {
       cancelled = true;
-      clearInterval(id);
       unlistenP.then((fn) => fn());
     };
   }, []);
@@ -206,11 +207,40 @@ export function SessionListApp() {
     const rect = el.getBoundingClientRect();
     setPathTooltip({
       text,
-      x: Math.round(rect.left + rect.width / 2),
-      y: Math.round(rect.top),
+      anchorX: rect.left + rect.width / 2,
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
     });
   };
   const hidePathTooltip = () => setPathTooltip(null);
+
+  // Measure the tooltip after render and clamp to the viewport so the full
+  // path stays visible regardless of window width.
+  useLayoutEffect(() => {
+    if (!pathTooltip) return;
+    const el = tooltipRef.current;
+    if (!el) return;
+
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const MARGIN = 8;
+    const GAP = 6;
+    const vw = window.innerWidth;
+
+    const placeAbove = pathTooltip.anchorTop >= h + GAP + MARGIN;
+    const y = placeAbove
+      ? pathTooltip.anchorTop - h - GAP
+      : pathTooltip.anchorBottom + GAP;
+
+    let x = pathTooltip.anchorX - w / 2;
+    x = Math.max(MARGIN, Math.min(x, vw - w - MARGIN));
+
+    el.style.left = `${Math.round(x)}px`;
+    el.style.top = `${Math.round(y)}px`;
+    el.style.setProperty("--arrow-x", `${Math.round(pathTooltip.anchorX - x)}px`);
+    el.classList.toggle("below", !placeAbove);
+    el.style.visibility = "visible";
+  }, [pathTooltip]);
 
   const onItemClick = (s: SessionInfo) => {
     invoke("focus_terminal", { pid: s.pid, tty: s.tty || null }).catch((err) =>
@@ -252,10 +282,7 @@ export function SessionListApp() {
                     </span>
                   )}
                 </span>
-                {g.sessions.length > 1 && (
-                  <span className="session-count">{g.sessions.length}</span>
-                )}
-              </>
+                </>
             );
             return (
               <div
@@ -321,8 +348,9 @@ export function SessionListApp() {
       {pathTooltip &&
         createPortal(
           <div
+            ref={tooltipRef}
             className="session-path-tooltip"
-            style={{ left: pathTooltip.x, top: pathTooltip.y }}
+            style={{ visibility: "hidden" }}
             role="tooltip"
           >
             {pathTooltip.text}
