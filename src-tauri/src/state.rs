@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use serde::Serialize;
 use tauri::Emitter;
 
@@ -128,6 +130,33 @@ pub struct AppState {
     pub longest_task_today_secs: u64,
     pub last_task_duration_secs: u64,
     pub usage_day: u64,
+    /// Hash of the session fields exposed to the UI. `emit_if_changed` emits
+    /// `sessions-changed` only when this value shifts, so the frontend can
+    /// stay event-driven instead of polling.
+    pub last_sessions_fingerprint: u64,
+}
+
+/// Deterministic hash of the session fields the UI renders. Pids are sorted so
+/// the result doesn't depend on `HashMap` iteration order.
+fn sessions_fingerprint(sessions: &HashMap<u32, Session>) -> u64 {
+    let mut pids: Vec<u32> = sessions.keys().copied().collect();
+    pids.sort_unstable();
+
+    let mut h = DefaultHasher::new();
+    for pid in pids {
+        let s = &sessions[&pid];
+        pid.hash(&mut h);
+        s.ui_state.hash(&mut h);
+        s.busy_type.hash(&mut h);
+        s.pwd.hash(&mut h);
+        s.title.hash(&mut h);
+        s.tty.hash(&mut h);
+        s.has_claude.hash(&mut h);
+        s.claude_pid.hash(&mut h);
+        s.is_claude_proc.hash(&mut h);
+        s.fg_cmd.hash(&mut h);
+    }
+    h.finish()
 }
 
 /// Picks the "winning" UI state across all sessions.
@@ -163,6 +192,10 @@ pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
             crate::app_log!("[state] waking from sleep for {}", new_ui);
             state.sleeping = false;
         } else {
+            // Still check for session-set changes even while sleeping, so the
+            // session-list UI updates (e.g. a shell exiting shouldn't wait for
+            // the next global transition).
+            maybe_emit_sessions_changed(app, state);
             return;
         }
     }
@@ -180,5 +213,17 @@ pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
             crate::app_error!("[state] failed to emit status-changed: {}", e);
         }
         state.current_ui = new_ui.to_string();
+    }
+
+    maybe_emit_sessions_changed(app, state);
+}
+
+fn maybe_emit_sessions_changed(app: &tauri::AppHandle, state: &mut AppState) {
+    let fp = sessions_fingerprint(&state.sessions);
+    if fp != state.last_sessions_fingerprint {
+        state.last_sessions_fingerprint = fp;
+        if let Err(e) = app.emit("sessions-changed", ()) {
+            crate::app_error!("[state] failed to emit sessions-changed: {}", e);
+        }
     }
 }

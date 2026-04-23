@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -11,6 +11,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Status } from "../types/status";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
+import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
 import { useLanList } from "../hooks/useLanList";
 import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
@@ -232,6 +233,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const [dropdownMaxHeight, setDropdownMaxHeight] = useState(280);
   const wrapRef = useRef<HTMLDivElement>(null);
   const { enabled: sessionListEnabled } = useSessionList();
+  const sessionCount = useSessionGroupCount(sessionListEnabled);
   const { collapsed, toggle: toggleCollapsed } = useCollapsedSessionGroups();
 
   // --- Peer popover state ---
@@ -252,19 +254,51 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   // overflow:auto doesn't clip it when it renders above the first row). ---
   const [pathTooltip, setPathTooltip] = useState<{
     text: string;
-    x: number;
-    y: number;
+    anchorX: number;
+    anchorTop: number;
+    anchorBottom: number;
   } | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
 
   const showPathTooltip = (el: HTMLElement, text: string) => {
     const rect = el.getBoundingClientRect();
     setPathTooltip({
       text,
-      x: Math.round(rect.left + rect.width / 2),
-      y: Math.round(rect.top),
+      anchorX: rect.left + rect.width / 2,
+      anchorTop: rect.top,
+      anchorBottom: rect.bottom,
     });
   };
   const hidePathTooltip = () => setPathTooltip(null);
+
+  // Position the tooltip after render so we can measure its actual size and
+  // clamp it inside the window — paths are often wider than the dropdown,
+  // which would otherwise leave the tooltip clipped by the window edge.
+  useLayoutEffect(() => {
+    if (!pathTooltip) return;
+    const el = tooltipRef.current;
+    if (!el) return;
+
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const MARGIN = 8;
+    const GAP = 6;
+    const vw = window.innerWidth;
+
+    const placeAbove = pathTooltip.anchorTop >= h + GAP + MARGIN;
+    const y = placeAbove
+      ? pathTooltip.anchorTop - h - GAP
+      : pathTooltip.anchorBottom + GAP;
+
+    let x = pathTooltip.anchorX - w / 2;
+    x = Math.max(MARGIN, Math.min(x, vw - w - MARGIN));
+
+    el.style.left = `${Math.round(x)}px`;
+    el.style.top = `${Math.round(y)}px`;
+    el.style.setProperty("--arrow-x", `${Math.round(pathTooltip.anchorX - x)}px`);
+    el.classList.toggle("below", !placeAbove);
+    el.style.visibility = "visible";
+  }, [pathTooltip]);
 
   useEffect(() => {
     onOpenChange?.(sessionOpen);
@@ -314,7 +348,9 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     if (!sessionListEnabled && sessionOpen) setSessionOpen(false);
   }, [sessionListEnabled, sessionOpen]);
 
-  // Live session refresh while dropdown is open.
+  // Live session refresh while dropdown is open. Event-driven via
+  // `sessions-changed` (emitted by the backend only when the session set or
+  // any UI-relevant field changes) — no polling.
   useEffect(() => {
     if (!sessionOpen) return;
     let cancelled = false;
@@ -326,14 +362,12 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       setGroups(groupSessions(overlaid, detectHome(overlaid)));
     };
 
-    const unlistenP = listen("status-changed", () => {
+    const unlistenP = listen("sessions-changed", () => {
       void refresh();
     });
-    const id = setInterval(refresh, 3000);
 
     return () => {
       cancelled = true;
-      clearInterval(id);
       unlistenP.then((fn) => fn());
     };
   }, [sessionOpen]);
@@ -453,7 +487,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
               data-testid="pill-action-task"
               className={`pill-action-btn ${sessionOpen ? "is-active" : ""}`}
               onClick={toggleSession}
-              aria-label="Show sessions list"
+              aria-label={`Show sessions list (${sessionCount})`}
               aria-expanded={sessionOpen}
               title="Session list"
             >
@@ -467,6 +501,11 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
               >
                 <path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1s-2.4.84-2.82 2H5a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 0a1 1 0 1 1 0 2 1 1 0 0 1 0-2zM7 9h10v2H7V9zm0 4h10v2H7v-2zm0 4h7v2H7v-2z" />
               </svg>
+              {sessionCount > 0 && (
+                <span className="pill-action-badge" data-testid="pill-action-task-badge">
+                  {sessionCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -540,9 +579,6 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
                       </span>
                     )}
                   </span>
-                  {g.sessions.length > 1 && (
-                    <span className="session-count">{g.sessions.length}</span>
-                  )}
                 </>
               );
               return (
@@ -612,8 +648,9 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       {pathTooltip &&
         createPortal(
           <div
+            ref={tooltipRef}
             className="session-path-tooltip"
-            style={{ left: pathTooltip.x, top: pathTooltip.y }}
+            style={{ visibility: "hidden" }}
             role="tooltip"
           >
             {pathTooltip.text}

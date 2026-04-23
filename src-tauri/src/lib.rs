@@ -23,7 +23,7 @@ use tauri::{Emitter, Manager};
 use tauri::menu::{MenuBuilder, SubmenuBuilder, PredefinedMenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 
-use crate::state::{AppState, SessionInfo};
+use crate::state::{AppState, PeerInfo, SessionInfo};
 
 const VISIT_DURATION_SECS: u64 = 8;
 /// Visit duration when the sender attached a message. Currently equal
@@ -84,6 +84,12 @@ fn get_sessions(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<SessionInf
         is_claude_proc: s.is_claude_proc,
         fg_cmd: s.fg_cmd.clone(),
     }).collect()
+}
+
+#[tauri::command]
+fn get_peers(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<PeerInfo> {
+    let st = state.lock().unwrap();
+    st.peers.values().cloned().collect()
 }
 
 #[tauri::command]
@@ -429,7 +435,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -600,6 +606,7 @@ pub fn run() {
                 longest_task_today_secs: 0,
                 last_task_duration_secs: 0,
                 usage_day: crate::helpers::now_secs() / 86400,
+                last_sessions_fingerprint: 0,
             }));
 
             app.manage(app_state.clone());
@@ -607,7 +614,7 @@ pub fn run() {
 
             server::start_http_server(app.handle().clone(), app_state.clone());
             watchdog::start_watchdog(app.handle().clone(), app_state.clone());
-            proc_scan::start_proc_scanner(app_state.clone());
+            proc_scan::start_proc_scanner(app.handle().clone(), app_state.clone());
 
             // Start mDNS peer discovery
             let discovery_handle = app.handle().clone();

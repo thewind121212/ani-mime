@@ -123,19 +123,6 @@ button.session-group-head:hover {
   opacity: 0.9;
 }
 
-.session-count {
-  flex-shrink: 0;
-  min-width: 16px;
-  padding: 1px 5px;
-  border-radius: 9999px;
-  background: var(--bg-pill-hover);
-  border: 1px solid var(--border-pill);
-  font-size: 10px;
-  font-weight: 600;
-  text-align: center;
-  opacity: 0.75;
-}
-
 .session-group-info {
   position: relative;
   display: inline-flex;
@@ -166,7 +153,6 @@ button.session-group-head:hover {
    ? icon's getBoundingClientRect. */
 .session-path-tooltip {
   position: fixed;
-  transform: translate(-50%, calc(-100% - 6px));
   padding: 5px 8px;
   background: rgba(0, 0, 0, 0.9);
   color: rgba(255, 255, 255, 0.95);
@@ -174,21 +160,32 @@ button.session-group-head:hover {
   font-family: "SF Mono", "Menlo", "Monaco", monospace;
   font-size: 10px;
   font-weight: 400;
-  white-space: nowrap;
+  max-width: calc(100vw - 16px);
+  overflow-wrap: anywhere;
   pointer-events: none;
   z-index: 10000;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   animation: path-tooltip-in 0.08s ease-out;
 }
 
+/* Arrow pointing at the ? icon. `--arrow-x` is set in JS relative to the
+   tooltip's left edge so the arrow tracks the icon even after clamping. */
 .session-path-tooltip::after {
   content: "";
   position: absolute;
   top: 100%;
-  left: 50%;
+  left: var(--arrow-x, 50%);
   transform: translateX(-50%);
   border: 4px solid transparent;
   border-top-color: rgba(0, 0, 0, 0.9);
+}
+
+/* Flipped: tooltip sits *below* the ? icon when there isn't room above. */
+.session-path-tooltip.below::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: rgba(0, 0, 0, 0.9);
 }
 
 @keyframes path-tooltip-in {
