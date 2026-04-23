@@ -7,7 +7,7 @@ import { usePet } from "../hooks/usePet";
 import { useScale } from "../hooks/useScale";
 import { useCustomMimes } from "../hooks/useCustomMimes";
 import { getSpriteMap } from "../constants/sprites";
-import { useEffectEnabled } from "./useEffectEnabled";
+import { useEffectEnabled, isEffectEnabledAsync } from "./useEffectEnabled";
 import { effects } from "./index";
 import type { EffectDefinition } from "./types";
 
@@ -119,16 +119,25 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
   const expandWindow = useCallback(async (size: number) => {
     try {
       const win = getCurrentWindow();
-      const factor = await win.scaleFactor();
-      const physPos = await win.outerPosition();
-      const physSize = await win.outerSize();
 
-      const logX = physPos.x / factor;
-      const logY = physPos.y / factor;
-      const logW = physSize.width / factor;
-      const logH = physSize.height / factor;
+      // Only capture the baseline when we don't already have one. If we
+      // do, the previous stopEffect's restoreWindow is still in flight —
+      // reading win.outerSize() now would capture the expanded size as
+      // "normal" and lock the window at `size` x `size` on the next
+      // restore (rapid busy→idle→busy used to leave the window stuck).
+      if (!savedWindowRef.current) {
+        const factor = await win.scaleFactor();
+        const physPos = await win.outerPosition();
+        const physSize = await win.outerSize();
+        savedWindowRef.current = {
+          x: physPos.x / factor,
+          y: physPos.y / factor,
+          w: physSize.width / factor,
+          h: physSize.height / factor,
+        };
+      }
 
-      savedWindowRef.current = { x: logX, y: logY, w: logW, h: logH };
+      const { x: logX, y: logY, w: logW, h: logH } = savedWindowRef.current;
 
       // Pin content position BEFORE resizing to prevent centering shift
       pinRootContent();
@@ -204,6 +213,15 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
     let cancelled = false;
 
     const activate = async () => {
+      // Gate on the persisted toggle BEFORE touching the window. The
+      // enable check inside EffectRunner only suppresses sprite render —
+      // it can't prevent expandWindow from running, so without this
+      // guard a disabled effect still grows the window (then snaps
+      // back), which compounds with the savedWindowRef race above and
+      // can leave the window stuck at the expanded size.
+      if (!(await isEffectEnabledAsync(matchingEffect.id))) return;
+      if (cancelled) return;
+
       let spriteUrl: string;
       let frames: number;
 

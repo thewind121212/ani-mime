@@ -20,6 +20,21 @@ function eventName(effectId: string) {
  */
 const cache = new Map<string, boolean>();
 
+/**
+ * Async lookup used outside React render (e.g. inside an effect callback)
+ * to gate on the persisted value. Returns the cached value when present,
+ * otherwise reads the store and populates the cache. Defaults to `true`
+ * when no value is persisted, matching the hook's default.
+ */
+export async function isEffectEnabledAsync(effectId: string): Promise<boolean> {
+  if (cache.has(effectId)) return cache.get(effectId)!;
+  const store = await load(STORE_FILE);
+  const val = await store.get<boolean>(storeKey(effectId));
+  const resolved = val !== null && val !== undefined ? val : true;
+  cache.set(effectId, resolved);
+  return resolved;
+}
+
 export function useEffectEnabled(effectId: string) {
   // Initializer function → only runs on first render. Reads from cache if we
   // have it, else falls back to the app-wide default of "on".

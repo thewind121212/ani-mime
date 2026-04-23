@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.17.5] - 2026-04-23
+
+### Fixed
+- **Window no longer gets stuck at an oversized 1200×1200 after busy transitions.** The shadow-clone effect expanded the window even when its toggle was off, and rapid busy→idle→busy could corrupt the saved pre-expansion baseline so the next "restore" locked the window at the expanded size. Disabled effects now skip the expand path entirely, and the baseline capture is guarded against reentrant overwrites.
+
 ## [0.17.4] - 2026-04-23
 
 ### Added
