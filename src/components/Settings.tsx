@@ -1480,7 +1480,7 @@ export function Settings() {
                   onClick={handleVersionClick}
                   style={{ userSelect: "none" }}
                 >
-                  Version 0.17.3{devMode && " (Dev Mode)"}
+                  Version 0.17.4{devMode && " (Dev Mode)"}
                 </div>
                 <div className="about-desc">A floating macOS desktop mascot that reacts to terminal and Claude Code activity in real-time.</div>
               </div>
