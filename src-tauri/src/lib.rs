@@ -483,11 +483,13 @@ pub fn run() {
             // Build system tray icon
             let tray_show = MenuItemBuilder::with_id("tray-show", "Show Ani-Mime").build(app)?;
             let tray_settings = MenuItemBuilder::with_id("tray-settings", "Settings...").build(app)?;
+            let tray_chat = MenuItemBuilder::with_id("tray-chat", "Coding Helper").build(app)?;
             let tray_quit = PredefinedMenuItem::quit(app, Some("Quit Ani-Mime"))?;
 
             let tray_menu = MenuBuilder::new(app)
                 .item(&tray_show)
                 .item(&tray_settings)
+                .item(&tray_chat)
                 .separator()
                 .item(&tray_quit)
                 .build()?;
@@ -512,6 +514,13 @@ pub fn run() {
                         "tray-settings" => {
                             crate::app_log!("[app] tray: settings clicked");
                             if let Some(win) = app.get_webview_window("settings") {
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                        }
+                        "tray-chat" => {
+                            crate::app_log!("[app] tray: chat clicked");
+                            if let Some(win) = app.get_webview_window("chat") {
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }
@@ -563,7 +572,7 @@ pub fn run() {
             }
 
             // Hide settings and superpower windows on close instead of destroying them
-            for label in &["settings", "superpower"] {
+            for label in &["settings", "superpower", "chat"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let win_clone = win.clone();
                     let label_owned = label.to_string();
