@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useChatHistory } from "../hooks/useChatHistory";
 import { useChat } from "../hooks/useChat";
 import type { ChatMessage } from "../hooks/useChatHistory";
@@ -93,6 +94,17 @@ export function Chat() {
     inputRef.current?.focus();
   }, [activeId]);
 
+  // Escape key hides window (like peer-list)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        void getCurrentWindow().hide();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Fix B2: resolve session before calling send, pass explicitly
   const handleSend = useCallback(() => {
     if (!input.trim() || loading) return;
@@ -124,6 +136,7 @@ export function Chat() {
   const messages: ChatMessage[] = activeSession?.messages ?? [];
 
   return (
+    <div className="chat-shell">
     <div className="chat" data-testid="chat-window">
       {/* Header */}
       <div className="chat-header" data-testid="chat-header">
@@ -267,6 +280,7 @@ export function Chat() {
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }

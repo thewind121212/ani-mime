@@ -1,10 +1,35 @@
+/* Transparent window — html/body must be clear so the rounded card floats */
+html,
+body,
+#root {
+  background: transparent;
+}
+
+.chat-shell {
+  padding: 12px;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
 .chat {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  background: #1a1a2e;
+  height: 100%;
+  border-radius: 10px;
+  background: rgba(26, 26, 46, 0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
   color: #e0e0e0;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  overflow: hidden;
+  animation: chat-fade-in 0.12s ease-out;
+}
+
+@keyframes chat-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 /* --- Header --- */

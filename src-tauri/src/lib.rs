@@ -572,7 +572,7 @@ pub fn run() {
             }
 
             // Hide settings and superpower windows on close instead of destroying them
-            for label in &["settings", "superpower", "chat"] {
+            for label in &["settings", "superpower"] {
                 if let Some(win) = app.get_webview_window(label) {
                     let win_clone = win.clone();
                     let label_owned = label.to_string();

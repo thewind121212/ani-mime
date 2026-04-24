@@ -206,6 +206,10 @@ const POPOVER_WIDTH = 280;
 /** Negative offset overlaps the popover's 12px shadow-buffer padding. */
 const POPOVER_TOP_GAP = -8;
 
+/** Chat popover — must match tauri.conf.json width. */
+const CHAT_WIDTH = 360;
+const CHAT_TOP_GAP = -8;
+
 async function computePopoverScreenPos(
   anchorEl: HTMLElement
 ): Promise<LogicalPosition> {
@@ -222,6 +226,25 @@ async function computePopoverScreenPos(
   const centerX = mainLogical.x + rect.left + rect.width / 2;
   const left = centerX - POPOVER_WIDTH / 2;
   const top = mainLogical.y + rect.bottom + POPOVER_TOP_GAP;
+  return new LogicalPosition(Math.round(left), Math.round(top));
+}
+
+async function computeChatScreenPos(
+  anchorEl: HTMLElement
+): Promise<LogicalPosition> {
+  const main = getCurrentWindow();
+  const mainPos = await main.outerPosition();
+  const scale = await main.scaleFactor();
+
+  const pill = anchorEl.closest(".pill") ?? anchorEl;
+  const rect = (pill as HTMLElement).getBoundingClientRect();
+
+  const mainLogical =
+    mainPos instanceof PhysicalPosition ? mainPos.toLogical(scale) : mainPos;
+
+  const centerX = mainLogical.x + rect.left + rect.width / 2;
+  const left = centerX - CHAT_WIDTH / 2;
+  const top = mainLogical.y + rect.bottom + CHAT_TOP_GAP;
   return new LogicalPosition(Math.round(left), Math.round(top));
 }
 
@@ -242,6 +265,10 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const { opacity: statusOpacity } = useOpacity("status");
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
+
+  // --- Chat popover state ---
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatButtonRef = useRef<HTMLButtonElement>(null);
 
   // UI click feedback — short tap on either pill button. Gated by the
   // master sound toggle so fully silencing the app silences these too.
@@ -432,6 +459,84 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     };
   }, [peerOpen]);
 
+  // --- Chat popover effects ---
+  // Hide on blur (lose focus)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const chatWin = await WebviewWindow.getByLabel("chat");
+      if (!chatWin) return;
+      const fn = await chatWin.onFocusChanged(({ payload: focused }) => {
+        if (!focused) {
+          void chatWin.hide();
+          setChatOpen(false);
+        }
+      });
+      unlisten = fn;
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Track main window movement — reposition chat
+  useEffect(() => {
+    if (!chatOpen) return;
+    const main = getCurrentWindow();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      const chatWin = await WebviewWindow.getByLabel("chat");
+      if (!chatWin || cancelled) return;
+      const handler = async () => {
+        if (!chatButtonRef.current) return;
+        if (!(await chatWin.isVisible())) return;
+        const pos = await computeChatScreenPos(chatButtonRef.current);
+        await chatWin.setPosition(pos).catch(() => {});
+      };
+      const fn = await main.onMoved(handler);
+      unlisten = fn;
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [chatOpen]);
+
+  const toggleChat = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!chatButtonRef.current) return;
+    playClickTap();
+
+    const chatWin = await WebviewWindow.getByLabel("chat");
+    if (!chatWin) {
+      console.error("[status-pill] chat window not found");
+      return;
+    }
+
+    const visible = await chatWin.isVisible();
+    if (visible) {
+      await chatWin.hide();
+      setChatOpen(false);
+      return;
+    }
+
+    // Close other popovers
+    if (sessionOpen) setSessionOpen(false);
+    if (peerOpen) {
+      const peerWin = await WebviewWindow.getByLabel("peer-list");
+      await peerWin?.hide().catch(() => {});
+      setPeerOpen(false);
+    }
+
+    const pos = await computeChatScreenPos(chatButtonRef.current);
+    await chatWin.setPosition(pos);
+    await chatWin.show();
+    await chatWin.setFocus();
+    setChatOpen(true);
+  };
+
   const togglePeer = async (e: React.MouseEvent) => {
     if (disabled) return;
     e.preventDefault();
@@ -510,25 +615,13 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
           )}
 
           <button
+            ref={chatButtonRef}
             type="button"
             data-testid="pill-action-chat"
-            className="pill-action-btn"
-            onClick={async (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              playClickTap();
-              const win = await WebviewWindow.getByLabel("chat");
-              if (win) {
-                const visible = await win.isVisible();
-                if (visible) {
-                  await win.setFocus();
-                } else {
-                  await win.show();
-                  await win.setFocus();
-                }
-              }
-            }}
+            className={`pill-action-btn ${chatOpen ? "is-active" : ""}`}
+            onClick={toggleChat}
             aria-label="Coding helper chat"
+            aria-expanded={chatOpen}
             title="Chat"
           >
             <svg
