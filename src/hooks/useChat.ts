@@ -165,7 +165,7 @@ export function useChat(
           }
         } else if (
           err instanceof TypeError &&
-          (err.message.includes("fetch") || err.message.includes("network"))
+          (err.message.includes("fetch") || err.message.includes("network") || err.message.includes("Load failed"))
         ) {
           // Fix I2: save partial content on network error
           if (assistantContent) {
