@@ -5,13 +5,16 @@ import { emit, listen } from "@tauri-apps/api/event";
 const KEY_TOKEN = "telegramBotToken";
 const KEY_CHAT = "telegramChatId";
 const KEY_PUSH = "telegramPushEnabled";
+const KEY_APPROVAL = "telegramApprovalEnabled";
 const EVENT_CHANGED = "telegram-config-changed";
 const EVENT_PUSH = "telegram-push-changed";
+const EVENT_APPROVAL = "telegram-approval-changed";
 
 export interface TelegramState {
   botToken: string;
   chatId: string;
   pushEnabled: boolean;
+  approvalEnabled: boolean;
   configured: boolean;
 }
 
@@ -25,6 +28,7 @@ export function useTelegram() {
   const [botToken, setBotTokenState] = useState("");
   const [chatId, setChatIdState] = useState("");
   const [pushEnabled, setPushEnabledState] = useState(false);
+  const [approvalEnabled, setApprovalEnabledState] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useLayoutEffect(() => {
@@ -32,9 +36,11 @@ export function useTelegram() {
       const t = (await store.get<string>(KEY_TOKEN)) ?? "";
       const c = (await store.get<string>(KEY_CHAT)) ?? "";
       const p = (await store.get<boolean>(KEY_PUSH)) ?? false;
+      const a = (await store.get<boolean>(KEY_APPROVAL)) ?? false;
       setBotTokenState(t);
       setChatIdState(c);
       setPushEnabledState(p);
+      setApprovalEnabledState(a);
       setLoaded(true);
     });
   }, []);
@@ -47,9 +53,13 @@ export function useTelegram() {
     const u2 = listen<boolean>(EVENT_PUSH, (ev) => {
       setPushEnabledState(ev.payload);
     });
+    const u3 = listen<boolean>(EVENT_APPROVAL, (ev) => {
+      setApprovalEnabledState(ev.payload);
+    });
     return () => {
       u1.then((fn) => fn());
       u2.then((fn) => fn());
+      u3.then((fn) => fn());
     };
   }, []);
 
@@ -79,15 +89,25 @@ export function useTelegram() {
     await emit(EVENT_PUSH, next);
   };
 
+  const setApprovalEnabled = async (next: boolean) => {
+    const store = await load("settings.json");
+    await store.set(KEY_APPROVAL, next);
+    await store.save();
+    setApprovalEnabledState(next);
+    await emit(EVENT_APPROVAL, next);
+  };
+
   const configured = botToken.trim().length > 0 && chatId.trim().length > 0;
 
   return {
     botToken,
     chatId,
     pushEnabled,
+    approvalEnabled,
     configured,
     loaded,
     saveCredentials,
     setPushEnabled,
+    setApprovalEnabled,
   };
 }

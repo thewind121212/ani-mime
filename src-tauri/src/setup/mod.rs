@@ -1,4 +1,4 @@
-mod claude;
+pub(crate) mod claude;
 mod codex;
 mod mcp;
 pub(crate) mod shell;

@@ -104,6 +104,38 @@ fn get_status(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> String {
 }
 
 #[tauri::command]
+async fn telegram_set_approval(enabled: bool) -> telegram::SendResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => {
+                return telegram::SendResult {
+                    ok: false,
+                    message: "Cannot resolve home directory".into(),
+                }
+            }
+        };
+        match setup::claude::set_remote_approval(&home, enabled) {
+            Ok(_) => telegram::SendResult {
+                ok: true,
+                message: if enabled {
+                    "Remote approval hook installed for Bash."
+                } else {
+                    "Remote approval hook removed."
+                }
+                .into(),
+            },
+            Err(e) => telegram::SendResult { ok: false, message: e },
+        }
+    })
+    .await
+    .unwrap_or(telegram::SendResult {
+        ok: false,
+        message: "Approval install thread panicked".into(),
+    })
+}
+
+#[tauri::command]
 async fn telegram_test(
     bot_token: String,
     chat_id: String,
@@ -505,7 +537,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send, telegram_set_approval])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 

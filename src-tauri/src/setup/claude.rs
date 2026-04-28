@@ -57,6 +57,90 @@ fn ensure_ani_hook(settings: &mut serde_json::Value, event: &str, cmd: &str) -> 
     }
 }
 
+const APPROVAL_MARKER: &str = "/permission-decide";
+const APPROVAL_MATCHER: &str = "Bash";
+
+fn approval_command() -> &'static str {
+    "input=$(cat); printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null"
+}
+
+/// Install or remove the PreToolUse remote-approval hook in `~/.claude/settings.json`.
+/// Idempotent. The hook only fires for the `Bash` matcher so other tool calls
+/// keep using Claude Code's native prompts.
+pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
+    let settings_path = home.join(".claude/settings.json");
+    let mut settings: serde_json::Value = if settings_path.exists() {
+        let raw = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&raw).map_err(|e| e.to_string())?
+    } else {
+        serde_json::json!({})
+    };
+
+    let hooks = settings
+        .as_object_mut()
+        .ok_or_else(|| "settings.json is not an object".to_string())?
+        .entry("hooks")
+        .or_insert(serde_json::json!({}));
+    let pretooluse = hooks
+        .as_object_mut()
+        .ok_or_else(|| "hooks is not an object".to_string())?
+        .entry("PreToolUse")
+        .or_insert(serde_json::json!([]));
+    let entries = pretooluse
+        .as_array_mut()
+        .ok_or_else(|| "PreToolUse is not an array".to_string())?;
+
+    let mut changed = false;
+
+    if enabled {
+        let already = entries.iter().any(|entry| {
+            entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
+                && entry["hooks"].as_array().map_or(false, |hks| {
+                    hks.iter().any(|h| {
+                        h["command"]
+                            .as_str()
+                            .map_or(false, |c| c.contains(APPROVAL_MARKER))
+                    })
+                })
+        });
+        if !already {
+            entries.push(serde_json::json!({
+                "matcher": APPROVAL_MATCHER,
+                "hooks": [{ "type": "command", "command": approval_command() }],
+            }));
+            changed = true;
+            crate::app_log!("[setup] installed Telegram approval PreToolUse hook");
+        }
+    } else {
+        let before = entries.len();
+        entries.retain(|entry| {
+            !(entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
+                && entry["hooks"].as_array().map_or(false, |hks| {
+                    hks.iter().any(|h| {
+                        h["command"]
+                            .as_str()
+                            .map_or(false, |c| c.contains(APPROVAL_MARKER))
+                    })
+                }))
+        });
+        if entries.len() != before {
+            changed = true;
+            crate::app_log!("[setup] removed Telegram approval PreToolUse hook");
+        }
+    }
+
+    if !changed {
+        return Ok(());
+    }
+
+    let pretty = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    if let Some(parent) = settings_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&settings_path, pretty).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Patch existing ani-mime hooks for compatibility with newer behaviors.
 /// Safe to run on every startup — only modifies hooks that actually need fixing.
 ///

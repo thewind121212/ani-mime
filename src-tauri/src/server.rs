@@ -23,6 +23,27 @@ fn project_label(pwd: &str) -> String {
         .to_string()
 }
 
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max).collect();
+    format!("{}\u{2026}", cut)
+}
+
+fn ask_response(cors: tiny_http::Header) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    let payload = serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+        }
+    });
+    let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+    tiny_http::Response::from_string(body)
+        .with_status_code(200)
+        .with_header(cors)
+}
+
 pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
     std::thread::spawn(move || {
         let port = get_port();
@@ -433,6 +454,116 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 }
 
                 let resp = tiny_http::Response::from_string("ok")
+                    .with_status_code(200)
+                    .with_header(cors.clone());
+                let _ = req.respond(resp);
+                continue;
+            }
+
+            // --- /permission-decide ---
+            // Synchronous gateway for the Claude Code PreToolUse hook (when the
+            // user has opted into "Telegram remote approval"). Receives the
+            // raw PreToolUse JSON, sends a Telegram message with Allow / Deny
+            // buttons, blocks up to 5 minutes for a response, and prints a
+            // Claude-shaped JSON reply on stdout. Defaults to `ask` when push
+            // isn't configured/enabled so the user still gets Claude's native
+            // prompt — never silently denies.
+            if url.starts_with("/permission-decide") {
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+
+                let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
+                let tool_name = parsed
+                    .as_ref()
+                    .and_then(|j| j.get("tool_name").and_then(|v| v.as_str()))
+                    .unwrap_or("(unknown tool)")
+                    .to_string();
+                let cwd = parsed
+                    .as_ref()
+                    .and_then(|j| j.get("cwd").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+                // tool_input is freeform; for Bash it's `{"command": "..."}`.
+                // Render it compactly so the Telegram message stays readable.
+                let detail = parsed
+                    .as_ref()
+                    .and_then(|j| j.get("tool_input"))
+                    .and_then(|v| {
+                        if let Some(cmd) = v.get("command").and_then(|c| c.as_str()) {
+                            Some(format!("Tool: {}\n$ {}", tool_name, cmd))
+                        } else {
+                            serde_json::to_string(v).ok().map(|s| {
+                                format!("Tool: {}\nInput: {}", tool_name, truncate(&s, 600))
+                            })
+                        }
+                    })
+                    .unwrap_or_else(|| format!("Tool: {}", tool_name));
+
+                let project = project_label(&cwd);
+
+                let path = match settings_path(&app_handle) {
+                    Some(p) => p,
+                    None => {
+                        let _ = req.respond(ask_response(cors.clone()));
+                        continue;
+                    }
+                };
+
+                if !crate::telegram::push_enabled(&path)
+                    || !crate::telegram::load_config(&path).is_configured()
+                {
+                    crate::app_log!(
+                        "[http] /permission-decide -> ask (push disabled or not configured)"
+                    );
+                    let _ = req.respond(ask_response(cors.clone()));
+                    continue;
+                }
+
+                crate::app_log!(
+                    "[http] /permission-decide blocking on tool={} project={}",
+                    tool_name, project
+                );
+
+                let outcome = crate::telegram::request_decision_blocking(
+                    &path,
+                    &project,
+                    &detail,
+                    std::time::Duration::from_secs(300),
+                );
+
+                let decision = match outcome {
+                    crate::telegram::DecisionOutcome::Allow => "allow",
+                    crate::telegram::DecisionOutcome::Deny => "deny",
+                    crate::telegram::DecisionOutcome::Timeout => {
+                        crate::app_warn!("[http] /permission-decide timed out -> deny");
+                        "deny"
+                    }
+                    crate::telegram::DecisionOutcome::SendError(e) => {
+                        crate::app_warn!("[http] /permission-decide send error -> ask: {}", e);
+                        let _ = req.respond(ask_response(cors.clone()));
+                        continue;
+                    }
+                    crate::telegram::DecisionOutcome::NotConfigured
+                    | crate::telegram::DecisionOutcome::PushDisabled => {
+                        let _ = req.respond(ask_response(cors.clone()));
+                        continue;
+                    }
+                };
+
+                crate::app_log!(
+                    "[http] /permission-decide tool={} -> {}",
+                    tool_name, decision
+                );
+
+                let payload = serde_json::json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": decision,
+                        "permissionDecisionReason": "Decided remotely via Telegram",
+                    }
+                });
+                let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+                let resp = tiny_http::Response::from_string(body)
                     .with_status_code(200)
                     .with_header(cors.clone());
                 let _ = req.respond(resp);

@@ -683,6 +683,41 @@ export function Settings() {
                   <span className="toggle-knob" />
                 </button>
               </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Remote Approval (Bash)</span>
+                  <span className="settings-row-hint">
+                    When on, Claude Bash tool calls send an Allow/Deny prompt to Telegram and
+                    block up to 5 minutes for your tap. Times out to <strong>deny</strong>.
+                    Other tools keep using Claude's native prompt.
+                  </span>
+                </div>
+                <button
+                  className={`toggle-switch ${telegram.approvalEnabled ? "active" : ""}`}
+                  onClick={async () => {
+                    const next = !telegram.approvalEnabled;
+                    try {
+                      const res = await invoke<{ ok: boolean; message: string }>(
+                        "telegram_set_approval",
+                        { enabled: next }
+                      );
+                      if (res.ok) {
+                        await telegram.setApprovalEnabled(next);
+                      } else {
+                        logError(`[settings] telegram_set_approval failed: ${res.message}`);
+                      }
+                    } catch (e) {
+                      logError(`[settings] telegram_set_approval threw: ${e}`);
+                    }
+                  }}
+                  disabled={!telegram.pushEnabled}
+                  aria-disabled={!telegram.pushEnabled}
+                  title={telegram.pushEnabled ? undefined : "Enable Push first"}
+                  data-testid="telegram-approval-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
             </div>
           </div>
           <div className="settings-section">
