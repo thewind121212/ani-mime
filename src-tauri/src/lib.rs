@@ -720,6 +720,15 @@ pub fn run() {
             watchdog::start_watchdog(app.handle().clone(), app_state.clone());
             proc_scan::start_proc_scanner(app.handle().clone(), app_state.clone());
 
+            // Telegram /yes /no poller — re-reads settings.json on every tick so
+            // it picks up bot token / chat id changes without a restart.
+            if let Ok(app_data_dir) = app.path().app_data_dir() {
+                telegram::start_polling_thread(
+                    app.handle().clone(),
+                    app_data_dir.join("settings.json"),
+                );
+            }
+
             // Start mDNS peer discovery
             let discovery_handle = app.handle().clone();
             let discovery_state = app_state.clone();

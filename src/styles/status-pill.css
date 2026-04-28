@@ -103,6 +103,19 @@
   border-color: rgba(52, 199, 89, 0.5);
 }
 
+/* Telegram push toggle: green glow when on. */
+.pill-action-btn.push-on {
+  background: rgba(52, 199, 89, 0.15);
+  border-color: rgba(52, 199, 89, 0.6);
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.45);
+  color: #34c759;
+}
+
+.pill-action-btn.push-on .pill-action-icon {
+  opacity: 1;
+  color: #34c759;
+}
+
 .pill-action-icon {
   opacity: 0.75;
   pointer-events: none;

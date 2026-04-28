@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TelegramConfig {
@@ -100,9 +101,94 @@ pub fn test_credentials(token: &str, chat_id: &str) -> SendResult {
     }
 }
 
+/// Background poller for `/yes` and `/no` commands sent to the bot.
+/// Tracks `update_id` offsets so each message is processed once. Emits a
+/// `telegram-reply` Tauri event with `{ command: "yes" | "no", text: String }`
+/// and posts an acknowledgement back to the user. Reads config from
+/// `settings.json` on every tick so it picks up token / chat-id changes
+/// without an app restart.
+pub fn start_polling_thread(app_handle: AppHandle, store_path: PathBuf) {
+    std::thread::spawn(move || {
+        let mut last_update_id: i64 = 0;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+
+            let cfg = load_config(&store_path);
+            if !cfg.is_configured() {
+                continue;
+            }
+
+            let url = format!(
+                "https://api.telegram.org/bot{}/getUpdates?timeout=0&offset={}",
+                cfg.bot_token,
+                last_update_id + 1
+            );
+            let mut response = match ureq::get(&url).call() {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let json: serde_json::Value = match response.body_mut().read_json() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let updates = match json.get("result").and_then(|v| v.as_array()) {
+                Some(a) => a,
+                None => continue,
+            };
+
+            for upd in updates {
+                if let Some(id) = upd.get("update_id").and_then(|v| v.as_i64()) {
+                    if id > last_update_id {
+                        last_update_id = id;
+                    }
+                }
+                let msg = match upd.get("message") {
+                    Some(m) => m,
+                    None => continue,
+                };
+                let from_chat = msg
+                    .get("chat")
+                    .and_then(|c| c.get("id"))
+                    .map(|v| v.to_string().trim_matches('"').to_string())
+                    .unwrap_or_default();
+                if from_chat != cfg.chat_id.trim() {
+                    continue;
+                }
+                let text = msg
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim();
+                let cmd_lower = text.to_lowercase();
+                let command = if cmd_lower == "/yes" || cmd_lower == "yes" {
+                    "yes"
+                } else if cmd_lower == "/no" || cmd_lower == "no" {
+                    "no"
+                } else {
+                    continue;
+                };
+
+                crate::app_log!("[telegram] received command: {}", command);
+
+                let _ = app_handle.emit(
+                    "telegram-reply",
+                    serde_json::json!({ "command": command, "text": text }),
+                );
+
+                let ack = if command == "yes" {
+                    "Got it: YES. Switch to your terminal to confirm in Claude."
+                } else {
+                    "Got it: NO. Switch to your terminal to deny in Claude."
+                };
+                let _ = send_message(&cfg.bot_token, &cfg.chat_id, ack);
+            }
+        }
+    });
+}
+
 /// High-level push entry point. Looks up config from settings.json and sends.
 /// No-op (with log) when not configured or push toggle is off.
-#[allow(dead_code)]
 pub fn push_if_enabled(store_path: &Path, text: &str) {
     let cfg = load_config(store_path);
     if !cfg.is_configured() {

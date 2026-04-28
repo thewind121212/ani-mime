@@ -1,9 +1,27 @@
 use std::sync::{Arc, Mutex};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 use crate::helpers::{get_port, get_query_param, now_millis, now_secs};
 use crate::proc_scan::pid_exists;
 use crate::state::{emit_if_changed, AppState, Session, TaskCompleted};
+
+fn settings_path(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app_handle
+        .path()
+        .app_data_dir()
+        .ok()
+        .map(|d| d.join("settings.json"))
+}
+
+fn project_label(pwd: &str) -> String {
+    if pwd.is_empty() {
+        return "(unknown project)".into();
+    }
+    pwd.rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or(pwd)
+        .to_string()
+}
 
 pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
     std::thread::spawn(move || {
@@ -71,6 +89,23 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
 
                             if is_new {
                                 crate::app_log!("[http] new session registered: pid={}", pid);
+                            }
+
+                            // Proactively flag is_claude_proc / is_codex_proc on every
+                            // /status hit. proc_scan only runs every 2s, which is too
+                            // slow for the first hook fire — without this, the new
+                            // session's `waiting`/`busy` ui_state gets filtered out by
+                            // resolve_ui_state's AI-driver gate when other AI sessions
+                            // already exist. Cheap libproc lookup, no IPC.
+                            if !session.is_claude_proc
+                                && (pid == 0 || crate::proc_scan::is_claude_pid(pid))
+                            {
+                                session.is_claude_proc = true;
+                            }
+                            if !session.is_codex_proc
+                                && crate::proc_scan::is_codex_pid(pid)
+                            {
+                                session.is_codex_proc = true;
                             }
 
                             if url.contains("state=busy") {
@@ -228,6 +263,19 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                 if let Some(duration) = task_duration {
                                     if is_ai_task && !other_ai_busy {
                                         crate::app_log!("[http] pid={} task completed ({}s, source={})", pid, duration, task_source);
+                                        if task_source == "claude" {
+                                            if let Some(path) = settings_path(&app_handle) {
+                                                let project = project_label(&task_pwd);
+                                                let push = format!(
+                                                    "Claude \u{2014} task done\nProject: {}\nTook {}s",
+                                                    project, duration
+                                                );
+                                                let path_clone = path.clone();
+                                                std::thread::spawn(move || {
+                                                    crate::telegram::push_if_enabled(&path_clone, &push);
+                                                });
+                                            }
+                                        }
                                         if let Err(e) = app_handle.emit(
                                             "task-completed",
                                             TaskCompleted {
@@ -333,6 +381,57 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                         }
                     }
                 }
+                let resp = tiny_http::Response::from_string("ok")
+                    .with_status_code(200)
+                    .with_header(cors.clone());
+                let _ = req.respond(resp);
+                continue;
+            }
+
+            // --- /notify-permission ---
+            // Claude Code Notification hook forwards its stdin JSON here so we can
+            // push the actual request text to Telegram (bot token + chat id from
+            // settings.json). PID is a query param; body is the raw hook JSON
+            // and includes both `message` and `cwd`.
+            if url.starts_with("/notify-permission") {
+                let pid = get_query_param(&url, "pid")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+
+                let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
+                let message_text = parsed
+                    .as_ref()
+                    .and_then(|j| j.get("message").and_then(|v| v.as_str()))
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| "Permission request (no detail provided)".to_string());
+
+                let cwd = parsed
+                    .as_ref()
+                    .and_then(|j| j.get("cwd").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+
+                let project = project_label(&cwd);
+                crate::app_log!(
+                    "[http] /notify-permission pid={} project={} msg_len={}",
+                    pid, project, message_text.len()
+                );
+
+                if let Some(path) = settings_path(&app_handle) {
+                    let push = format!(
+                        "Claude — permission needed\nProject: {}\n\n{}\n\nReply /yes or /no",
+                        project, message_text
+                    );
+                    let path_clone = path.clone();
+                    std::thread::spawn(move || {
+                        crate::telegram::push_if_enabled(&path_clone, &push);
+                    });
+                }
+
                 let resp = tiny_http::Response::from_string("ok")
                     .with_status_code(200)
                     .with_header(cors.clone());

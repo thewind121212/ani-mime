@@ -144,10 +144,39 @@ pub fn migrate_claude_hooks(home: &Path) {
     // get the yellow "waiting for permission" state without having to delete
     // their setup marker. Idempotent — skipped when an ani hook for the
     // event already exists.
-    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1 || true";
+    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && { curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/notify-permission?pid=$PPID\" >/dev/null 2>&1; } || true";
     if ensure_ani_hook(&mut settings, "Notification", waiting_cmd) {
         migrations_applied.push("added Notification hook");
         patched = true;
+    }
+
+    // Migration 4: upgrade existing Notification hook to also POST the body to
+    // /notify-permission (Telegram push). Detected by absence of that path.
+    if let Some(notif_arr) = settings
+        .get_mut("hooks")
+        .and_then(|h| h.get_mut("Notification"))
+        .and_then(|v| v.as_array_mut())
+    {
+        for entry in notif_arr.iter_mut() {
+            if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                for hook in hks.iter_mut() {
+                    let needs_upgrade = hook
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map(|c| {
+                            c.contains("127.0.0.1:1234")
+                                && c.contains("state=waiting")
+                                && !c.contains("/notify-permission")
+                        })
+                        .unwrap_or(false);
+                    if needs_upgrade {
+                        hook["command"] = serde_json::Value::String(waiting_cmd.to_string());
+                        migrations_applied.push("Notification hook -> notify-permission");
+                        patched = true;
+                    }
+                }
+            }
+        }
     }
 
     if patched {
@@ -257,7 +286,7 @@ pub fn setup_claude_hooks(home: &Path) {
     // permission prompts. We grep stdin for "permission" so idle reminders
     // don't flip the dot to yellow. Trailing `; true` keeps the hook from
     // ever returning a non-zero exit (which Claude would surface).
-    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1 || true";
+    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && { curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/notify-permission?pid=$PPID\" >/dev/null 2>&1; } || true";
 
     add_hook(hooks, "PreToolUse", busy_cmd);
     add_hook(hooks, "UserPromptSubmit", busy_cmd);

@@ -225,6 +225,7 @@ pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
         .iter()
         .any(|(pid, s)| s.is_claude_proc || s.is_codex_proc || s.is_tmux_proc || *pid == 0);
 
+    let mut has_busy = false;
     let mut has_waiting = false;
     let mut has_service = false;
     let mut has_idle = false;
@@ -247,10 +248,10 @@ pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
         let tmux_only = s.is_tmux_proc && !s.is_claude_proc && !s.is_codex_proc && *pid != 0;
         match s.ui_state.as_str() {
             "busy" => {
-                if tmux_only {
-                    has_idle = true;
+                if !tmux_only {
+                    has_busy = true;
                 } else {
-                    return "busy";
+                    has_idle = true;
                 }
             }
             "waiting" => has_waiting = true,
@@ -260,8 +261,13 @@ pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
         }
     }
 
+    // Waiting outranks busy: a permission prompt blocks user input, so
+    // surfacing the pink "needs you, boss" state takes priority over
+    // any other busy AI session that's still chugging along.
     if has_waiting {
         "waiting"
+    } else if has_busy {
+        "busy"
     } else if has_service {
         "service"
     } else if has_idle {

@@ -13,6 +13,7 @@ import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
 import { useLanList } from "../hooks/useLanList";
+import { useTelegram } from "../hooks/useTelegram";
 import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
 import { usePeers } from "../hooks/usePeers";
@@ -59,10 +60,12 @@ const labelMap: Record<Status, string> = {
   visiting: "Visiting...",
 };
 
-// Priority for picking a group's summary state: busy > waiting > service > idle.
+// Priority for picking a group's summary state: waiting > busy > service > idle.
+// Waiting tops busy because a permission prompt blocks the user — it's louder
+// than work that can keep running on its own.
 const statePriority: Record<string, number> = {
-  busy: 4,
-  waiting: 3,
+  waiting: 4,
+  busy: 3,
   service: 2,
   idle: 1,
 };
@@ -282,6 +285,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   // --- Peer popover state ---
   const peers = usePeers();
   const { enabled: lanListEnabled } = useLanList();
+  const telegram = useTelegram();
   const { opacity: statusOpacity } = useOpacity("status");
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
@@ -685,6 +689,43 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
             )}
           </button>
           )}
+
+          <button
+            type="button"
+            data-testid="pill-action-push"
+            className={`pill-action-btn push-toggle ${telegram.pushEnabled ? "is-active push-on" : ""}`}
+            onClick={() => {
+              if (!telegram.configured) return;
+              telegram.setPushEnabled(!telegram.pushEnabled);
+            }}
+            disabled={!telegram.configured}
+            aria-label={
+              telegram.configured
+                ? telegram.pushEnabled
+                  ? "Telegram push: on"
+                  : "Telegram push: off"
+                : "Telegram push (configure in Settings)"
+            }
+            aria-pressed={telegram.pushEnabled}
+            title={
+              telegram.configured
+                ? telegram.pushEnabled
+                  ? "Telegram push enabled — click to mute"
+                  : "Telegram push muted — click to enable"
+                : "Configure Telegram in Settings first"
+            }
+          >
+            <svg
+              className="pill-action-icon"
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path d="M21.5 4.3 2.7 11.4c-.9.3-.9 1.6 0 1.9l4.6 1.6 1.7 5.6c.2.7 1 .9 1.5.4l2.6-2.5 4.7 3.5c.6.5 1.6.1 1.7-.7l2.4-15.4c.1-.7-.6-1.3-1.4-1zM9.6 14.8 18 7.2l-6.8 8.1-.4 3.3-1.2-3.8z" />
+            </svg>
+          </button>
         </div>
       </div>
 

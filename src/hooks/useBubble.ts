@@ -84,6 +84,13 @@ const genericStartMessages = [
   "Woof! Working!",
 ];
 
+const waitingMessages = [
+  "Waiting for boss permission, woof!",
+  "Need your call, boss — woof!",
+  "Paw on hold — permission please?",
+  "Standing by, boss! Woof!",
+];
+
 const welcomeMessages = [
   "Hey! Ready to work",
   "Let's get started!",
@@ -149,6 +156,9 @@ export function useBubble() {
   // Pending "cooking ${folder}" reveal. Cleared on task-completed or any
   // status-changed away from busy so a quick task never reaches the bubble.
   const startTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // True while the persistent "waiting for permission" bubble is showing.
+  // Used to clear it when status transitions away from waiting.
+  const waitingShowingRef = useRef(false);
   const hasGreeted = useRef(false);
   // True while the 3-bubble permission-allowed sequence is running. The
   // status-changed=busy listener checks this to avoid hiding the bubble
@@ -210,6 +220,28 @@ export function useBubble() {
       if (e.payload !== "busy") {
         clearTimeout(startTimerRef.current);
       }
+      // Show the persistent "waiting for boss permission" bubble while
+      // the dot is pink. Sticks around with no auto-hide timer until the
+      // status leaves waiting — the permission-allowed listener overrides
+      // it on approval, the cleanup branch below clears it on denial.
+      if (e.payload === "waiting" && enabled) {
+        clearTimeout(timerRef.current);
+        const line =
+          waitingMessages[Math.floor(Math.random() * waitingMessages.length)];
+        setMessage(line);
+        setVisible(true);
+        waitingShowingRef.current = true;
+        return;
+      }
+      if (waitingShowingRef.current && e.payload !== "waiting") {
+        waitingShowingRef.current = false;
+        // On waiting → busy the permission-allowed sequence takes over
+        // the bubble. Any other exit (idle/service/disconnected) clears it.
+        if (e.payload !== "busy") {
+          clearTimeout(timerRef.current);
+          setVisible(false);
+        }
+      }
       // Skip the hide while the permission-allowed sequence owns the bubble:
       // that sequence is started by the same waiting->busy transition that
       // emits this event, and clearing it would kill the first bubble.
@@ -221,7 +253,7 @@ export function useBubble() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [enabled]);
 
   // Listen for task-completed events
   useEffect(() => {
@@ -349,6 +381,28 @@ export function useBubble() {
       }, e.payload.duration_ms || BUBBLE_DURATION_MS);
     });
 
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [enabled]);
+
+  // Listen for telegram-reply: user pressed /yes or /no on Telegram. Show a
+  // short bubble so the dog mirrors the remote decision; the actual approval
+  // still happens in the terminal (Phase A is one-way).
+  useEffect(() => {
+    const unlisten = listen<{ command: "yes" | "no"; text: string }>("telegram-reply", (e) => {
+      if (!enabled) return;
+      clearTimeout(timerRef.current);
+      const line =
+        e.payload.command === "yes"
+          ? "Boss said YES via Telegram — confirm in terminal!"
+          : "Boss said NO via Telegram — deny in terminal!";
+      setMessage(line);
+      setVisible(true);
+      timerRef.current = setTimeout(() => {
+        setVisible(false);
+      }, BUBBLE_DURATION_MS);
+    });
     return () => {
       unlisten.then((fn) => fn());
     };
