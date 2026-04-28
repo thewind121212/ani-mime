@@ -13,6 +13,7 @@ import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
 import { useLanList } from "../hooks/useLanList";
+import { useSpotifyConnected } from "../hooks/useSpotify";
 import { useTelegram } from "../hooks/useTelegram";
 import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
@@ -233,6 +234,10 @@ const POPOVER_TOP_GAP = -8;
 const CHAT_WIDTH = 360;
 const CHAT_TOP_GAP = -8;
 
+/** Spotify popover — must match tauri.conf.json width. */
+const SPOTIFY_WIDTH = 320;
+const SPOTIFY_TOP_GAP = -8;
+
 async function computePopoverScreenPos(
   anchorEl: HTMLElement
 ): Promise<LogicalPosition> {
@@ -271,6 +276,25 @@ async function computeChatScreenPos(
   return new LogicalPosition(Math.round(left), Math.round(top));
 }
 
+async function computeSpotifyScreenPos(
+  anchorEl: HTMLElement
+): Promise<LogicalPosition> {
+  const main = getCurrentWindow();
+  const mainPos = await main.outerPosition();
+  const scale = await main.scaleFactor();
+
+  const pill = anchorEl.closest(".pill") ?? anchorEl;
+  const rect = (pill as HTMLElement).getBoundingClientRect();
+
+  const mainLogical =
+    mainPos instanceof PhysicalPosition ? mainPos.toLogical(scale) : mainPos;
+
+  const centerX = mainLogical.x + rect.left + rect.width / 2;
+  const left = centerX - SPOTIFY_WIDTH / 2;
+  const top = mainLogical.y + rect.bottom + SPOTIFY_TOP_GAP;
+  return new LogicalPosition(Math.round(left), Math.round(top));
+}
+
 export function StatusPill({ status, glow, disabled = false, onOpenChange }: StatusPillProps) {
   // --- Session list state ---
   const [sessionOpen, setSessionOpen] = useState(false);
@@ -286,6 +310,8 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const peers = usePeers();
   const { enabled: lanListEnabled } = useLanList();
   const telegram = useTelegram();
+  const [statusTipVisible, setStatusTipVisible] = useState(false);
+  const statusTipTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const { opacity: statusOpacity } = useOpacity("status");
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
@@ -293,6 +319,11 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   // --- Chat popover state ---
   const [chatOpen, setChatOpen] = useState(false);
   const chatButtonRef = useRef<HTMLButtonElement>(null);
+
+  // --- Spotify popover state ---
+  const { connected: spotifyConnected } = useSpotifyConnected();
+  const [spotifyOpen, setSpotifyOpen] = useState(false);
+  const spotifyButtonRef = useRef<HTMLButtonElement>(null);
 
   // UI click feedback — short tap on either pill button. Gated by the
   // master sound toggle so fully silencing the app silences these too.
@@ -527,6 +558,96 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     };
   }, [chatOpen]);
 
+  // Spotify popover — hide on blur, reposition on main window move.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      if (!win) return;
+      const fn = await win.onFocusChanged(({ payload: focused }) => {
+        if (!focused) {
+          void win.hide();
+          setSpotifyOpen(false);
+        }
+      });
+      unlisten = fn;
+    })();
+    return () => { unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    if (!spotifyOpen) return;
+    const main = getCurrentWindow();
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      if (!win || cancelled) return;
+      const handler = async () => {
+        if (!spotifyButtonRef.current) return;
+        if (!(await win.isVisible())) return;
+        const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
+        await win.setPosition(pos).catch(() => {});
+      };
+      const fn = await main.onMoved(handler);
+      unlisten = fn;
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [spotifyOpen]);
+
+  // Hide popover when Spotify gets disconnected (e.g. user clicked Disconnect).
+  useEffect(() => {
+    if (spotifyConnected) return;
+    void (async () => {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+    })();
+    setSpotifyOpen(false);
+  }, [spotifyConnected]);
+
+  const toggleSpotify = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!spotifyButtonRef.current) return;
+    playClickTap();
+
+    const win = await WebviewWindow.getByLabel("spotify-player");
+    if (!win) {
+      console.error("[status-pill] spotify-player window not found");
+      return;
+    }
+
+    const visible = await win.isVisible();
+    if (visible) {
+      await win.hide();
+      setSpotifyOpen(false);
+      return;
+    }
+
+    if (sessionOpen) setSessionOpen(false);
+    if (peerOpen) {
+      const peerWin = await WebviewWindow.getByLabel("peer-list");
+      await peerWin?.hide().catch(() => {});
+      setPeerOpen(false);
+    }
+    if (chatOpen) {
+      const chatWin = await WebviewWindow.getByLabel("chat");
+      await chatWin?.hide().catch(() => {});
+      setChatOpen(false);
+    }
+
+    const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
+    await win.setPosition(pos);
+    await win.show();
+    await win.setFocus();
+    setSpotifyOpen(true);
+  };
+
   const toggleChat = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -604,10 +725,26 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
         data-testid="status-pill"
         className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${status === "waiting" ? "neon-waiting" : ""} ${sessionOpen || peerOpen ? "is-open" : ""} ${!lanListEnabled ? "no-lan" : ""} ${!sessionListEnabled ? "no-tasks" : ""}`}
       >
-        <span data-testid="status-dot" className={dotClassMap[status] ?? "dot searching"} />
-        <span data-testid="status-label" className="label">
-          {labelMap[status] ?? "Searching..."}
-        </span>
+        <button
+          type="button"
+          data-testid="status-dot"
+          className={`dot-button ${dotClassMap[status] ?? "dot searching"}`}
+          onClick={() => {
+            setStatusTipVisible(true);
+            clearTimeout(statusTipTimerRef.current);
+            statusTipTimerRef.current = setTimeout(
+              () => setStatusTipVisible(false),
+              2000
+            );
+          }}
+          aria-label={`Status: ${labelMap[status] ?? "Searching..."}`}
+          title={labelMap[status] ?? "Searching..."}
+        />
+        {statusTipVisible && (
+          <span data-testid="status-tip" className="status-tip" role="status">
+            {labelMap[status] ?? "Searching..."}
+          </span>
+        )}
 
         <div className="pill-actions" data-testid="pill-actions">
           {sessionListEnabled && (
@@ -659,6 +796,30 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
               <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
             </svg>
           </button>
+
+          {spotifyConnected && (
+            <button
+              ref={spotifyButtonRef}
+              type="button"
+              data-testid="pill-action-spotify"
+              className={`pill-action-btn ${spotifyOpen ? "is-active" : ""}`}
+              onClick={toggleSpotify}
+              aria-label="Spotify player"
+              aria-expanded={spotifyOpen}
+              title="Spotify"
+            >
+              <svg
+                className="pill-action-icon"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.5 14.4c-.2.3-.5.4-.8.2-2.2-1.3-4.9-1.6-8.2-.9-.3.1-.6-.1-.7-.4-.1-.3.1-.6.4-.7 3.5-.8 6.6-.4 9 1 .3.2.4.5.3.8zm1.2-2.7c-.2.3-.6.4-.9.3-2.5-1.5-6.3-2-9.3-1.1-.4.1-.8-.1-.9-.5-.1-.4.1-.8.5-.9 3.4-1 7.6-.5 10.4 1.3.4.2.5.6.2.9zm.1-2.8C14.7 9.1 9 8.9 6.1 9.8c-.4.1-.9-.1-1-.6-.1-.5.1-.9.6-1 3.3-1 9.6-.8 13.3 1.4.4.3.5.8.3 1.2-.3.4-.8.5-1.5.1z"/>
+              </svg>
+            </button>
+          )}
 
           {lanListEnabled && (
           <button

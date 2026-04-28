@@ -232,20 +232,26 @@ function App() {
 
     const recompute = () => {
       const rect = el.getBoundingClientRect();
-      // Horizontal: container is centered (justify-content: center) and
-      // guaranteed BASELINE_WIDTH by min-width, so any bubble that fits
-      // within 320px needs zero extras. For wider bubbles we add enough
-      // padding to push `content + padding` past min-width and match
-      // the bubble's actual width, split evenly across both sides.
-      const extraH =
-        rect.width > BASELINE_WIDTH
-          ? Math.max(
-              0,
-              Math.ceil(
-                (rect.width - SPRITE_NATIVE_WIDTH * scale - BASE_PAD_HORIZONTAL) / 2
-              )
-            )
-          : 0;
+      // Horizontal: bubble is centered on mascot-wrap (sprite-sized),
+      // so its overhang per side past the sprite is (bubble - sprite)/2.
+      // The container's natural width = max(min-width, sprite + base
+      // padding). Whenever the per-side overhang exceeds what the base
+      // padding already reserves (and the leftover space inside the
+      // 320 baseline), the bubble clips against the body's overflow:
+      // hidden. Compute the needed extra symmetrically and apply on
+      // both sides via --bubble-extra-h.
+      const overhangPerSide = Math.max(
+        0,
+        Math.ceil((rect.width - SPRITE_NATIVE_WIDTH * scale) / 2)
+      );
+      // Subtract the half of (baseline - sprite - base padding) that
+      // already exists inside the 320 window — anything beyond that
+      // budget needs to grow the window. Floor at 0.
+      const baselineSlackPerSide = Math.max(
+        0,
+        Math.floor((BASELINE_WIDTH - SPRITE_NATIVE_WIDTH * scale - BASE_PAD_HORIZONTAL) / 2)
+      );
+      const extraH = Math.max(0, overhangPerSide - baselineSlackPerSide);
       // Vertical: bubble is absolute and overflows above the container
       // when taller than the natural budget (overlap + BASE_PAD_TOP).
       // We deliberately do NOT push the container down to fit it, because
@@ -502,10 +508,10 @@ function App() {
         {/* mascot-wrap anchors the absolute-positioned speech bubble.
             Keeping the bubble out of the flex flow prevents it from
             nudging the sprite's Y position when it appears/disappears. */}
-        <div className="mascot-wrap">
+        <div className="mascot-wrap" data-testid="mascot-wrap">
           <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
           {status !== "visiting" && <Mascot status={status} />}
-          {status === "visiting" && <div style={{ width: 128 * scale, height: 128 * scale }} />}
+          {status === "visiting" && <div data-testid="mascot-placeholder" style={{ width: 128 * scale, height: 128 * scale }} />}
         </div>
         <DevBuildBadge />
         <StatusPill

@@ -16,6 +16,7 @@ export default defineConfig(async () => ({
         superpower: resolve(__dirname, "superpower.html"),
         "peer-list": resolve(__dirname, "peer-list.html"),
         chat: resolve(__dirname, "chat.html"),
+        "spotify-player": resolve(__dirname, "spotify-player.html"),
       },
     },
   },

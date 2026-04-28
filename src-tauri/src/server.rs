@@ -13,6 +13,13 @@ fn settings_path(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .map(|d| d.join("settings.json"))
 }
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 fn project_label(pwd: &str) -> String {
     if pwd.is_empty() {
         return "(unknown project)".into();
@@ -23,40 +30,6 @@ fn project_label(pwd: &str) -> String {
         .to_string()
 }
 
-/// Render a PreToolUse JSON payload as a compact human-readable detail
-/// string for the Telegram push. Bash gets its `command` rendered as
-/// `$ <cmd>`; other tools fall back to a truncated JSON of `tool_input`.
-fn format_pretool_detail(j: &serde_json::Value) -> String {
-    let tool = j.get("tool_name").and_then(|v| v.as_str()).unwrap_or("(tool)");
-    let input = j.get("tool_input");
-
-    if let Some(cmd) = input.and_then(|i| i.get("command").and_then(|c| c.as_str())) {
-        let desc = input.and_then(|i| i.get("description").and_then(|d| d.as_str()));
-        let mut out = format!("Tool: {}\n$ {}", tool, truncate(cmd, 800));
-        if let Some(d) = desc.filter(|s| !s.trim().is_empty()) {
-            out.push_str("\n");
-            out.push_str(&truncate(d, 200));
-        }
-        return out;
-    }
-
-    if let Some(path) = input.and_then(|i| i.get("file_path").and_then(|c| c.as_str())) {
-        return format!("Tool: {}\nFile: {}", tool, path);
-    }
-
-    let snippet = input
-        .and_then(|v| serde_json::to_string(v).ok())
-        .unwrap_or_else(|| "{}".into());
-    format!("Tool: {}\nInput: {}", tool, truncate(&snippet, 600))
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_string();
-    }
-    let cut: String = s.chars().take(max).collect();
-    format!("{}\u{2026}", cut)
-}
 
 pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppState>>) {
     std::thread::spawn(move || {
@@ -435,97 +408,34 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 continue;
             }
 
-            // --- /pretool-cache ---
-            // Per-pid stash of the most recent PreToolUse `tool_input`. The
-            // hook fires this just before Claude evaluates a tool; if the user
-            // ends up needing to grant permission, /notify-permission reads
-            // the cached entry and merges the actual command into the
-            // Telegram push.
-            if url.starts_with("/pretool-cache") {
-                let pid = get_query_param(&url, "pid")
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(0);
-
-                let mut body = String::new();
-                let _ = req.as_reader().read_to_string(&mut body);
-
-                let has_tool_input = serde_json::from_str::<serde_json::Value>(&body)
-                    .ok()
-                    .and_then(|j| j.get("tool_input").cloned())
-                    .is_some();
-
-                if pid != 0 && has_tool_input {
-                    let mut st = app_state.lock().unwrap();
-                    st.pretool_cache.insert(pid, (body, now));
-                    // Cheap GC: drop entries older than 60s so the map can't
-                    // grow without bound across long-running sessions.
-                    st.pretool_cache.retain(|_, (_, ts)| now.saturating_sub(*ts) < 60);
-                }
-
-                let resp = tiny_http::Response::from_string("ok")
-                    .with_status_code(200)
-                    .with_header(cors.clone());
-                let _ = req.respond(resp);
-                continue;
-            }
-
             // --- /notify-permission ---
-            // Claude Code Notification hook forwards its stdin JSON here so we can
-            // push the actual request text to Telegram (bot token + chat id from
-            // settings.json). PID is a query param; body is the raw hook JSON
-            // and includes both `message` and `cwd`.
+            // Claude Code Notification hook forwards its stdin JSON here so we
+            // can push a "permission needed" alert to Telegram. We only read
+            // `cwd` for the project label — the user explicitly asked to keep
+            // the message minimal (no command text, no full Notification
+            // string), so the rest of the body is ignored.
             if url.starts_with("/notify-permission") {
-                let pid = get_query_param(&url, "pid")
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(0);
-
                 let mut body = String::new();
                 let _ = req.as_reader().read_to_string(&mut body);
 
                 let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
-                let message_text = parsed
-                    .as_ref()
-                    .and_then(|j| j.get("message").and_then(|v| v.as_str()))
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "Permission request (no detail provided)".to_string());
-
                 let cwd = parsed
                     .as_ref()
                     .and_then(|j| j.get("cwd").and_then(|v| v.as_str()))
                     .unwrap_or("")
                     .to_string();
 
-                // Pull the most recent PreToolUse entry for this pid (if it
-                // arrived in the last 60s) and render the actual command text
-                // alongside the generic Notification message.
-                let cached_detail = {
-                    let st = app_state.lock().unwrap();
-                    st.pretool_cache.get(&pid).and_then(|(raw, ts)| {
-                        if now.saturating_sub(*ts) > 60 {
-                            return None;
-                        }
-                        serde_json::from_str::<serde_json::Value>(raw)
-                            .ok()
-                            .map(|j| format_pretool_detail(&j))
-                    })
-                };
-
                 let project = project_label(&cwd);
-                crate::app_log!(
-                    "[http] /notify-permission pid={} project={} msg_len={} cached={}",
-                    pid, project, message_text.len(), cached_detail.is_some()
-                );
+                crate::app_log!("[http] /notify-permission project={}", project);
 
                 if let Some(path) = settings_path(&app_handle) {
-                    let detail = cached_detail.unwrap_or_else(|| message_text.clone());
-                    // Notification fires only when remote-approval is off — the
-                    // PermissionRequest hook would have decided already otherwise.
-                    // So this push is informational; tell the user to confirm in
-                    // the terminal rather than promising /yes /no will do anything.
+                    // Push intentionally minimal: project + a one-line nudge.
+                    // The full Bash command was previously spliced in via a
+                    // /pretool-cache lookup; user asked to drop that detail
+                    // because it bloated the message and added a moving part.
                     let push = format!(
-                        "Claude \u{2014} permission needed\nProject: {}\n\n{}\n\nSwitch to terminal to confirm.",
-                        project, detail
+                        "Claude \u{2014} permission needed\nProject: {}\n\nSwitch to terminal to confirm.",
+                        project
                     );
                     let path_clone = path.clone();
                     std::thread::spawn(move || {
@@ -826,6 +736,62 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                     .with_status_code(200)
                     .with_header(cors.clone())
                     .with_header(json_header);
+                let _ = req.respond(resp);
+                continue;
+            }
+
+            // --- /spotify/callback ---
+            // Browser lands here after Spotify auth. We pull `code` and `state`
+            // out of the query string, hand them to spotify::exchange_code,
+            // and return a tiny HTML page that closes itself.
+            if url.starts_with("/spotify/callback") {
+                let code = get_query_param(&url, "code").map(String::from);
+                let state = get_query_param(&url, "state").map(String::from);
+                let err = get_query_param(&url, "error").map(String::from);
+
+                let html_header: tiny_http::Header = "Content-Type: text/html; charset=utf-8".parse().unwrap();
+
+                let (success, message) = if let Some(e) = err {
+                    crate::app_warn!("[spotify] callback error: {}", e);
+                    (false, format!("Spotify denied: {}", e))
+                } else if let (Some(code), Some(state)) = (code, state) {
+                    let store = settings_path(&app_handle);
+                    match store {
+                        Some(path) => match crate::spotify::exchange_code(&path, &code, &state) {
+                            Ok(_) => {
+                                crate::app_log!("[spotify] tokens stored, emitting spotify-connected");
+                                let _ = app_handle.emit("spotify-connected", true);
+                                (true, "Spotify connected.".to_string())
+                            }
+                            Err(e) => {
+                                crate::app_error!("[spotify] exchange failed: {}", e);
+                                (false, e)
+                            }
+                        },
+                        None => (false, "Cannot resolve settings.json path".into()),
+                    }
+                } else {
+                    (false, "Missing code or state in callback".into())
+                };
+
+                let body = format!(
+                    "<!doctype html><meta charset=\"utf-8\"><title>Ani-Mime</title>\
+<style>body{{font-family:-apple-system,system-ui,sans-serif;background:#121212;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}} \
+.card{{background:#1e1e1e;padding:32px 40px;border-radius:12px;max-width:400px}} \
+h1{{font-size:18px;margin:0 0 12px;color:{color}}} \
+p{{font-size:14px;color:#bbb;margin:0 0 16px}} \
+small{{color:#666}}</style>\
+<div class=\"card\"><h1>{title}</h1><p>{msg}</p><small>You can close this tab.</small></div>\
+<script>setTimeout(()=>window.close(),1500);</script>",
+                    color = if success { "#1db954" } else { "#e74c3c" },
+                    title = if success { "Connected!" } else { "Connection failed" },
+                    msg = html_escape(&message),
+                );
+
+                let resp = tiny_http::Response::from_string(body)
+                    .with_status_code(if success { 200 } else { 400 })
+                    .with_header(cors.clone())
+                    .with_header(html_header);
                 let _ = req.respond(resp);
                 continue;
             }
