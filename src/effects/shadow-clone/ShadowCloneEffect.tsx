@@ -33,11 +33,17 @@ export function ShadowCloneEffect({
   spriteUrl,
   frames,
   frameSize,
+  anchorX,
+  anchorY,
 }: EffectProps) {
   const clones = useMemo(() => generateClones(50), []);
 
   return (
-    <div className="shadow-clone-container" data-testid="shadow-clone-effect">
+    <div
+      className="shadow-clone-container"
+      data-testid="shadow-clone-effect"
+      style={{ left: `${anchorX}px`, top: `${anchorY}px` }}
+    >
       <div className="shadow-clone-origin">
         {clones.map((clone) => (
           <div

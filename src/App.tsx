@@ -254,8 +254,11 @@ function App() {
   // position by the same deltas. Mirrors the session-dropdown pattern
   // above; skipped while the session is resizing the window so the
   // two effects don't fight.
+  // Also skipped while an EffectOverlay (e.g. shadow-clone) owns the
+  // window geometry — otherwise the bubble's setPosition/setSize race
+  // with expandWindow and the pet's visual Y desyncs from the pin.
   useEffect(() => {
-    if (sessionOpen || sessionClosing) return;
+    if (sessionOpen || sessionClosing || effectActive) return;
 
     const win = getCurrentWindow();
     const { top: extraTop, horizontal: extraH } = bubbleExtra;
@@ -311,7 +314,7 @@ function App() {
         }
       })();
     }
-  }, [visible, bubbleExtra, sessionOpen, sessionClosing]);
+  }, [visible, bubbleExtra, sessionOpen, sessionClosing, effectActive]);
 
   // Visitor count change → drive the window size directly.
   //

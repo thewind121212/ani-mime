@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWindow, currentMonitor, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { useStatus } from "../hooks/useStatus";
@@ -73,34 +73,75 @@ interface ActiveEffect {
   spriteUrl: string;
   frames: number;
   frameSize: number;
+  anchorX: number;
+  anchorY: number;
 }
 
-/** Pin #root content to its current position so window resize doesn't shift it. */
-function pinRootContent() {
+/**
+ * Briefly hide #root content so the window resize+move is invisible.
+ * Avoids the up-left flash that the previous "pin in old root coords"
+ * approach caused: setPosition and setSize aren't atomic, and any pin
+ * computed in old window coords desyncs from the new window origin
+ * mid-transition.
+ */
+function hideRootContent() {
   const root = document.getElementById("root");
   if (!root) return;
-  const container = root.firstElementChild as HTMLElement | null;
-  if (!container) return;
-
-  const rootRect = root.getBoundingClientRect();
-  const containerRect = container.getBoundingClientRect();
-  const offsetX = containerRect.left - rootRect.left;
-  const offsetY = containerRect.top - rootRect.top;
-
-  root.style.alignItems = "flex-start";
-  root.style.justifyContent = "flex-start";
-  root.style.paddingLeft = `${offsetX}px`;
-  root.style.paddingTop = `${offsetY}px`;
+  root.style.opacity = "0";
 }
 
-/** Restore #root to its default centered layout. */
-function unpinRootContent() {
+function showRootContent() {
   const root = document.getElementById("root");
   if (!root) return;
-  root.style.alignItems = "";
-  root.style.justifyContent = "";
-  root.style.paddingLeft = "";
+  root.style.opacity = "";
+}
+
+/**
+ * #root pins its container to the TOP edge (`align-items: flex-start`)
+ * so the pet doesn't jump when the session dropdown grows the window
+ * height. That breaks the effect-expand symmetry: when expandWindow
+ * shifts the window UP by shiftY to keep the dog's visual center fixed,
+ * the container goes up with the window, so the pet ends up shiftY px
+ * higher on screen instead of staying put. Pushing #root down by the
+ * same shiftY via paddingTop cancels the upward window shift and keeps
+ * the dog at the original screen Y. X works without help because root
+ * is `justify-content: center` — the centered container naturally
+ * tracks the window center as it grows.
+ */
+function pinRootVertical(shiftY: number) {
+  const root = document.getElementById("root");
+  if (!root) return;
+  root.style.paddingTop = `${Math.max(0, shiftY)}px`;
+}
+
+function unpinRootVertical() {
+  const root = document.getElementById("root");
+  if (!root) return;
   root.style.paddingTop = "";
+}
+
+/**
+ * Resolve the maximum shift the window can travel toward the top of
+ * the current monitor without going off-screen. macOS auto-clamps a
+ * window that's positioned above its monitor — the OS shoves it back
+ * down, which desyncs from the paddingTop pin and the pet visibly
+ * jumps to the middle of the expanded window.
+ *
+ * Returns logical pixels available above the window's current Y. If
+ * monitor info is unavailable, falls back to the requested shift so
+ * behavior matches the pre-clamp version.
+ */
+async function maxUpwardShift(currentY: number, requested: number): Promise<number> {
+  try {
+    const mon = await currentMonitor();
+    if (!mon) return requested;
+    const sf = mon.scaleFactor ?? 1;
+    const monLogicalY = mon.position.y / sf;
+    const headroom = currentY - monLogicalY;
+    return Math.max(0, Math.min(requested, headroom));
+  } catch {
+    return requested;
+  }
 }
 
 export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
@@ -113,10 +154,18 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
   const [windowReady, setWindowReady] = useState(false);
   const prevStatusRef = useRef(status);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const savedWindowRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  const savedWindowRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    shiftX: number;
+    shiftY: number;
+  } | null>(null);
   const customSpriteUrlRef = useRef<string | null>(null);
 
-  const expandWindow = useCallback(async (size: number) => {
+  const expandWindow = useCallback(async (size: number): Promise<{ anchorX: number; anchorY: number }> => {
+    const fallback = { anchorX: size / 2, anchorY: size / 2 };
     try {
       const win = getCurrentWindow();
 
@@ -129,21 +178,33 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
         const factor = await win.scaleFactor();
         const physPos = await win.outerPosition();
         const physSize = await win.outerSize();
-        savedWindowRef.current = {
-          x: physPos.x / factor,
-          y: physPos.y / factor,
-          w: physSize.width / factor,
-          h: physSize.height / factor,
-        };
+        const x = physPos.x / factor;
+        const y = physPos.y / factor;
+        const w = physSize.width / factor;
+        const h = physSize.height / factor;
+        const shiftX = (size - w) / 2;
+        // Clamp the upward shift to the monitor's top edge so the OS
+        // doesn't auto-clamp the window back down — that desync makes
+        // the pet jump to the middle of the expanded window when the
+        // dog is near the top of the screen.
+        const shiftY = await maxUpwardShift(y, (size - h) / 2);
+        savedWindowRef.current = { x, y, w, h, shiftX, shiftY };
       }
 
-      const { x: logX, y: logY, w: logW, h: logH } = savedWindowRef.current;
+      const { x: logX, y: logY, shiftX, shiftY } = savedWindowRef.current;
 
-      // Pin content position BEFORE resizing to prevent centering shift
-      pinRootContent();
+      // Compensate for the window shifting up by shiftY: push the
+      // flex-start container down by the same amount so the dog stays
+      // at its original screen Y. paddingTop must match the *actual*
+      // shift (post-clamp), otherwise the pet drifts vertically.
+      // Set BEFORE the resize so the layout is already correct when
+      // the new window geometry commits.
+      pinRootVertical(shiftY);
 
-      const shiftX = (size - logW) / 2;
-      const shiftY = (size - logH) / 2;
+      // Hide content during the resize+move so the brief frame where
+      // setPosition has committed but setSize hasn't (or vice-versa)
+      // doesn't show the dog at the wrong screen position.
+      hideRootContent();
 
       await win.setShadow(false);
       await Promise.all([
@@ -151,13 +212,32 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
         win.setSize(new LogicalSize(size, size)),
       ]);
 
-      // Re-center content now that window is at final size
-      unpinRootContent();
+      showRootContent();
       setWindowReady(true);
+
+      // Measure dog center inside the expanded window so the clone
+      // animation can be anchored on the pet rather than window center.
+      // After clamped expand (e.g. dog near top of screen), window
+      // center is below the dog; without this anchor the clones
+      // visibly burst from below the pet ("going down to center").
+      // requestAnimationFrame waits one frame so the new layout
+      // (post-resize, post-paddingTop) is committed before measuring.
+      return await new Promise<{ anchorX: number; anchorY: number }>((resolve) => {
+        requestAnimationFrame(() => {
+          const mascotEl = document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]');
+          if (!mascotEl) return resolve(fallback);
+          const r = mascotEl.getBoundingClientRect();
+          resolve({
+            anchorX: r.left + r.width / 2,
+            anchorY: r.top + r.height / 2,
+          });
+        });
+      });
     } catch (err) {
       console.error("[effects] expand error:", err);
-      unpinRootContent();
+      showRootContent();
       setWindowReady(true);
+      return fallback;
     }
   }, []);
 
@@ -165,20 +245,39 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
     try {
       const win = getCurrentWindow();
       if (savedWindowRef.current) {
-        const { x, y, w, h } = savedWindowRef.current;
+        const { w, h, shiftX, shiftY } = savedWindowRef.current;
 
-        pinRootContent();
+        // Anchor restore to the window's *current* position so any user
+        // drag during the animation is preserved. Use the *saved*
+        // shifts (not (curSize - origSize)/2) so a clamped expand
+        // (e.g. dog near top of screen) restores symmetrically: the
+        // pet lands back at its pre-effect screen position even when
+        // shiftY < requestedShiftY.
+        const factor = await win.scaleFactor();
+        const physPos = await win.outerPosition();
+        const curX = physPos.x / factor;
+        const curY = physPos.y / factor;
+        const targetX = curX + shiftX;
+        const targetY = curY + shiftY;
+
+        hideRootContent();
         await Promise.all([
-          win.setPosition(new LogicalPosition(x, y)),
+          win.setPosition(new LogicalPosition(targetX, targetY)),
           win.setSize(new LogicalSize(w, h)),
         ]);
-        unpinRootContent();
+        // Drop the vertical pin only after the window is back to its
+        // original size, otherwise the container would re-anchor to
+        // the top while the window is still tall and the pet would
+        // briefly jump up before the resize completes.
+        unpinRootVertical();
+        showRootContent();
         // await win.setShadow(true);
         savedWindowRef.current = null;
       }
     } catch (err) {
       console.error("[effects] restore error:", err);
-      unpinRootContent();
+      unpinRootVertical();
+      showRootContent();
     }
   }, []);
 
@@ -222,53 +321,81 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
       if (!(await isEffectEnabledAsync(matchingEffect.id))) return;
       if (cancelled) return;
 
-      let spriteUrl: string;
-      let frames: number;
-
-      if (isCustom) {
-        const customMime = mimes.find((m) => m.id === pet);
-        if (!customMime) return;
-        const spriteData = customMime.sprites[status] ?? customMime.sprites.searching;
-        frames = spriteData.frames;
-        const base = await appDataDir();
-        const filePath = await join(base, "custom-sprites", spriteData.fileName);
-        const bytes = await readFile(filePath);
-        if (cancelled) return;
-        const blob = new Blob([bytes], { type: "image/png" });
-        spriteUrl = await flattenToStrip(blob, frames);
-        if (cancelled) {
-          URL.revokeObjectURL(spriteUrl);
-          return;
-        }
-        customSpriteUrlRef.current = spriteUrl;
-      } else {
-        const spriteMap = getSpriteMap(pet);
-        const sprite = spriteMap[status];
-        spriteUrl = new URL(
-          `../assets/sprites/${sprite.file}`,
-          import.meta.url
-        ).href;
-        frames = sprite.frames;
-      }
-
-      // Pause auto-size BEFORE rendering the effect
+      // Pause concurrent window mutators (useWindowAutoSize, bubble-grow
+      // effect) BEFORE any further work. Status change synchronously
+      // triggers bubble grow + container resize; if we delay the pause
+      // until after the async sprite load, those effects fire their own
+      // setPosition/setSize and savedWindowRef captures a stale
+      // baseline — the pet ends up at the wrong screen Y after expand.
       onActiveChange?.(true);
 
-      // Expand window (pinning prevents content shift)
-      if (matchingEffect.expandWindow) {
-        expandWindow(matchingEffect.expandWindow);
-      } else {
-        setWindowReady(true);
+      let activated = false;
+      try {
+        let spriteUrl: string;
+        let frames: number;
+
+        if (isCustom) {
+          const customMime = mimes.find((m) => m.id === pet);
+          if (!customMime) return;
+          const spriteData = customMime.sprites[status] ?? customMime.sprites.searching;
+          frames = spriteData.frames;
+          const base = await appDataDir();
+          const filePath = await join(base, "custom-sprites", spriteData.fileName);
+          const bytes = await readFile(filePath);
+          if (cancelled) return;
+          const blob = new Blob([bytes], { type: "image/png" });
+          spriteUrl = await flattenToStrip(blob, frames);
+          if (cancelled) {
+            URL.revokeObjectURL(spriteUrl);
+            return;
+          }
+          customSpriteUrlRef.current = spriteUrl;
+        } else {
+          const spriteMap = getSpriteMap(pet);
+          const sprite = spriteMap[status];
+          spriteUrl = new URL(
+            `../assets/sprites/${sprite.file}`,
+            import.meta.url
+          ).href;
+          frames = sprite.frames;
+        }
+
+        // Expand window (pinning prevents content shift). Await it so
+        // we can measure the dog's screen position after the new
+        // window geometry commits, then anchor the effect on the pet.
+        let anchorX = frameSize / 2;
+        let anchorY = frameSize / 2;
+        if (matchingEffect.expandWindow) {
+          const anchor = await expandWindow(matchingEffect.expandWindow);
+          if (cancelled) return;
+          anchorX = anchor.anchorX;
+          anchorY = anchor.anchorY;
+        } else {
+          setWindowReady(true);
+          const mascotEl = document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]');
+          if (mascotEl) {
+            const r = mascotEl.getBoundingClientRect();
+            anchorX = r.left + r.width / 2;
+            anchorY = r.top + r.height / 2;
+          }
+        }
+
+        setActiveEffect({
+          definition: matchingEffect,
+          spriteUrl,
+          frames,
+          frameSize,
+          anchorX,
+          anchorY,
+        });
+
+        timerRef.current = setTimeout(stopEffect, matchingEffect.duration);
+        activated = true;
+      } finally {
+        // If we bailed out (cancelled, missing data, or threw), release
+        // the pause we acquired up top. Otherwise stopEffect owns it.
+        if (!activated) onActiveChange?.(false);
       }
-
-      setActiveEffect({
-        definition: matchingEffect,
-        spriteUrl,
-        frames,
-        frameSize,
-      });
-
-      timerRef.current = setTimeout(stopEffect, matchingEffect.duration);
     };
 
     activate();
@@ -306,6 +433,8 @@ function EffectRunner({ effect, onDisabled }: EffectRunnerProps) {
       spriteUrl={effect.spriteUrl}
       frames={effect.frames}
       frameSize={effect.frameSize}
+      anchorX={effect.anchorX}
+      anchorY={effect.anchorY}
     />
   );
 }

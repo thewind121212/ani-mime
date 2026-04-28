@@ -23,8 +23,8 @@
 
 .shadow-clone-wrapper {
   position: absolute;
-  top: -20px;
-  left: 10px;
+  top: 0;
+  left: 0;
   transform: translate(-50%, -50%);
   animation: clone-burst var(--clone-duration) ease-out forwards;
   animation-delay: var(--clone-delay);
