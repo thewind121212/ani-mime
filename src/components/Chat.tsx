@@ -202,13 +202,14 @@ export function Chat() {
         </span>
         <button
           type="button"
-          className="chat-header-caret"
+          className="chat-header-btn"
           data-testid="chat-dropdown-toggle"
           onClick={() => setDropdownOpen((o) => !o)}
           aria-expanded={dropdownOpen}
           aria-label="Toggle session list"
+          title="History"
         >
-          {dropdownOpen ? "▲" : "▼"}
+          ☰
         </button>
         <button
           type="button"
@@ -220,9 +221,11 @@ export function Chat() {
         >
           +
         </button>
-      </div>
 
-      {/* Session dropdown */}
+      {/* Session dropdown — must live inside .chat-header so its
+          position:absolute resolves against the header (the nearest
+          positioned ancestor). Otherwise top:100% snaps to the viewport
+          and the dropdown renders below the window, invisible. */}
       {dropdownOpen && (
         <div className="chat-session-dropdown" data-testid="chat-session-dropdown" role="menu">
           {sessions.map((s) => (
@@ -260,6 +263,7 @@ export function Chat() {
           )}
         </div>
       )}
+      </div>
 
       {/* Messages */}
       {messages.length === 0 && !loading ? (
