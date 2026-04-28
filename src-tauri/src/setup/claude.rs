@@ -61,7 +61,10 @@ const APPROVAL_MARKER: &str = "/permission-decide";
 const APPROVAL_MATCHER: &str = "Bash";
 
 fn approval_command() -> &'static str {
-    "input=$(cat); printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null"
+    // Hook contract: exit 0 + valid JSON on stdout. If our backend is down,
+    // times out, or returns nothing, fall back to a `permissionDecision:ask`
+    // payload so Claude shows its native prompt instead of silently allowing.
+    "input=$(cat); resp=$(printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null); if [ -z \"$resp\" ]; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\"}}'; else printf '%s' \"$resp\"; fi; exit 0"
 }
 
 /// Install or remove the PreToolUse remote-approval hook in `~/.claude/settings.json`.
@@ -93,17 +96,33 @@ pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
     let mut changed = false;
 
     if enabled {
-        let already = entries.iter().any(|entry| {
-            entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
-                && entry["hooks"].as_array().map_or(false, |hks| {
-                    hks.iter().any(|h| {
-                        h["command"]
-                            .as_str()
-                            .map_or(false, |c| c.contains(APPROVAL_MARKER))
-                    })
-                })
-        });
-        if !already {
+        // First, replace any stale approval-hook command with the freshest
+        // version so users who toggled this on at v0.x get the exit-0 +
+        // fallback-JSON behavior without uninstalling/reinstalling.
+        let mut found = false;
+        for entry in entries.iter_mut() {
+            if entry["matcher"].as_str() != Some(APPROVAL_MATCHER) {
+                continue;
+            }
+            if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                for hook in hks.iter_mut() {
+                    let is_ours = hook
+                        .get("command")
+                        .and_then(|c| c.as_str())
+                        .map_or(false, |c| c.contains(APPROVAL_MARKER));
+                    if is_ours {
+                        found = true;
+                        let want = approval_command();
+                        if hook.get("command").and_then(|c| c.as_str()) != Some(want) {
+                            hook["command"] = serde_json::Value::String(want.to_string());
+                            changed = true;
+                            crate::app_log!("[setup] refreshed Telegram approval hook command");
+                        }
+                    }
+                }
+            }
+        }
+        if !found {
             entries.push(serde_json::json!({
                 "matcher": APPROVAL_MATCHER,
                 "hooks": [{ "type": "command", "command": approval_command() }],

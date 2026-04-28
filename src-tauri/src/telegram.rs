@@ -66,18 +66,20 @@ pub fn push_enabled(store_path: &Path) -> bool {
 /// Send a Telegram message via the Bot API. Returns Ok on 2xx with `ok:true`,
 /// Err otherwise with a user-facing string (network or API error).
 pub fn send_message(token: &str, chat_id: &str, text: &str) -> Result<(), String> {
-    send_message_inner(token, chat_id, text, None)
+    send_message_inner(token, chat_id, text, None).map(|_| ())
 }
 
 /// Send a Telegram message with a two-button inline keyboard. Each button's
 /// callback `data` is `decision:<id>:allow` or `decision:<id>:deny` so the
-/// poller can route the press back to the blocking caller.
+/// poller can route the press back to the blocking caller. Returns the
+/// `message_id` of the posted message so the caller can delete it after a
+/// decision is recorded.
 pub fn send_message_with_decision(
     token: &str,
     chat_id: &str,
     text: &str,
     decision_id: &str,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     let keyboard = serde_json::json!({
         "inline_keyboard": [[
             { "text": "\u{2705} Allow", "callback_data": format!("decision:{}:allow", decision_id) },
@@ -92,7 +94,7 @@ fn send_message_inner(
     chat_id: &str,
     text: &str,
     reply_markup: Option<serde_json::Value>,
-) -> Result<(), String> {
+) -> Result<i64, String> {
     let token = token.trim();
     let chat_id = chat_id.trim();
     if token.is_empty() || chat_id.is_empty() {
@@ -128,7 +130,26 @@ fn send_message_inner(
             .unwrap_or("unknown error");
         return Err(format!("Telegram API error ({}): {}", status, desc));
     }
-    Ok(())
+    let message_id = json
+        .get("result")
+        .and_then(|r| r.get("message_id"))
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    Ok(message_id)
+}
+
+fn delete_message(token: &str, chat_id: &str, message_id: i64) {
+    if message_id == 0 {
+        return;
+    }
+    let url = format!("https://api.telegram.org/bot{}/deleteMessage", token);
+    let body = serde_json::json!({
+        "chat_id": chat_id,
+        "message_id": message_id,
+    });
+    let _ = ureq::post(&url)
+        .header("Content-Type", "application/json")
+        .send_json(&body);
 }
 
 fn answer_callback(token: &str, callback_id: &str, text: &str) {
@@ -168,10 +189,17 @@ pub fn test_credentials(token: &str, chat_id: &str) -> SendResult {
 // user's choice ("allow" / "deny"). Channel guarantees deliver-once
 // semantics; the caller removes the entry on either receipt or timeout.
 
-static PENDING: OnceLock<Mutex<HashMap<String, Sender<String>>>> = OnceLock::new();
+struct PendingEntry {
+    tx: Sender<String>,
+    chat_id: String,
+    message_id: i64,
+    bot_token: String,
+}
+
+static PENDING: OnceLock<Mutex<HashMap<String, PendingEntry>>> = OnceLock::new();
 static DECISION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-fn pending() -> &'static Mutex<HashMap<String, Sender<String>>> {
+fn pending() -> &'static Mutex<HashMap<String, PendingEntry>> {
     PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -213,24 +241,40 @@ pub fn request_decision_blocking(
 
     let id = next_decision_id();
     let (tx, rx) = channel::<String>();
-    pending().lock().unwrap().insert(id.clone(), tx);
 
     let text = format!(
         "Claude \u{2014} approval needed\nProject: {}\n\n{}\n\nTap a button to decide.",
         project, detail
     );
 
-    if let Err(e) = send_message_with_decision(&cfg.bot_token, &cfg.chat_id, &text, &id) {
-        pending().lock().unwrap().remove(&id);
-        return DecisionOutcome::SendError(e);
-    }
+    let message_id = match send_message_with_decision(&cfg.bot_token, &cfg.chat_id, &text, &id) {
+        Ok(mid) => mid,
+        Err(e) => return DecisionOutcome::SendError(e),
+    };
+
+    pending().lock().unwrap().insert(
+        id.clone(),
+        PendingEntry {
+            tx,
+            chat_id: cfg.chat_id.trim().to_string(),
+            message_id,
+            bot_token: cfg.bot_token.trim().to_string(),
+        },
+    );
 
     let outcome = match rx.recv_timeout(timeout) {
         Ok(s) if s == "allow" => DecisionOutcome::Allow,
         Ok(_) => DecisionOutcome::Deny,
         Err(_) => DecisionOutcome::Timeout,
     };
-    pending().lock().unwrap().remove(&id);
+    let entry = pending().lock().unwrap().remove(&id);
+
+    // Always tidy up the prompt message so the chat doesn't fill with
+    // stale buttons. delete_message is best-effort — failures (e.g. message
+    // older than 48h, manually deleted by user) are swallowed silently.
+    if let Some(e) = &entry {
+        delete_message(&e.bot_token, &e.chat_id, e.message_id);
+    }
 
     if matches!(outcome, DecisionOutcome::Timeout) {
         let _ = send_message(
@@ -320,15 +364,19 @@ fn handle_callback_query(cfg: &TelegramConfig, cb: &serde_json::Value) {
 
     crate::app_log!("[telegram] callback decision={} id={}", choice, decision_id);
 
-    let sender = pending().lock().unwrap().remove(decision_id);
-    if let Some(tx) = sender {
-        let _ = tx.send(choice.to_string());
+    let entry = pending().lock().unwrap().remove(decision_id);
+    if let Some(e) = entry {
+        let _ = e.tx.send(choice.to_string());
         let ack = if choice == "allow" {
             "\u{2705} Allowed."
         } else {
             "\u{274C} Denied."
         };
         answer_callback(&cfg.bot_token, cb_id, ack);
+        // The blocking caller also runs delete_message after recv, but the
+        // poller's call here happens immediately so the user sees the
+        // prompt vanish without waiting for the channel hop.
+        delete_message(&e.bot_token, &e.chat_id, e.message_id);
     } else {
         answer_callback(
             &cfg.bot_token,
@@ -365,9 +413,12 @@ fn handle_message(app_handle: &AppHandle, cfg: &TelegramConfig, msg: &serde_json
     let routed_decision = {
         let mut map = pending().lock().unwrap();
         if let Some(oldest) = map.keys().min().cloned() {
-            map.remove(&oldest).map(|tx| {
+            map.remove(&oldest).map(|entry| {
                 let choice = if command == "yes" { "allow" } else { "deny" };
-                let _ = tx.send(choice.to_string());
+                let _ = entry.tx.send(choice.to_string());
+                // Tidy up the inline-keyboard prompt the same way the
+                // callback path does — keeps the chat free of stale buttons.
+                delete_message(&entry.bot_token, &entry.chat_id, entry.message_id);
                 choice
             })
         } else {
