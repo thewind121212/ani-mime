@@ -1,6 +1,16 @@
 # --- Ani-Mime Terminal Mirror (Bash) ---
 # Source this in .bashrc:  source /path/to/terminal-mirror.bash
 
+# Skip entirely when this shell was spawned by an AI CLI that runs its own
+# tool-use shells (Claude Code, Codex). Without this guard those nested
+# shells register orphan sessions and fire preexec on every internal
+# command — which keeps the dog stuck on "working" the whole AI session.
+_tm_parent_name=$(ps -o comm= -p $PPID 2>/dev/null | xargs basename 2>/dev/null)
+case "$_tm_parent_name" in
+  claude|claude.exe|codex|codex.exe|codex-*) return 0 ;;
+esac
+unset _tm_parent_name
+
 export TAURI_MIRROR_PORT=1234
 _TM_URL="http://127.0.0.1:${TAURI_MIRROR_PORT}"
 _TM_CMD_RUNNING=0
@@ -12,6 +22,18 @@ _tm_is_claude() {
   [[ "$first_word" == "claude" ]] && return 0
   local resolved=$(type -p "$first_word" 2>/dev/null)
   [[ "$resolved" == *claude* ]] && return 0
+  return 1
+}
+
+# --- Detect if a command is OpenAI Codex CLI ---
+# Codex has no external busy/idle hooks, so we skip the preexec
+# heartbeat — otherwise the shell row would stay "working" the entire
+# time the user is sitting at codex's prompt.
+_tm_is_codex() {
+  local first_word="${1%% *}"
+  [[ "$first_word" == "codex" ]] && return 0
+  local resolved=$(type -p "$first_word" 2>/dev/null)
+  [[ "$resolved" == *codex* ]] && return 0
   return 1
 }
 
@@ -78,6 +100,13 @@ _tm_preexec() {
 
   # Claude Code has its own hooks — skip entirely
   _tm_is_claude "$cmd" && return
+  # Codex has no busy/idle hooks. Mark as service (watchdog auto-idles
+  # after 2s) so the dog reacts when codex starts without sticking on
+  # "working" the entire codex session.
+  if _tm_is_codex "$cmd"; then
+    _tm_send /status "state=busy" "type=service"
+    return
+  fi
 
   local cmd_type=$(_tm_classify "$cmd")
   _tm_send /status "state=busy" "type=${cmd_type}"

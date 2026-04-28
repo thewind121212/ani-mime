@@ -430,6 +430,20 @@ fn is_claude(proc: &ProcInfo) -> bool {
     is_claude_name(&proc.name) || is_claude_name(argv0_basename(&proc.argv0))
 }
 
+/// OpenAI Codex CLI (https://github.com/openai/codex) ships in a few forms:
+///   • plain `codex` binary (e.g. when built from source)
+///   • `codex.exe` on Windows
+///   • `codex-<target-triple>` from the Homebrew cask (e.g.
+///     `codex-aarch64-apple-darwin`) with a `codex` PATH symlink — the
+///     kernel comm name is the real file, so we accept any `codex-*` prefix
+///     and additionally check argv[0] which carries the symlink name.
+fn is_codex(proc: &ProcInfo) -> bool {
+    fn is_codex_name(s: &str) -> bool {
+        s == "codex" || s == "codex.exe" || s.starts_with("codex-")
+    }
+    is_codex_name(&proc.name) || is_codex_name(argv0_basename(&proc.argv0))
+}
+
 /// Recognize executable names that look like a bare semver (e.g. "2.1.121").
 /// Claude Code's installer at ~/.local/share/claude/versions/<x.y.z> launches
 /// from a version-named file, so the kernel comm name is the version itself.
@@ -473,12 +487,23 @@ pub fn scan_processes() -> Vec<ProcInfo> {
 
         let cwd = get_cwd_macos(pid as i32);
 
-        // Only spend a sysctl roundtrip on shells, node (older Claude Code is
-        // literally `node` to the kernel), and version-named binaries (newer
-        // Claude Code installer launches from ~/.local/share/claude/versions/
-        // <x.y.z>, so the comm name is the version string itself). Other
-        // processes aren't relevant and we don't want to pay for argv on every PID.
-        let argv0 = if name == "node" || is_shell(&name) || looks_like_version_name(&name) {
+        // Only spend a sysctl roundtrip on processes whose comm name plausibly
+        // hides an AI CLI behind an unrelated kernel name:
+        //   • "node" — older Claude Code is literally `node` to the kernel.
+        //   • shells — argv[0] sometimes carries the real command for
+        //     subshells we still care about.
+        //   • version-named binaries — newer Claude Code installer launches
+        //     from ~/.local/share/claude/versions/<x.y.z>, so the comm name
+        //     is the version string itself.
+        //   • "codex"-prefixed binaries — homebrew installs codex as
+        //     `codex-aarch64-apple-darwin` (or `codex-x86_64-...`) with a
+        //     `codex` symlink in PATH; the kernel reports the real file.
+        //     Reading argv[0] lets `is_codex` match via the symlink name.
+        let argv0 = if name == "node"
+            || is_shell(&name)
+            || looks_like_version_name(&name)
+            || name.starts_with("codex")
+        {
             read_argv0(pid as i32).unwrap_or_default()
         } else {
             String::new()
@@ -536,7 +561,7 @@ fn is_user_terminal(shell: &ProcInfo, by_pid: &HashMap<u32, &ProcInfo>) -> bool 
         return false;
     }
     if let Some(parent) = by_pid.get(&shell.ppid) {
-        if is_shell(&parent.name) || is_claude(parent) {
+        if is_shell(&parent.name) || is_claude(parent) || is_codex(parent) {
             return false;
         }
     }
@@ -592,6 +617,14 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
         .map(|p| p.pid)
         .collect();
 
+    // Same idea, but for OpenAI Codex CLI processes. Tracked in parallel so
+    // shells running both Claude and Codex render distinct badges.
+    let codex_pids: std::collections::HashSet<u32> = procs
+        .iter()
+        .filter(|p| is_codex(p))
+        .map(|p| p.pid)
+        .collect();
+
     // Map: shell_pid -> claude_pid (for every claude, find its ancestor shell).
     let mut shell_has_claude: HashMap<u32, u32> = HashMap::new();
     for p in &procs {
@@ -604,6 +637,28 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
             if let Some(anc) = by_pid.get(&cursor) {
                 if is_shell(&anc.name) && is_user_terminal(anc, &by_pid) {
                     shell_has_claude.insert(anc.pid, p.pid);
+                    break;
+                }
+                cursor = anc.ppid;
+            } else {
+                break;
+            }
+            steps += 1;
+        }
+    }
+
+    // Map: shell_pid -> codex_pid. Mirrors the claude walk above.
+    let mut shell_has_codex: HashMap<u32, u32> = HashMap::new();
+    for p in &procs {
+        if !is_codex(p) {
+            continue;
+        }
+        let mut cursor = p.ppid;
+        let mut steps = 0;
+        while cursor != 0 && steps < 6 {
+            if let Some(anc) = by_pid.get(&cursor) {
+                if is_shell(&anc.name) && is_user_terminal(anc, &by_pid) {
+                    shell_has_codex.insert(anc.pid, p.pid);
                     break;
                 }
                 cursor = anc.ppid;
@@ -634,6 +689,7 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
             pid != 0
                 && !live_terminals.iter().any(|t| t.pid == pid)
                 && !claude_pids.contains(&pid)
+                && !codex_pids.contains(&pid)
         })
         .collect();
     for pid in &zombies {
@@ -667,12 +723,18 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
         // Claude attachment (set/cleared each scan based on current state).
         entry.has_claude = shell_has_claude.contains_key(&t.pid);
         entry.claude_pid = shell_has_claude.get(&t.pid).copied();
+
+        // Codex attachment — same shape as Claude, populated from the
+        // parallel `shell_has_codex` map computed above.
+        entry.has_codex = shell_has_codex.contains_key(&t.pid);
+        entry.codex_pid = shell_has_codex.get(&t.pid).copied();
     }
 
-    // (3) Mark sessions whose PID is itself a claude process. The UI hides
-    //     these so they don't appear as standalone "PID 17258" rows.
+    // (3) Mark sessions whose PID is itself a claude/codex process. The UI
+    //     hides these so they don't appear as standalone "PID 17258" rows.
     for (pid, session) in st.sessions.iter_mut() {
         session.is_claude_proc = claude_pids.contains(pid);
+        session.is_codex_proc = codex_pids.contains(pid);
     }
 
     // Fire `status-changed` / `sessions-changed` if this pass actually

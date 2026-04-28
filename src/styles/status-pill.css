@@ -408,6 +408,25 @@ button.session-group-head:hover {
   border-radius: 2px;
 }
 
+/* Codex (OpenAI) badge — same footprint as the Claude badge so rows
+   stay aligned, but rendered as a glyph pill instead of an image since
+   we don't ship an asset for it. */
+.session-child-codex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+  background: #10a37f;
+  border-radius: 2px;
+}
+
 /* Groups the label + claude badge so the icon sits tight to the label, not
    pushed to the far right of the row. */
 .session-child-label-row {

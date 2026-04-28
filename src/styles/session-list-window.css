@@ -241,6 +241,22 @@ button.session-group-head:hover {
   border-radius: 2px;
 }
 
+.session-child-codex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #ffffff;
+  background: #10a37f;
+  border-radius: 2px;
+}
+
 .session-child-label-row {
   flex: 1;
   min-width: 0;

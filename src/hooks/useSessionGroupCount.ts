@@ -34,6 +34,7 @@ export function useSessionGroupCount(enabled: boolean = true): number {
           continue;
         }
         if (s.is_claude_proc) continue;
+        if (s.is_codex_proc) continue;
         if (s.has_claude) anyShellHasClaude = true;
         keys.add(s.pwd || s.title || String(s.pid));
       }

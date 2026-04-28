@@ -62,6 +62,15 @@ pub struct Session {
     /// (created by the pid=$PPID Claude Code hook). UI hides these from the
     /// dropdown — their state is overlaid onto the parent shell row instead.
     pub is_claude_proc: bool,
+    /// Set by proc_scan: this shell has a `codex` process (OpenAI Codex CLI)
+    /// as a child/descendant. Tracked alongside Claude so the UI can show a
+    /// matching badge and route activity hints accordingly.
+    pub has_codex: bool,
+    /// PID of the codex process running inside this shell, if any.
+    pub codex_pid: Option<u32>,
+    /// Set by proc_scan: this session's PID *is* itself a codex process.
+    /// Mirrors `is_claude_proc` so the UI can hide standalone codex rows.
+    pub is_codex_proc: bool,
     /// Name of the foreground command running in this shell (e.g. "claude",
     /// "node", "bun"). Empty if the shell is idle at its prompt.
     pub fg_cmd: String,
@@ -81,6 +90,9 @@ impl Session {
             has_claude: false,
             claude_pid: None,
             is_claude_proc: false,
+            has_codex: false,
+            codex_pid: None,
+            is_codex_proc: false,
             fg_cmd: String::new(),
         }
     }
@@ -98,6 +110,9 @@ pub struct SessionInfo {
     pub has_claude: bool,
     pub claude_pid: Option<u32>,
     pub is_claude_proc: bool,
+    pub has_codex: bool,
+    pub codex_pid: Option<u32>,
+    pub is_codex_proc: bool,
     pub fg_cmd: String,
 }
 
@@ -154,6 +169,9 @@ fn sessions_fingerprint(sessions: &HashMap<u32, Session>) -> u64 {
         s.has_claude.hash(&mut h);
         s.claude_pid.hash(&mut h);
         s.is_claude_proc.hash(&mut h);
+        s.has_codex.hash(&mut h);
+        s.codex_pid.hash(&mut h);
+        s.is_codex_proc.hash(&mut h);
         s.fg_cmd.hash(&mut h);
     }
     h.finish()

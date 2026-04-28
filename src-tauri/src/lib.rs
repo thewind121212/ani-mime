@@ -82,6 +82,9 @@ fn get_sessions(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<SessionInf
         has_claude: s.has_claude,
         claude_pid: s.claude_pid,
         is_claude_proc: s.is_claude_proc,
+        has_codex: s.has_codex,
+        codex_pid: s.codex_pid,
+        is_codex_proc: s.is_codex_proc,
         fg_cmd: s.fg_cmd.clone(),
     }).collect()
 }

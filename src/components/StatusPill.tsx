@@ -97,6 +97,7 @@ function groupBasename(g: { pwd: string; pretty: string; sessions: SessionInfo[]
 /** Human-readable label for what's happening in a single shell. */
 function shellLabel(s: SessionInfo): string {
   if (s.has_claude) return "claude";
+  if (s.has_codex) return "codex";
   if (s.fg_cmd) {
     return s.fg_cmd.replace(/^-/, "");
   }
@@ -122,6 +123,7 @@ function groupSessions(sessions: SessionInfo[], home?: string): Group[] {
   for (const s of sessions) {
     if (s.pid === 0) continue;
     if (s.is_claude_proc) continue;
+    if (s.is_codex_proc) continue;
     const key = s.pwd || s.title || String(s.pid);
     if (!byKey.has(key)) byKey.set(key, { pwd: s.pwd, list: [] });
     byKey.get(key)!.list.push(s);
@@ -190,14 +192,29 @@ function overlayClaudeState(sessions: SessionInfo[]): SessionInfo[] {
   for (const s of sessions) sessionByPid.set(s.pid, s);
 
   return sessions.map((s) => {
-    if (!s.has_claude) return s;
-    const claudeSession =
-      (s.claude_pid != null && sessionByPid.get(s.claude_pid)) ||
-      sessionByPid.get(0);
-    if (!claudeSession) return s;
-    const claudeP = statePriority[claudeSession.ui_state] ?? 0;
-    const ownP = statePriority[s.ui_state] ?? 0;
-    return ownP >= claudeP ? s : { ...s, ui_state: claudeSession.ui_state };
+    // Promote whichever child (claude or codex) has the higher state
+    // priority over the parent shell, so a busy AI tool drives the
+    // shell row even when the shell itself is at an idle prompt.
+    let promoted = s;
+    if (s.has_claude) {
+      const claudeSession =
+        (s.claude_pid != null && sessionByPid.get(s.claude_pid)) ||
+        sessionByPid.get(0);
+      if (claudeSession) {
+        const claudeP = statePriority[claudeSession.ui_state] ?? 0;
+        const ownP = statePriority[promoted.ui_state] ?? 0;
+        if (ownP < claudeP) promoted = { ...promoted, ui_state: claudeSession.ui_state };
+      }
+    }
+    if (s.has_codex) {
+      const codexSession = s.codex_pid != null ? sessionByPid.get(s.codex_pid) : undefined;
+      if (codexSession) {
+        const codexP = statePriority[codexSession.ui_state] ?? 0;
+        const curP = statePriority[promoted.ui_state] ?? 0;
+        if (curP < codexP) promoted = { ...promoted, ui_state: codexSession.ui_state };
+      }
+    }
+    return promoted;
   });
 }
 
@@ -741,7 +758,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
                         <button
                           key={s.pid}
                           type="button"
-                          className={`session-child ${s.has_claude ? "has-claude" : ""}`}
+                          className={`session-child ${s.has_claude ? "has-claude" : ""} ${s.has_codex ? "has-codex" : ""}`}
                           data-testid={`session-item-${s.pid}`}
                           title="Click to bring this terminal to the front"
                           onClick={(e) => {
@@ -759,6 +776,14 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
                                 className="session-child-claude"
                                 aria-label="Claude Code running"
                               />
+                            )}
+                            {s.has_codex && (
+                              <span
+                                className="session-child-codex"
+                                aria-label="Codex CLI running"
+                              >
+                                ⓒ
+                              </span>
                             )}
                           </span>
                         </button>

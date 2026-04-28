@@ -1,6 +1,16 @@
 # --- Terminal Mirror Integration ---
 # Source this in .zshrc:  source /path/to/terminal-mirror.zsh
 
+# Skip entirely when this shell was spawned by an AI CLI that runs its own
+# tool-use shells (Claude Code, Codex). Without this guard those nested
+# shells register orphan sessions and fire preexec on every internal
+# command — which keeps the dog stuck on "working" the whole AI session.
+_tm_parent_name=$(ps -o comm= -p $PPID 2>/dev/null | xargs basename 2>/dev/null)
+case "$_tm_parent_name" in
+  claude|claude.exe|codex|codex.exe|codex-*) return 0 ;;
+esac
+unset _tm_parent_name
+
 export TAURI_MIRROR_PORT=1234
 _TM_URL="http://127.0.0.1:${TAURI_MIRROR_PORT}"
 
@@ -13,6 +23,20 @@ _tm_is_claude() {
   # Resolve alias/function — e.g. "ccc" → "claude"
   local resolved=$(whence "$first_word" 2>/dev/null)
   [[ "$resolved" == *claude* ]] && return 0
+  return 1
+}
+
+# --- Detect if a command is OpenAI Codex CLI ---
+# Same logic as _tm_is_claude. Codex doesn't ship busy/idle hooks of
+# its own, so we skip the preexec heartbeat — otherwise the shell row
+# stays "working" the entire time the user is sitting at codex's
+# prompt waiting to type something.
+_tm_is_codex() {
+  local cmd="$1"
+  local first_word="${cmd%% *}"
+  [[ "$first_word" == "codex" ]] && return 0
+  local resolved=$(whence "$first_word" 2>/dev/null)
+  [[ "$resolved" == *codex* ]] && return 0
   return 1
 }
 
@@ -65,6 +89,13 @@ trap "kill $_TM_HEARTBEAT_PID 2>/dev/null" EXIT
 _tm_preexec() {
   # Claude Code has its own hooks — skip entirely
   _tm_is_claude "$1" && return
+  # Codex has no busy/idle hooks. Mark as service (auto-resolves to
+  # idle via the 2s watchdog) so the dog reacts when codex starts
+  # without sticking on "working" the entire codex session.
+  if _tm_is_codex "$1"; then
+    _tm_send /status "state=busy" "type=service"
+    return
+  fi
   local cmd_type=$(_tm_classify "$1")
   _tm_send /status "state=busy" "type=${cmd_type}"
 }
