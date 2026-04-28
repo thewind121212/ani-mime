@@ -366,7 +366,15 @@ pub fn get_proc_info(pid: u32) -> Option<ProcInfo> {
         .map(|info| (info.pbi_ppid, info.pbi_pgid, info.e_tpgid, info.e_tdev))
         .unwrap_or((0, 0, 0, 0));
     let cwd = get_cwd_macos(pid as i32);
-    let argv0 = if name == "node" || is_shell(&name) {
+    // Match the broader argv0 read in `scan_processes` so single-pid lookups
+    // (used by `is_claude_pid` / `is_codex_pid`) classify newer installers
+    // correctly: Claude Code's version-named launcher and Homebrew's
+    // `codex-<triple>` binary both need argv[0] to resolve the symlink name.
+    let argv0 = if name == "node"
+        || is_shell(&name)
+        || looks_like_version_name(&name)
+        || name.starts_with("codex")
+    {
         read_argv0(pid as i32).unwrap_or_default()
     } else {
         String::new()
