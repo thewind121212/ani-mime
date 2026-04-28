@@ -35,3 +35,6 @@ test-results/
 
 .worktrees/
 .superpowers/
+
+# Personal scripts (single-user only)
+scripts/codex-login.sh

@@ -416,15 +416,37 @@ fn is_shell(name: &str) -> bool {
 }
 
 fn is_claude(proc: &ProcInfo) -> bool {
-    // Claude Code has shipped under two executable names:
+    // Claude Code has shipped under three executable layouts:
     //   • "node" — older Node-shipped CLI (real name is via argv[0])
-    //   • "claude.exe" — newer single-file compiled binary at
+    //   • "claude.exe" — single-file compiled binary at
     //     ~/.../@anthropic-ai/claude-code/bin/claude.exe, with a `claude`
     //     symlink in PATH. p_comm reflects the real file, not the symlink.
+    //   • "<version>" — installer at ~/.local/share/claude/versions/<x.y.z>
+    //     with a `claude` symlink in PATH; kernel reports the version-numbered
+    //     file as the comm name. Detect via argv[0]="claude".
     fn is_claude_name(s: &str) -> bool {
         s == "claude" || s == "claude.exe"
     }
     is_claude_name(&proc.name) || is_claude_name(argv0_basename(&proc.argv0))
+}
+
+/// Recognize executable names that look like a bare semver (e.g. "2.1.121").
+/// Claude Code's installer at ~/.local/share/claude/versions/<x.y.z> launches
+/// from a version-named file, so the kernel comm name is the version itself.
+/// We use this to widen the argv[0] read so `is_claude` can match via argv0.
+fn looks_like_version_name(name: &str) -> bool {
+    let mut dots = 0usize;
+    if name.is_empty() {
+        return false;
+    }
+    for c in name.chars() {
+        if c == '.' {
+            dots += 1;
+        } else if !c.is_ascii_digit() {
+            return false;
+        }
+    }
+    dots >= 1
 }
 
 #[cfg(target_os = "macos")]
@@ -451,10 +473,12 @@ pub fn scan_processes() -> Vec<ProcInfo> {
 
         let cwd = get_cwd_macos(pid as i32);
 
-        // Only spend a sysctl roundtrip on shells and node (Claude Code is
-        // literally `node` to the kernel) — other processes aren't relevant
-        // and we don't want to pay for argv on every PID.
-        let argv0 = if name == "node" || is_shell(&name) {
+        // Only spend a sysctl roundtrip on shells, node (older Claude Code is
+        // literally `node` to the kernel), and version-named binaries (newer
+        // Claude Code installer launches from ~/.local/share/claude/versions/
+        // <x.y.z>, so the comm name is the version string itself). Other
+        // processes aren't relevant and we don't want to pay for argv on every PID.
+        let argv0 = if name == "node" || is_shell(&name) || looks_like_version_name(&name) {
             read_argv0(pid as i32).unwrap_or_default()
         } else {
             String::new()

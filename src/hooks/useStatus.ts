@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import type { Status } from "../types/status";
 
 const validStatuses = new Set<string>([
@@ -29,6 +30,17 @@ export function useStatus(): UseStatusResult {
   const reactionTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
+    // Pull current backend state once on mount — covers the race where the
+    // backend's first status-changed emit happens before this listener attaches.
+    // Without this the UI sticks on "initializing" until the next state change.
+    invoke<string>("get_status")
+      .then((s) => {
+        if (validStatuses.has(s)) {
+          setStatus(s as Status);
+        }
+      })
+      .catch(() => {});
+
     const unlistenStatus = listen<string>("status-changed", (e) => {
       if (validStatuses.has(e.payload)) {
         setStatus(e.payload as Status);
