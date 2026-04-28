@@ -359,15 +359,40 @@ fn handle_message(app_handle: &AppHandle, cfg: &TelegramConfig, msg: &serde_json
 
     crate::app_log!("[telegram] received text command: {}", command);
 
-    let _ = app_handle.emit(
-        "telegram-reply",
-        serde_json::json!({ "command": command, "text": text }),
-    );
+    // Try to route to the oldest pending PreToolUse decision first. Decision
+    // ids are minted as `p<unix_secs>-<counter>` so a lexicographic sort over
+    // the keys gives chronological order without any extra bookkeeping.
+    let routed_decision = {
+        let mut map = pending().lock().unwrap();
+        if let Some(oldest) = map.keys().min().cloned() {
+            map.remove(&oldest).map(|tx| {
+                let choice = if command == "yes" { "allow" } else { "deny" };
+                let _ = tx.send(choice.to_string());
+                choice
+            })
+        } else {
+            None
+        }
+    };
 
-    let ack = if command == "yes" {
-        "Got it: YES. Confirm in your terminal."
+    let ack = if let Some(choice) = routed_decision {
+        crate::app_log!("[telegram] /{} routed to pending decision -> {}", command, choice);
+        if choice == "allow" {
+            "\u{2705} Allowed."
+        } else {
+            "\u{274C} Denied."
+        }
     } else {
-        "Got it: NO. Deny in your terminal."
+        // No pending decision — fall back to the bubble-only Phase A flow.
+        let _ = app_handle.emit(
+            "telegram-reply",
+            serde_json::json!({ "command": command, "text": text }),
+        );
+        if command == "yes" {
+            "Got it: YES. Confirm in your terminal."
+        } else {
+            "Got it: NO. Deny in your terminal."
+        }
     };
     let _ = send_message(&cfg.bot_token, &cfg.chat_id, ack);
 }
