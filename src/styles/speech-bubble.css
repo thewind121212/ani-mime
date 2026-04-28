@@ -15,7 +15,13 @@
      bubble grows to its natural single-line size, and `max-width`
      wraps longer messages to multiple lines at a reasonable width. */
   width: max-content;
-  max-width: 280px;
+  /* Cap to viewport so the bubble can never overflow the window edge.
+     The App.tsx grow effect lags a frame on long messages AND can't
+     move the window further when it's already at a desktop edge, so
+     we lean on a tighter inherent max + viewport floor. 220px wraps
+     "No friends nearby! Check Privacy → Local Network" into 3 lines
+     instead of running off the side. */
+  max-width: min(220px, calc(100vw - 24px));
   padding: 8px 14px;
   z-index: 1;
   border-radius: 12px;

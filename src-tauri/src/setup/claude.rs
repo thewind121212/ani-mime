@@ -58,87 +58,60 @@ fn ensure_ani_hook(settings: &mut serde_json::Value, event: &str, cmd: &str) -> 
 }
 
 const APPROVAL_MARKER: &str = "/permission-decide";
-const APPROVAL_MATCHER: &str = "Bash";
 
-fn approval_command() -> &'static str {
-    "input=$(cat); printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null"
-}
-
-/// Install or remove the PreToolUse remote-approval hook in `~/.claude/settings.json`.
-/// Idempotent. The hook only fires for the `Bash` matcher so other tool calls
-/// keep using Claude Code's native prompts.
-pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
+/// Strip every previously-installed Telegram remote-approval hook from
+/// `~/.claude/settings.json`. We dropped the two-way approval flow, so any
+/// PreToolUse[Bash] or PermissionRequest[*] entry our older builds wrote
+/// must be cleaned up on upgrade — otherwise the old binary's curl-blocking
+/// hook keeps running against an endpoint that no longer exists.
+pub fn cleanup_approval_hooks(home: &Path) {
     let settings_path = home.join(".claude/settings.json");
-    let mut settings: serde_json::Value = if settings_path.exists() {
-        let raw = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&raw).map_err(|e| e.to_string())?
-    } else {
-        serde_json::json!({})
+    if !settings_path.exists() {
+        return;
+    }
+    let raw = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    if !raw.contains(APPROVAL_MARKER) {
+        return;
+    }
+    let mut settings: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let hooks_obj = match settings
+        .get_mut("hooks")
+        .and_then(|h| h.as_object_mut())
+    {
+        Some(h) => h,
+        None => return,
     };
 
-    let hooks = settings
-        .as_object_mut()
-        .ok_or_else(|| "settings.json is not an object".to_string())?
-        .entry("hooks")
-        .or_insert(serde_json::json!({}));
-    let pretooluse = hooks
-        .as_object_mut()
-        .ok_or_else(|| "hooks is not an object".to_string())?
-        .entry("PreToolUse")
-        .or_insert(serde_json::json!([]));
-    let entries = pretooluse
-        .as_array_mut()
-        .ok_or_else(|| "PreToolUse is not an array".to_string())?;
-
-    let mut changed = false;
-
-    if enabled {
-        let already = entries.iter().any(|entry| {
-            entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
-                && entry["hooks"].as_array().map_or(false, |hks| {
+    let mut removed = 0usize;
+    for event in ["PreToolUse", "PermissionRequest"] {
+        if let Some(arr) = hooks_obj.get_mut(event).and_then(|v| v.as_array_mut()) {
+            let before = arr.len();
+            arr.retain(|entry| {
+                !entry["hooks"].as_array().map_or(false, |hks| {
                     hks.iter().any(|h| {
                         h["command"]
                             .as_str()
                             .map_or(false, |c| c.contains(APPROVAL_MARKER))
                     })
                 })
-        });
-        if !already {
-            entries.push(serde_json::json!({
-                "matcher": APPROVAL_MATCHER,
-                "hooks": [{ "type": "command", "command": approval_command() }],
-            }));
-            changed = true;
-            crate::app_log!("[setup] installed Telegram approval PreToolUse hook");
-        }
-    } else {
-        let before = entries.len();
-        entries.retain(|entry| {
-            !(entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
-                && entry["hooks"].as_array().map_or(false, |hks| {
-                    hks.iter().any(|h| {
-                        h["command"]
-                            .as_str()
-                            .map_or(false, |c| c.contains(APPROVAL_MARKER))
-                    })
-                }))
-        });
-        if entries.len() != before {
-            changed = true;
-            crate::app_log!("[setup] removed Telegram approval PreToolUse hook");
+            });
+            removed += before - arr.len();
         }
     }
-
-    if !changed {
-        return Ok(());
+    if removed == 0 {
+        return;
     }
 
-    let pretty = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    if let Some(parent) = settings_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    crate::app_log!("[setup] stripped {} legacy approval hook(s)", removed);
+    if let Ok(s) = serde_json::to_string_pretty(&settings) {
+        let _ = std::fs::write(&settings_path, s);
     }
-    std::fs::write(&settings_path, pretty).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 /// Patch existing ani-mime hooks for compatibility with newer behaviors.
@@ -234,29 +207,26 @@ pub fn migrate_claude_hooks(home: &Path) {
         patched = true;
     }
 
-    // Migration 5: upgrade busy_cmd hooks (PreToolUse / UserPromptSubmit) to
-    // forward stdin to /pretool-cache. Detected by absence of that path on a
-    // command that pings state=busy. Idempotent.
-    let busy_cmd_new = "input=$(cat 2>/dev/null); curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/pretool-cache?pid=$PPID\" > /dev/null 2>&1 || true";
+    // Migration 6: revert busy_cmd hooks that pipe to /pretool-cache back to
+    // the plain state=busy ping. The cache existed only to feed full Bash
+    // commands into the Telegram push, which was dropped — keeping the POST
+    // is wasted overhead. Detected by presence of /pretool-cache.
+    let busy_cmd_plain = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
     if let Some(hooks_obj) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
         for event in ["PreToolUse", "UserPromptSubmit"] {
             if let Some(arr) = hooks_obj.get_mut(event).and_then(|v| v.as_array_mut()) {
                 for entry in arr.iter_mut() {
                     if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
                         for hook in hks.iter_mut() {
-                            let upgrade = hook
+                            let revert = hook
                                 .get("command")
                                 .and_then(|c| c.as_str())
-                                .map(|c| {
-                                    c.contains("127.0.0.1:1234")
-                                        && c.contains("state=busy")
-                                        && !c.contains("/pretool-cache")
-                                })
+                                .map(|c| c.contains("/pretool-cache"))
                                 .unwrap_or(false);
-                            if upgrade {
+                            if revert {
                                 hook["command"] =
-                                    serde_json::Value::String(busy_cmd_new.to_string());
-                                migrations_applied.push("PreToolUse hook -> pretool-cache");
+                                    serde_json::Value::String(busy_cmd_plain.to_string());
+                                migrations_applied.push("PreToolUse hook <- pretool-cache");
                                 patched = true;
                             }
                         }
@@ -350,12 +320,7 @@ pub fn setup_claude_hooks(home: &Path) {
     // its own session (so two concurrent Claude tabs don't share the same dot).
     // $PPID inside the hook subshell is the parent process — i.e. the claude
     // binary that spawned the hook.
-    // PreToolUse / UserPromptSubmit: flip dot to busy. PreToolUse also pipes
-    // the JSON body (which carries `tool_input`) to /pretool-cache so the
-    // Notification path can splice the actual command into the Telegram push.
-    // The server ignores cache writes that don't carry `tool_input`, so this
-    // command stays safe to share with UserPromptSubmit.
-    let busy_cmd = "input=$(cat 2>/dev/null); curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/pretool-cache?pid=$PPID\" > /dev/null 2>&1 || true";
+    let busy_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
     let idle_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=idle\" > /dev/null 2>&1 || true";
     let ani_marker = "127.0.0.1:1234";
 

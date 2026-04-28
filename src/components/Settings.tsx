@@ -14,6 +14,7 @@ import { useTrayVisible } from "../hooks/useTrayVisible";
 import { useSessionList } from "../hooks/useSessionList";
 import { useLanList } from "../hooks/useLanList";
 import { useTelegram } from "../hooks/useTelegram";
+import { useSpotifyConnected } from "../hooks/useSpotify";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
 import { useOpacity, OPACITY_MIN, OPACITY_MAX } from "../hooks/useOpacity";
@@ -117,6 +118,55 @@ export function Settings() {
   const handleTgSave = async () => {
     await telegram.saveCredentials(tgTokenDraft.trim(), tgChatDraft.trim());
     setTgTestState({ status: "idle", message: "Saved." });
+  };
+
+  const spotify = useSpotifyConnected();
+  const [spotifyClientDraft, setSpotifyClientDraft] = useState("");
+  const [spotifyClientLoaded, setSpotifyClientLoaded] = useState(false);
+  const [spotifyMsg, setSpotifyMsg] = useState<{ kind: "idle" | "ok" | "err"; text: string }>({ kind: "idle", text: "" });
+
+  useEffect(() => {
+    if (spotifyClientLoaded) return;
+    setSpotifyClientDraft(spotify.clientId);
+    if (spotify.clientId) setSpotifyClientLoaded(true);
+  }, [spotify.clientId, spotifyClientLoaded]);
+
+  const spotifyClientDirty = spotifyClientDraft.trim() !== spotify.clientId.trim();
+
+  const handleSpotifySaveClient = async () => {
+    const store = await load("settings.json");
+    // Reload first so we don't clobber tokens that the backend wrote
+    // directly (bypassing the plugin's cache). Without this, saving the
+    // client_id would persist a snapshot missing the tokens and the user
+    // gets silently disconnected on every save.
+    await store.reload().catch(() => {});
+    await store.set("spotifyClientId", spotifyClientDraft.trim());
+    await store.save();
+    await emit("spotify-client-changed", spotifyClientDraft.trim());
+    setSpotifyMsg({ kind: "ok", text: "Client ID saved." });
+  };
+
+  const handleSpotifyConnect = async () => {
+    const cid = spotifyClientDraft.trim() || spotify.clientId.trim();
+    if (!cid) {
+      setSpotifyMsg({ kind: "err", text: "Paste your Spotify Client ID first." });
+      return;
+    }
+    try {
+      await invoke<string>("spotify_connect", { clientId: cid });
+      setSpotifyMsg({ kind: "ok", text: "Authorise in your browser, then return here." });
+    } catch (e) {
+      setSpotifyMsg({ kind: "err", text: String(e) });
+    }
+  };
+
+  const handleSpotifyDisconnect = async () => {
+    try {
+      await invoke("spotify_disconnect");
+      setSpotifyMsg({ kind: "ok", text: "Disconnected." });
+    } catch (e) {
+      setSpotifyMsg({ kind: "err", text: String(e) });
+    }
   };
 
   const handleTgTest = async () => {
@@ -574,8 +624,8 @@ export function Settings() {
               </div>
               <div className="settings-row with-hint">
                 <div>
-                  <span className="settings-row-label">LAN Peer List</span>
-                  <span className="settings-row-hint">Show the nearby-peers icon on the status pill. Turn off to hide it entirely.</span>
+                  <span className="settings-row-label">Nearby Peers (Local Network)</span>
+                  <span className="settings-row-hint">Discover other Ani-Mime users on your local network. Turn off to hide the peer button under the dog and silence the "Check Privacy → Local Network" hint.</span>
                 </div>
                 <button
                   className={`toggle-switch ${lanListEnabled ? "active" : ""}`}
@@ -683,40 +733,79 @@ export function Settings() {
                   <span className="toggle-knob" />
                 </button>
               </div>
+            </div>
+          </div>
+          <div className="settings-section" data-testid="settings-section-spotify">
+            <div className="settings-section-title">Spotify</div>
+            <div className="settings-card">
               <div className="settings-row with-hint">
                 <div>
-                  <span className="settings-row-label">Remote Approval (Bash)</span>
+                  <span className="settings-row-label">Spotify Player</span>
                   <span className="settings-row-hint">
-                    When on, Claude Bash tool calls send an Allow/Deny prompt to Telegram and
-                    block up to 5 minutes for your tap. Times out to <strong>deny</strong>.
-                    Other tools keep using Claude's native prompt.
+                    Show currently-playing track + play/pause/skip/seek under the dog. Requires a free Spotify developer app — see{" "}
+                    <strong>docs/SPOTIFY_SETUP.md</strong>. Premium account needed for playback control.
                   </span>
                 </div>
+              </div>
+              <div className="settings-row settings-row-stack">
+                <label className="settings-input-label" htmlFor="spotify-client-id">
+                  Client ID
+                </label>
+                <input
+                  id="spotify-client-id"
+                  type="text"
+                  className="settings-text-input"
+                  placeholder="32-char hex from your Spotify developer dashboard"
+                  value={spotifyClientDraft}
+                  onChange={(e) => setSpotifyClientDraft(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  data-testid="spotify-client-id-input"
+                />
+              </div>
+              <div className="settings-row settings-row-actions">
                 <button
-                  className={`toggle-switch ${telegram.approvalEnabled ? "active" : ""}`}
-                  onClick={async () => {
-                    const next = !telegram.approvalEnabled;
-                    try {
-                      const res = await invoke<{ ok: boolean; message: string }>(
-                        "telegram_set_approval",
-                        { enabled: next }
-                      );
-                      if (res.ok) {
-                        await telegram.setApprovalEnabled(next);
-                      } else {
-                        logError(`[settings] telegram_set_approval failed: ${res.message}`);
-                      }
-                    } catch (e) {
-                      logError(`[settings] telegram_set_approval threw: ${e}`);
-                    }
-                  }}
-                  disabled={!telegram.pushEnabled}
-                  aria-disabled={!telegram.pushEnabled}
-                  title={telegram.pushEnabled ? undefined : "Enable Push first"}
-                  data-testid="telegram-approval-toggle"
+                  className="settings-btn"
+                  onClick={handleSpotifySaveClient}
+                  disabled={!spotifyClientDirty}
+                  data-testid="spotify-save-client-btn"
                 >
-                  <span className="toggle-knob" />
+                  Save Client ID
                 </button>
+                {spotify.connected ? (
+                  <button
+                    className="settings-btn"
+                    onClick={handleSpotifyDisconnect}
+                    data-testid="spotify-disconnect-btn"
+                  >
+                    Disconnect
+                  </button>
+                ) : (
+                  <button
+                    className="settings-btn primary"
+                    onClick={handleSpotifyConnect}
+                    disabled={!spotifyClientDraft.trim()}
+                    data-testid="spotify-connect-btn"
+                  >
+                    Connect Spotify
+                  </button>
+                )}
+                {spotifyMsg.text && (
+                  <span
+                    className={`settings-row-hint ${spotifyMsg.kind === "err" ? "danger" : ""}`}
+                    data-testid="spotify-msg"
+                  >
+                    {spotifyMsg.text}
+                  </span>
+                )}
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Status</span>
+                  <span className="settings-row-hint">
+                    {spotify.connected ? "Connected — pill button visible under the dog." : "Not connected."}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

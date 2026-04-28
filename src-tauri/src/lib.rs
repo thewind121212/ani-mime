@@ -13,6 +13,7 @@ mod platform;
 mod proc_scan;
 mod server;
 mod setup;
+mod spotify;
 mod state;
 mod telegram;
 mod updater;
@@ -104,38 +105,6 @@ fn get_status(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> String {
 }
 
 #[tauri::command]
-async fn telegram_set_approval(enabled: bool) -> telegram::SendResult {
-    tauri::async_runtime::spawn_blocking(move || {
-        let home = match dirs::home_dir() {
-            Some(h) => h,
-            None => {
-                return telegram::SendResult {
-                    ok: false,
-                    message: "Cannot resolve home directory".into(),
-                }
-            }
-        };
-        match setup::claude::set_remote_approval(&home, enabled) {
-            Ok(_) => telegram::SendResult {
-                ok: true,
-                message: if enabled {
-                    "Remote approval hook installed for Bash."
-                } else {
-                    "Remote approval hook removed."
-                }
-                .into(),
-            },
-            Err(e) => telegram::SendResult { ok: false, message: e },
-        }
-    })
-    .await
-    .unwrap_or(telegram::SendResult {
-        ok: false,
-        message: "Approval install thread panicked".into(),
-    })
-}
-
-#[tauri::command]
 async fn telegram_test(
     bot_token: String,
     chat_id: String,
@@ -185,6 +154,104 @@ async fn telegram_send(
         ok: false,
         message: "Send thread panicked".into(),
     })
+}
+
+fn spotify_settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|d| d.join("settings.json"))
+        .map_err(|e| format!("Cannot resolve settings dir: {}", e))
+}
+
+#[tauri::command]
+async fn spotify_connect(client_id: String) -> Result<String, String> {
+    let url = tauri::async_runtime::spawn_blocking(move || {
+        spotify::build_auth_url(&client_id)
+    })
+    .await
+    .map_err(|e| format!("auth thread panicked: {}", e))??;
+
+    crate::app_log!("[spotify] opening auth URL");
+    platform::open_url(&url);
+    Ok(url)
+}
+
+#[tauri::command]
+async fn spotify_disconnect(app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::clear_tokens(&path))
+        .await
+        .map_err(|e| format!("disconnect thread panicked: {}", e))??;
+    let _ = app.emit("spotify-connected", false);
+    Ok(())
+}
+
+#[tauri::command]
+async fn spotify_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let path = spotify_settings_path(&app)?;
+    let cfg = tauri::async_runtime::spawn_blocking(move || spotify::load_config(&path))
+        .await
+        .map_err(|e| format!("status thread panicked: {}", e))?;
+    Ok(serde_json::json!({
+        "connected": cfg.is_connected(),
+        "client_id": cfg.client_id,
+    }))
+}
+
+#[tauri::command]
+async fn spotify_state(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::get_state(&path))
+        .await
+        .map_err(|e| format!("state thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_play(app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::play(&path))
+        .await
+        .map_err(|e| format!("play thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_pause(app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::pause(&path))
+        .await
+        .map_err(|e| format!("pause thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_next(app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::next(&path))
+        .await
+        .map_err(|e| format!("next thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_prev(app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::previous(&path))
+        .await
+        .map_err(|e| format!("prev thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_queue(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::get_queue(&path))
+        .await
+        .map_err(|e| format!("queue thread panicked: {}", e))?
+}
+
+#[tauri::command]
+async fn spotify_seek(position_ms: u64, app: tauri::AppHandle) -> Result<(), String> {
+    let path = spotify_settings_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || spotify::seek(&path, position_ms))
+        .await
+        .map_err(|e| format!("seek thread panicked: {}", e))?
 }
 
 #[tauri::command]
@@ -537,7 +604,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send, telegram_set_approval])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send, spotify_connect, spotify_disconnect, spotify_status, spotify_state, spotify_queue, spotify_play, spotify_pause, spotify_next, spotify_prev, spotify_seek])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -743,7 +810,6 @@ pub fn run() {
                 last_task_duration_secs: 0,
                 usage_day: crate::helpers::now_secs() / 86400,
                 last_sessions_fingerprint: 0,
-                pretool_cache: HashMap::new(),
             }));
 
             app.manage(app_state.clone());
@@ -753,14 +819,6 @@ pub fn run() {
             watchdog::start_watchdog(app.handle().clone(), app_state.clone());
             proc_scan::start_proc_scanner(app.handle().clone(), app_state.clone());
 
-            // Telegram /yes /no poller — re-reads settings.json on every tick so
-            // it picks up bot token / chat id changes without a restart.
-            if let Ok(app_data_dir) = app.path().app_data_dir() {
-                telegram::start_polling_thread(
-                    app.handle().clone(),
-                    app_data_dir.join("settings.json"),
-                );
-            }
 
             // Start mDNS peer discovery
             let discovery_handle = app.handle().clone();

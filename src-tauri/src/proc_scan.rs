@@ -789,8 +789,17 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
     //     so without this the session pwd stays empty and the task-completed
     //     bubble can't render a per-folder message.
     for (pid, session) in st.sessions.iter_mut() {
-        session.is_claude_proc = claude_pids.contains(pid);
-        session.is_codex_proc = codex_pids.contains(pid);
+        // Sticky-true: once a session has been flagged as an AI process
+        // (either by this scan or by the /status fast-path that checks
+        // is_claude_pid / is_codex_pid on each hook fire), keep the flag.
+        // Newer Claude Code launchers ship under a version-named comm
+        // (`~/.local/share/claude/versions/<x.y.z>`) — argv[0] usually
+        // resolves to "claude", but if the user invoked a fully-qualified
+        // path or ran the binary through a wrapper, this scan can briefly
+        // mis-classify and unset a flag that the hook had legitimately set.
+        // Letting it ratchet up but not down avoids that desync.
+        session.is_claude_proc = session.is_claude_proc || claude_pids.contains(pid);
+        session.is_codex_proc = session.is_codex_proc || codex_pids.contains(pid);
         if session.is_claude_proc || session.is_codex_proc {
             if let Some(p) = by_pid.get(pid) {
                 if let Some(cwd) = &p.cwd {

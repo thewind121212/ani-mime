@@ -1,4 +1,4 @@
-pub(crate) mod claude;
+mod claude;
 mod codex;
 mod mcp;
 pub(crate) mod shell;
@@ -6,7 +6,7 @@ pub(crate) mod shell;
 use std::path::PathBuf;
 use tauri::Emitter;
 
-use self::claude::{migrate_claude_hooks, setup_claude_hooks};
+use self::claude::{cleanup_approval_hooks, migrate_claude_hooks, setup_claude_hooks};
 use self::codex::setup_codex_hooks;
 use self::mcp::{install_mcp_server, register_mcp_server};
 use self::shell::{detect_shells, install_shell_hooks, ShellInfo};
@@ -29,6 +29,8 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
         };
         // Always run migrations for existing users
         migrate_claude_hooks(&home);
+        // Strip any leftover Telegram approval hook (we dropped that flow).
+        cleanup_approval_hooks(&home);
 
         // Always install/update Codex hooks (idempotent, skips if codex not installed
         // or if ani-mime hooks are already present in ~/.codex/hooks.json).

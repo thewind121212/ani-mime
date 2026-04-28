@@ -32,7 +32,6 @@ body {
   flex-direction: row;
   align-items: stretch;
   gap: 8px;
-  cursor: grab;
   user-select: none;
   -webkit-user-select: none;
   position: relative;
@@ -82,8 +81,13 @@ body {
   flex-shrink: 0;
 }
 
+.mascot-wrap [data-testid="mascot-sprite"],
+.mascot-wrap [data-testid="mascot-placeholder"] {
+  cursor: grab;
+}
 
-.container.dragging {
+.container.dragging [data-testid="mascot-sprite"],
+.container.dragging [data-testid="mascot-placeholder"] {
   cursor: grabbing;
 }
 

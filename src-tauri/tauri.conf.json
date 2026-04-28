@@ -79,6 +79,21 @@
         "skipTaskbar": true,
         "focus": true,
         "shadow": false
+      },
+      {
+        "label": "spotify-player",
+        "title": "Spotify",
+        "url": "spotify-player.html",
+        "width": 320,
+        "height": 230,
+        "resizable": false,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": true,
+        "shadow": false
       }
     ],
     "security": {

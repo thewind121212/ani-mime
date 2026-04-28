@@ -9,6 +9,7 @@ const validStatuses = new Set<string>([
   "busy",
   "idle",
   "service",
+  "waiting",
   "disconnected",
   "visiting",
 ]);

@@ -3,6 +3,7 @@ import { load } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
 import { playAudio } from "../utils/audio";
 import { useSoundSettings } from "./useSoundSettings";
+import { useLanList } from "./useLanList";
 
 const STORE_FILE = "settings.json";
 const STORE_KEY = "bubbleEnabled";
@@ -169,6 +170,11 @@ export function useBubble() {
   useEffect(() => {
     soundRef.current = sound;
   }, [sound]);
+  const { enabled: lanListEnabled } = useLanList();
+  const lanListEnabledRef = useRef(lanListEnabled);
+  useEffect(() => {
+    lanListEnabledRef.current = lanListEnabled;
+  }, [lanListEnabled]);
 
   // Load saved preference
   useLayoutEffect(() => {
@@ -309,10 +315,13 @@ export function useBubble() {
     };
   }, [enabled]);
 
-  // Listen for discovery-hint: no peers found after timeout
+  // Listen for discovery-hint: no peers found after timeout.
+  // Suppressed when the LAN peer feature is disabled \u2014 user opted out, so
+  // never nag with "Check Privacy \u2192 Local Network".
   useEffect(() => {
     const unlisten = listen<string>("discovery-hint", (e) => {
       if (e.payload !== "no_peers") return;
+      if (!lanListEnabledRef.current) return;
 
       clearTimeout(timerRef.current);
       setMessage("No friends nearby! Check Privacy \u2192 Local Network");
@@ -381,28 +390,6 @@ export function useBubble() {
       }, e.payload.duration_ms || BUBBLE_DURATION_MS);
     });
 
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [enabled]);
-
-  // Listen for telegram-reply: user pressed /yes or /no on Telegram. Show a
-  // short bubble so the dog mirrors the remote decision; the actual approval
-  // still happens in the terminal (Phase A is one-way).
-  useEffect(() => {
-    const unlisten = listen<{ command: "yes" | "no"; text: string }>("telegram-reply", (e) => {
-      if (!enabled) return;
-      clearTimeout(timerRef.current);
-      const line =
-        e.payload.command === "yes"
-          ? "Boss said YES via Telegram — confirm in terminal!"
-          : "Boss said NO via Telegram — deny in terminal!";
-      setMessage(line);
-      setVisible(true);
-      timerRef.current = setTimeout(() => {
-        setVisible(false);
-      }, BUBBLE_DURATION_MS);
-    });
     return () => {
       unlisten.then((fn) => fn());
     };
