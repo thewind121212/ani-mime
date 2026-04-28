@@ -146,7 +146,16 @@
 .session-dropdown {
   position: fixed;
   left: 50%;
-  transform: translateX(-50%);
+  /* The translateX(-50%) keeps the dropdown horizontally centered on the
+     window. The two `--effect-shift-*` vars are published by EffectOverlay
+     while the shadow-clone (or any expand-window) effect is active, and
+     compensate for the parent window having shifted up-left so the
+     dropdown stays at the same on-screen position instead of riding the
+     window jump. Default to 0 when no effect is running. */
+  transform: translate(
+    calc(-50% + var(--effect-shift-x, 0px)),
+    var(--effect-shift-y, 0px)
+  );
   min-width: 240px;
   max-width: 360px;
   /* Cap the list height so lots of shells don't produce a comically

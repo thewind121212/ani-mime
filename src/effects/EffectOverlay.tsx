@@ -121,6 +121,28 @@ function unpinRootVertical() {
 }
 
 /**
+ * Expose the active expand shift (in window-local px) to layout-fixed
+ * descendants like the session dropdown. Those popovers use
+ * `position: fixed` keyed off the pill's bounding rect — the rect was
+ * captured before the window grew and shifted, so without compensation
+ * the dropdown rides up with the new window origin and visibly "jumps"
+ * during the busy transition. Components subtract these vars from their
+ * own translate so they stay anchored to the screen position they had
+ * before the effect started.
+ */
+function setEffectShiftVars(shiftX: number, shiftY: number) {
+  const root = document.documentElement;
+  root.style.setProperty("--effect-shift-x", `${shiftX}px`);
+  root.style.setProperty("--effect-shift-y", `${shiftY}px`);
+}
+
+function clearEffectShiftVars() {
+  const root = document.documentElement;
+  root.style.removeProperty("--effect-shift-x");
+  root.style.removeProperty("--effect-shift-y");
+}
+
+/**
  * Resolve the maximum shift the window can travel toward the top of
  * the current monitor without going off-screen. macOS auto-clamps a
  * window that's positioned above its monitor — the OS shoves it back
@@ -200,6 +222,10 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
       // Set BEFORE the resize so the layout is already correct when
       // the new window geometry commits.
       pinRootVertical(shiftY);
+      // Publish shift vars before the resize so any fixed-positioned
+      // popover (session dropdown, peer list, tooltips) can offset
+      // itself in the same frame and not visibly jump.
+      setEffectShiftVars(shiftX, shiftY);
 
       // Hide content during the resize+move so the brief frame where
       // setPosition has committed but setSize hasn't (or vice-versa)
@@ -270,6 +296,7 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
         // the top while the window is still tall and the pet would
         // briefly jump up before the resize completes.
         unpinRootVertical();
+        clearEffectShiftVars();
         showRootContent();
         // await win.setShadow(true);
         savedWindowRef.current = null;

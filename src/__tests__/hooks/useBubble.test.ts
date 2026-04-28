@@ -208,23 +208,24 @@ describe("useBubble", () => {
     });
   });
 
-  describe("service status hides bubble", () => {
-    it("hides bubble when status changes to service", async () => {
+  describe("service status keeps bubble visible", () => {
+    it("does not hide the celebration bubble when status flashes service", async () => {
+      // AI Stop now sets ui_state="service" briefly before falling back to
+      // idle. The "boss done" bubble must survive that transition; only a
+      // genuine new busy turn should clear it.
       const { result } = renderHook(() => useBubble());
       await act(async () => {});
 
-      // Show a bubble via task-completed
       await act(async () => {
         emitMockEvent("task-completed", { duration_secs: 5 });
       });
       expect(result.current.visible).toBe(true);
 
-      // Emit service status
       await act(async () => {
         emitMockEvent("status-changed", "service");
       });
 
-      expect(result.current.visible).toBe(false);
+      expect(result.current.visible).toBe(true);
     });
   });
 });

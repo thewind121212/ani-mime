@@ -69,6 +69,41 @@ pub fn setup_codex_hooks(home: &Path) {
         })
     };
 
+    fn remove_ani_hook(
+        hooks_obj: &mut serde_json::Value,
+        event: &str,
+        marker: &str,
+    ) {
+        let Some(arr) = hooks_obj
+            .as_object_mut()
+            .and_then(|o| o.get_mut(event))
+            .and_then(|v| v.as_array_mut())
+        else {
+            return;
+        };
+        for entry in arr.iter_mut() {
+            if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hks.retain(|h| {
+                    h.get("command")
+                        .and_then(|c| c.as_str())
+                        .map_or(true, |c| !c.contains(marker))
+                });
+            }
+        }
+        // Drop any matcher entries whose hooks list is now empty.
+        arr.retain(|entry| {
+            entry
+                .get("hooks")
+                .and_then(|h| h.as_array())
+                .map_or(true, |hks| !hks.is_empty())
+        });
+        if arr.is_empty() {
+            if let Some(o) = hooks_obj.as_object_mut() {
+                o.remove(event);
+            }
+        }
+    }
+
     let add_hook = |hooks_obj: &mut serde_json::Value, event: &str, cmd: &str| {
         let arr = hooks_obj
             .as_object_mut()
@@ -102,6 +137,15 @@ pub fn setup_codex_hooks(home: &Path) {
     add_hook(hooks, "UserPromptSubmit", busy_cmd);
     add_hook(hooks, "Stop", idle_cmd);
     add_hook(hooks, "SessionStart", idle_cmd);
+    // Intentionally NOT hooking PermissionRequest: it fires on every exec /
+    // tool approval — including ones auto-approved by trusted-project config.
+    // Marking idle there caused the dog to drop out of busy while a long
+    // background subprocess (e.g. `npm install`) was still running.
+
+    // Strip any pre-existing ani-mime PermissionRequest hook that an older
+    // ani-mime build may have written. Without this, users who installed the
+    // earlier hook stay stuck on the broken behavior.
+    remove_ani_hook(hooks, "PermissionRequest", ani_marker);
 
     match serde_json::to_string_pretty(&settings) {
         Ok(json_str) => {

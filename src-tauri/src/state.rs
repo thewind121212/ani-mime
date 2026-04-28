@@ -8,6 +8,12 @@ use tauri::Emitter;
 #[derive(Clone, Serialize)]
 pub struct TaskCompleted {
     pub duration_secs: u64,
+    /// Working directory of the session that just went idle (may be empty).
+    /// Frontend renders the leaf folder name in the celebratory bubble.
+    pub pwd: String,
+    /// "claude" / "codex" / "shell" — lets the frontend pick a tailored message
+    /// per source instead of one generic "task done" line.
+    pub source: String,
 }
 
 /// A peer discovered via mDNS on the local network.
@@ -179,11 +185,28 @@ fn sessions_fingerprint(sessions: &HashMap<u32, Session>) -> u64 {
 
 /// Picks the "winning" UI state across all sessions.
 /// Priority: busy > service > idle.
+///
+/// When at least one AI-tool session (Claude / Codex / pid=0 virtual claude)
+/// exists, only those sessions drive the mascot. Plain shell sessions are
+/// excluded from that pass — otherwise every `cd` / `ls` / `git status`
+/// would flip the dog through busy→idle and trigger the celebration animation
+/// on each command. With no AI sessions present we fall back to the original
+/// "consider every session" behavior so shell-only users still see status.
 pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
+    let has_ai = sessions
+        .iter()
+        .any(|(pid, s)| s.is_claude_proc || s.is_codex_proc || *pid == 0);
+
     let mut has_service = false;
     let mut has_idle = false;
 
-    for s in sessions.values() {
+    for (pid, s) in sessions.iter() {
+        if has_ai {
+            let is_ai = s.is_claude_proc || s.is_codex_proc || *pid == 0;
+            if !is_ai {
+                continue;
+            }
+        }
         match s.ui_state.as_str() {
             "busy" => return "busy",
             "service" => has_service = true,

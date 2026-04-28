@@ -415,6 +415,19 @@ fn is_shell(name: &str) -> bool {
     )
 }
 
+/// Public version of `is_claude` keyed by PID. Used by the HTTP handler at
+/// /status idle time to classify the task source even on the very first hook
+/// fire — before the next 2s proc_scan pass has had a chance to flag the
+/// session as `is_claude_proc`.
+pub fn is_claude_pid(pid: u32) -> bool {
+    get_proc_info(pid).as_ref().map_or(false, is_claude)
+}
+
+/// Public version of `is_codex` keyed by PID. See `is_claude_pid`.
+pub fn is_codex_pid(pid: u32) -> bool {
+    get_proc_info(pid).as_ref().map_or(false, is_codex)
+}
+
 fn is_claude(proc: &ProcInfo) -> bool {
     // Claude Code has shipped under three executable layouts:
     //   • "node" — older Node-shipped CLI (real name is via argv[0])
@@ -732,9 +745,30 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
 
     // (3) Mark sessions whose PID is itself a claude/codex process. The UI
     //     hides these so they don't appear as standalone "PID 17258" rows.
+    //     Also fill pwd from libproc — claude/codex hooks only send pid+state,
+    //     so without this the session pwd stays empty and the task-completed
+    //     bubble can't render a per-folder message.
     for (pid, session) in st.sessions.iter_mut() {
         session.is_claude_proc = claude_pids.contains(pid);
         session.is_codex_proc = codex_pids.contains(pid);
+        if session.is_claude_proc || session.is_codex_proc {
+            if let Some(p) = by_pid.get(pid) {
+                if let Some(cwd) = &p.cwd {
+                    if !cwd.is_empty() {
+                        session.pwd = cwd.clone();
+                        session.title = title_from_pwd(cwd);
+                    }
+                }
+            }
+            // Claude / Codex don't send /heartbeat — only their hooks POST to
+            // /status, and those only fire on tool boundaries. A long model
+            // inference (no tool call for 40s+) was triggering the watchdog
+            // heartbeat-timeout sweep and dropping the session mid-turn, which
+            // sent the dog to "free" while the AI was still working. While the
+            // OS pid is alive we treat that as an authoritative liveness signal
+            // and refresh last_seen ourselves.
+            session.last_seen = now;
+        }
     }
 
     // Fire `status-changed` / `sessions-changed` if this pass actually

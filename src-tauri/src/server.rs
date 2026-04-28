@@ -98,36 +98,93 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                     None
                                 };
 
+                                // Snapshot context before clearing/dropping the session ref so
+                                // the frontend can render a per-source / per-folder message.
+                                let task_pwd = session.pwd.clone();
+                                // Prefer the cached proc_scan flags. Fall back to a
+                                // direct libproc lookup so the first Stop after a
+                                // brand-new claude/codex hook fire (before the next
+                                // 2s scan pass) still classifies as AI — otherwise
+                                // it gets tagged "shell", suppressing the bubble.
+                                let task_source = if session.is_claude_proc
+                                    || pid == 0
+                                    || crate::proc_scan::is_claude_pid(pid)
+                                {
+                                    "claude"
+                                } else if session.is_codex_proc
+                                    || crate::proc_scan::is_codex_pid(pid)
+                                {
+                                    "codex"
+                                } else {
+                                    "shell"
+                                }
+                                .to_string();
+                                let is_ai_task = task_source == "claude" || task_source == "codex";
+
                                 session.busy_type.clear();
-                                session.ui_state = "idle".to_string();
-                                session.service_since = 0;
+                                if is_ai_task {
+                                    // Flash blue (service) for ~2s before idle so the
+                                    // user gets a visible "done" pulse on the dog,
+                                    // matching the codex shell-hook flash. Watchdog
+                                    // converts service -> idle after SERVICE_DISPLAY_SECS.
+                                    session.ui_state = "service".to_string();
+                                    session.service_since = now;
+                                } else {
+                                    session.ui_state = "idle".to_string();
+                                    session.service_since = 0;
+                                }
                                 session.busy_since = 0;
                                 // Drop session borrow before accessing st fields
                                 drop(session);
 
-                                if let Some(duration) = task_duration {
-                                    crate::app_log!("[http] pid={} task completed ({}s)", pid, duration);
-                                    if let Err(e) = app_handle.emit("task-completed", TaskCompleted { duration_secs: duration }) {
-                                        crate::app_error!("[http] failed to emit task-completed: {}", e);
-                                    }
+                                // Suppress bubble + counter when another AI session is
+                                // still busy — this is the subagent case. Without the
+                                // gate every subagent Stop pops its own "boss done"
+                                // bubble and inflates the counter, even though the
+                                // main turn isn't actually finished yet.
+                                let other_ai_busy = st.sessions.iter().any(|(other_pid, s)| {
+                                    *other_pid != pid
+                                        && (s.is_claude_proc || s.is_codex_proc || *other_pid == 0)
+                                        && s.ui_state == "busy"
+                                });
 
-                                    // Update daily usage counters
-                                    let today = now / 86400;
-                                    if today != st.usage_day {
-                                        st.usage_day = today;
-                                        st.tasks_completed_today = 0;
-                                        st.total_busy_secs_today = 0;
-                                        st.longest_task_today_secs = 0;
-                                    }
-                                    st.tasks_completed_today += 1;
-                                    st.total_busy_secs_today += duration;
-                                    st.last_task_duration_secs = duration;
-                                    if duration > st.longest_task_today_secs {
-                                        st.longest_task_today_secs = duration;
+                                if let Some(duration) = task_duration {
+                                    if is_ai_task && !other_ai_busy {
+                                        crate::app_log!("[http] pid={} task completed ({}s, source={})", pid, duration, task_source);
+                                        if let Err(e) = app_handle.emit(
+                                            "task-completed",
+                                            TaskCompleted {
+                                                duration_secs: duration,
+                                                pwd: task_pwd,
+                                                source: task_source,
+                                            },
+                                        ) {
+                                            crate::app_error!("[http] failed to emit task-completed: {}", e);
+                                        }
+
+                                        // Update daily usage counters
+                                        let today = now / 86400;
+                                        if today != st.usage_day {
+                                            st.usage_day = today;
+                                            st.tasks_completed_today = 0;
+                                            st.total_busy_secs_today = 0;
+                                            st.longest_task_today_secs = 0;
+                                        }
+                                        st.tasks_completed_today += 1;
+                                        st.total_busy_secs_today += duration;
+                                        st.last_task_duration_secs = duration;
+                                        if duration > st.longest_task_today_secs {
+                                            st.longest_task_today_secs = duration;
+                                        }
+                                    } else if is_ai_task {
+                                        crate::app_log!(
+                                            "[http] pid={} subagent stop, suppressing bubble (other AI busy)",
+                                            pid
+                                        );
                                     }
                                 }
 
-                                crate::app_log!("[http] pid={} -> idle", pid);
+                                crate::app_log!("[http] pid={} -> {}", pid, if is_ai_task { "service (flash)" } else { "idle" });
                                 emit_if_changed(&app_handle, &mut st);
                             } else {
                                 crate::app_warn!("[http] pid={} /status with unknown state: {}", pid, url);

@@ -196,7 +196,14 @@ fn preview_dialog(dialog_id: String, app: tauri::AppHandle) {
                 let _ = app.emit("status-changed", "idle");
             }
             "bubble_task_completed" => {
-                let _ = app.emit("task-completed", serde_json::json!({ "duration_secs": 5 }));
+                let _ = app.emit(
+                    "task-completed",
+                    serde_json::json!({
+                        "duration_secs": 5,
+                        "pwd": "/Users/you/Projects/ani-mime",
+                        "source": "codex",
+                    }),
+                );
             }
             "bubble_discovery_hint" => {
                 let _ = app.emit("discovery-hint", "no_peers");

@@ -19,8 +19,36 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString();
 }
 
+/**
+ * Strip model-internal annotations that occasionally leak into responses
+ * and render as raw text in the bubble. Two known offenders:
+ *   - `citeturn0searchN` / `citeturn0newsN` / `citeturn0refN` — citation
+ *     anchors emitted by some web-search tooling. Stripped entirely.
+ *   - `entity["type","name","desc"]` — entity tags. Replaced with the
+ *     second positional arg (the display name) so the prose still reads.
+ */
+function sanitizeAssistantContent(content: string): string {
+  let out = content;
+
+  // entity["type","Display Name", ...]  ->  "Display Name"
+  out = out.replace(
+    /entity\[\s*"[^"]*"\s*,\s*"([^"]*)"(?:\s*,\s*"[^"]*")*\s*\]/g,
+    "$1",
+  );
+
+  // Citation tokens. cite-prefix + variant (turn/news/ref/etc.) + digits +
+  // optional alpha-suffix. Match conservatively so prose words aren't eaten.
+  out = out.replace(/\bcite(?:turn|news|ref|cmt)[A-Za-z0-9]+\b/g, "");
+
+  // Collapse whitespace runs left behind by the above (but keep newlines).
+  out = out.replace(/[ \t]{2,}/g, " ");
+
+  return out;
+}
+
 /** Render message content with basic code block support. */
 function renderContent(content: string): React.ReactNode[] {
+  content = sanitizeAssistantContent(content);
   const parts: React.ReactNode[] = [];
   const codeBlockRegex = /```(\w*)\n?([\s\S]*?)```/g;
   let lastIndex = 0;
