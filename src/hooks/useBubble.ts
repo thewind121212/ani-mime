@@ -386,28 +386,6 @@ export function useBubble() {
     };
   }, [enabled]);
 
-  // Listen for telegram-reply: user pressed /yes or /no on Telegram. Show a
-  // short bubble so the dog mirrors the remote decision; the actual approval
-  // still happens in the terminal (Phase A is one-way).
-  useEffect(() => {
-    const unlisten = listen<{ command: "yes" | "no"; text: string }>("telegram-reply", (e) => {
-      if (!enabled) return;
-      clearTimeout(timerRef.current);
-      const line =
-        e.payload.command === "yes"
-          ? "Boss said YES via Telegram — confirm in terminal!"
-          : "Boss said NO via Telegram — deny in terminal!";
-      setMessage(line);
-      setVisible(true);
-      timerRef.current = setTimeout(() => {
-        setVisible(false);
-      }, BUBBLE_DURATION_MS);
-    });
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, [enabled]);
-
   // Listen for bubble-preview: persistent bubble from scenario (no auto-hide, dismiss manually)
   useEffect(() => {
     const unlisten = listen<string>("bubble-preview", (e) => {

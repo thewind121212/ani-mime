@@ -58,135 +58,60 @@ fn ensure_ani_hook(settings: &mut serde_json::Value, event: &str, cmd: &str) -> 
 }
 
 const APPROVAL_MARKER: &str = "/permission-decide";
-const APPROVAL_EVENT: &str = "PermissionRequest";
-const APPROVAL_MATCHER: &str = "*";
 
-fn approval_command() -> &'static str {
-    // Hook contract: exit 0 + valid JSON on stdout. If our backend is down,
-    // times out, or returns nothing, print `{}` so Claude falls back to its
-    // native permission dialog instead of silently allowing/denying.
-    // PermissionRequest only fires when a dialog would otherwise be shown,
-    // so sub-agent calls and auto-approved tools never reach this code path.
-    "input=$(cat); resp=$(printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null); if [ -z \"$resp\" ]; then printf '%s' '{}'; else printf '%s' \"$resp\"; fi; exit 0"
-}
-
-/// Install or remove the PermissionRequest remote-approval hook in
-/// `~/.claude/settings.json`. Idempotent. Uses `*` matcher so any tool
-/// that would otherwise pop a permission dialog gets routed through
-/// Telegram. PermissionRequest fires *only* when a dialog is about to
-/// be shown — sub-agent and auto-approved tool calls bypass this hook
-/// entirely, so the user only sees pushes for things they'd manually
-/// confirm anyway.
-pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
+/// Strip every previously-installed Telegram remote-approval hook from
+/// `~/.claude/settings.json`. We dropped the two-way approval flow, so any
+/// PreToolUse[Bash] or PermissionRequest[*] entry our older builds wrote
+/// must be cleaned up on upgrade — otherwise the old binary's curl-blocking
+/// hook keeps running against an endpoint that no longer exists.
+pub fn cleanup_approval_hooks(home: &Path) {
     let settings_path = home.join(".claude/settings.json");
-    let mut settings: serde_json::Value = if settings_path.exists() {
-        let raw = std::fs::read_to_string(&settings_path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&raw).map_err(|e| e.to_string())?
-    } else {
-        serde_json::json!({})
+    if !settings_path.exists() {
+        return;
+    }
+    let raw = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    if !raw.contains(APPROVAL_MARKER) {
+        return;
+    }
+    let mut settings: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let hooks_obj = match settings
+        .get_mut("hooks")
+        .and_then(|h| h.as_object_mut())
+    {
+        Some(h) => h,
+        None => return,
     };
 
-    let hooks = settings
-        .as_object_mut()
-        .ok_or_else(|| "settings.json is not an object".to_string())?
-        .entry("hooks")
-        .or_insert(serde_json::json!({}));
-    let hooks_obj = hooks
-        .as_object_mut()
-        .ok_or_else(|| "hooks is not an object".to_string())?;
-
-    let mut changed = false;
-    let mut changed_legacy = false;
-
-    // Migrate away from any prior PreToolUse-based approval hook so the new
-    // PermissionRequest install doesn't double-fire alongside the legacy one.
-    if let Some(legacy_arr) = hooks_obj.get_mut("PreToolUse").and_then(|v| v.as_array_mut()) {
-        let before = legacy_arr.len();
-        legacy_arr.retain(|entry| {
-            !entry["hooks"].as_array().map_or(false, |hks| {
-                hks.iter().any(|h| {
-                    h["command"]
-                        .as_str()
-                        .map_or(false, |c| c.contains(APPROVAL_MARKER))
-                })
-            })
-        });
-        if legacy_arr.len() != before {
-            crate::app_log!("[setup] removed legacy PreToolUse approval hook");
-            changed_legacy = true;
-        }
-    }
-
-    let pretooluse = hooks_obj
-        .entry(APPROVAL_EVENT)
-        .or_insert(serde_json::json!([]));
-    let entries = pretooluse
-        .as_array_mut()
-        .ok_or_else(|| format!("{} is not an array", APPROVAL_EVENT))?;
-
-    if enabled {
-        // First, replace any stale approval-hook command with the freshest
-        // version so users who toggled this on at v0.x get the exit-0 +
-        // fallback-JSON behavior without uninstalling/reinstalling.
-        let mut found = false;
-        for entry in entries.iter_mut() {
-            if entry["matcher"].as_str() != Some(APPROVAL_MATCHER) {
-                continue;
-            }
-            if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
-                for hook in hks.iter_mut() {
-                    let is_ours = hook
-                        .get("command")
-                        .and_then(|c| c.as_str())
-                        .map_or(false, |c| c.contains(APPROVAL_MARKER));
-                    if is_ours {
-                        found = true;
-                        let want = approval_command();
-                        if hook.get("command").and_then(|c| c.as_str()) != Some(want) {
-                            hook["command"] = serde_json::Value::String(want.to_string());
-                            changed = true;
-                            crate::app_log!("[setup] refreshed Telegram approval hook command");
-                        }
-                    }
-                }
-            }
-        }
-        if !found {
-            entries.push(serde_json::json!({
-                "matcher": APPROVAL_MATCHER,
-                "hooks": [{ "type": "command", "command": approval_command() }],
-            }));
-            changed = true;
-            crate::app_log!("[setup] installed Telegram approval PreToolUse hook");
-        }
-    } else {
-        let before = entries.len();
-        entries.retain(|entry| {
-            !(entry["matcher"].as_str() == Some(APPROVAL_MATCHER)
-                && entry["hooks"].as_array().map_or(false, |hks| {
+    let mut removed = 0usize;
+    for event in ["PreToolUse", "PermissionRequest"] {
+        if let Some(arr) = hooks_obj.get_mut(event).and_then(|v| v.as_array_mut()) {
+            let before = arr.len();
+            arr.retain(|entry| {
+                !entry["hooks"].as_array().map_or(false, |hks| {
                     hks.iter().any(|h| {
                         h["command"]
                             .as_str()
                             .map_or(false, |c| c.contains(APPROVAL_MARKER))
                     })
-                }))
-        });
-        if entries.len() != before {
-            changed = true;
-            crate::app_log!("[setup] removed Telegram approval PreToolUse hook");
+                })
+            });
+            removed += before - arr.len();
         }
     }
-
-    if !changed && !changed_legacy {
-        return Ok(());
+    if removed == 0 {
+        return;
     }
 
-    let pretty = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    if let Some(parent) = settings_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    crate::app_log!("[setup] stripped {} legacy approval hook(s)", removed);
+    if let Ok(s) = serde_json::to_string_pretty(&settings) {
+        let _ = std::fs::write(&settings_path, s);
     }
-    std::fs::write(&settings_path, pretty).map_err(|e| e.to_string())?;
-    Ok(())
 }
 
 /// Patch existing ani-mime hooks for compatibility with newer behaviors.
