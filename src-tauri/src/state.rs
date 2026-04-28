@@ -179,6 +179,13 @@ pub struct AppState {
     /// `sessions-changed` only when this value shifts, so the frontend can
     /// stay event-driven instead of polling.
     pub last_sessions_fingerprint: u64,
+    /// Most recent PreToolUse `tool_input` per pid, with the timestamp at
+    /// which it was cached. Used so the Notification → /notify-permission
+    /// path can splice the actual tool args (e.g. the Bash command string)
+    /// into the Telegram push — Notification's stdin payload only carries
+    /// the generic prompt text. Entries are short-lived; expired ones are
+    /// ignored at read time. (key: pid, value: (json_text, unix_secs))
+    pub pretool_cache: HashMap<u32, (String, u64)>,
 }
 
 /// Deterministic hash of the session fields the UI renders. Pids are sorted so

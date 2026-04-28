@@ -23,6 +23,33 @@ fn project_label(pwd: &str) -> String {
         .to_string()
 }
 
+/// Render a PreToolUse JSON payload as a compact human-readable detail
+/// string for the Telegram push. Bash gets its `command` rendered as
+/// `$ <cmd>`; other tools fall back to a truncated JSON of `tool_input`.
+fn format_pretool_detail(j: &serde_json::Value) -> String {
+    let tool = j.get("tool_name").and_then(|v| v.as_str()).unwrap_or("(tool)");
+    let input = j.get("tool_input");
+
+    if let Some(cmd) = input.and_then(|i| i.get("command").and_then(|c| c.as_str())) {
+        let desc = input.and_then(|i| i.get("description").and_then(|d| d.as_str()));
+        let mut out = format!("Tool: {}\n$ {}", tool, truncate(cmd, 800));
+        if let Some(d) = desc.filter(|s| !s.trim().is_empty()) {
+            out.push_str("\n");
+            out.push_str(&truncate(d, 200));
+        }
+        return out;
+    }
+
+    if let Some(path) = input.and_then(|i| i.get("file_path").and_then(|c| c.as_str())) {
+        return format!("Tool: {}\nFile: {}", tool, path);
+    }
+
+    let snippet = input
+        .and_then(|v| serde_json::to_string(v).ok())
+        .unwrap_or_else(|| "{}".into());
+    format!("Tool: {}\nInput: {}", tool, truncate(&snippet, 600))
+}
+
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -409,6 +436,40 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                 continue;
             }
 
+            // --- /pretool-cache ---
+            // Per-pid stash of the most recent PreToolUse `tool_input`. The
+            // hook fires this just before Claude evaluates a tool; if the user
+            // ends up needing to grant permission, /notify-permission reads
+            // the cached entry and merges the actual command into the
+            // Telegram push.
+            if url.starts_with("/pretool-cache") {
+                let pid = get_query_param(&url, "pid")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(0);
+
+                let mut body = String::new();
+                let _ = req.as_reader().read_to_string(&mut body);
+
+                let has_tool_input = serde_json::from_str::<serde_json::Value>(&body)
+                    .ok()
+                    .and_then(|j| j.get("tool_input").cloned())
+                    .is_some();
+
+                if pid != 0 && has_tool_input {
+                    let mut st = app_state.lock().unwrap();
+                    st.pretool_cache.insert(pid, (body, now));
+                    // Cheap GC: drop entries older than 60s so the map can't
+                    // grow without bound across long-running sessions.
+                    st.pretool_cache.retain(|_, (_, ts)| now.saturating_sub(*ts) < 60);
+                }
+
+                let resp = tiny_http::Response::from_string("ok")
+                    .with_status_code(200)
+                    .with_header(cors.clone());
+                let _ = req.respond(resp);
+                continue;
+            }
+
             // --- /notify-permission ---
             // Claude Code Notification hook forwards its stdin JSON here so we can
             // push the actual request text to Telegram (bot token + chat id from
@@ -436,16 +497,32 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                     .unwrap_or("")
                     .to_string();
 
+                // Pull the most recent PreToolUse entry for this pid (if it
+                // arrived in the last 60s) and render the actual command text
+                // alongside the generic Notification message.
+                let cached_detail = {
+                    let st = app_state.lock().unwrap();
+                    st.pretool_cache.get(&pid).and_then(|(raw, ts)| {
+                        if now.saturating_sub(*ts) > 60 {
+                            return None;
+                        }
+                        serde_json::from_str::<serde_json::Value>(raw)
+                            .ok()
+                            .map(|j| format_pretool_detail(&j))
+                    })
+                };
+
                 let project = project_label(&cwd);
                 crate::app_log!(
-                    "[http] /notify-permission pid={} project={} msg_len={}",
-                    pid, project, message_text.len()
+                    "[http] /notify-permission pid={} project={} msg_len={} cached={}",
+                    pid, project, message_text.len(), cached_detail.is_some()
                 );
 
                 if let Some(path) = settings_path(&app_handle) {
+                    let detail = cached_detail.unwrap_or_else(|| message_text.clone());
                     let push = format!(
-                        "Claude — permission needed\nProject: {}\n\n{}\n\nReply /yes or /no",
-                        project, message_text
+                        "Claude \u{2014} permission needed\nProject: {}\n\n{}\n\nReply /yes or /no",
+                        project, detail
                     );
                     let path_clone = path.clone();
                     std::thread::spawn(move || {

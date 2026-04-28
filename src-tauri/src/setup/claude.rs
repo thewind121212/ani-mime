@@ -234,6 +234,38 @@ pub fn migrate_claude_hooks(home: &Path) {
         patched = true;
     }
 
+    // Migration 5: upgrade busy_cmd hooks (PreToolUse / UserPromptSubmit) to
+    // forward stdin to /pretool-cache. Detected by absence of that path on a
+    // command that pings state=busy. Idempotent.
+    let busy_cmd_new = "input=$(cat 2>/dev/null); curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/pretool-cache?pid=$PPID\" > /dev/null 2>&1 || true";
+    if let Some(hooks_obj) = settings.get_mut("hooks").and_then(|h| h.as_object_mut()) {
+        for event in ["PreToolUse", "UserPromptSubmit"] {
+            if let Some(arr) = hooks_obj.get_mut(event).and_then(|v| v.as_array_mut()) {
+                for entry in arr.iter_mut() {
+                    if let Some(hks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                        for hook in hks.iter_mut() {
+                            let upgrade = hook
+                                .get("command")
+                                .and_then(|c| c.as_str())
+                                .map(|c| {
+                                    c.contains("127.0.0.1:1234")
+                                        && c.contains("state=busy")
+                                        && !c.contains("/pretool-cache")
+                                })
+                                .unwrap_or(false);
+                            if upgrade {
+                                hook["command"] =
+                                    serde_json::Value::String(busy_cmd_new.to_string());
+                                migrations_applied.push("PreToolUse hook -> pretool-cache");
+                                patched = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Migration 4: upgrade existing Notification hook to also POST the body to
     // /notify-permission (Telegram push). Detected by absence of that path.
     if let Some(notif_arr) = settings
@@ -318,7 +350,12 @@ pub fn setup_claude_hooks(home: &Path) {
     // its own session (so two concurrent Claude tabs don't share the same dot).
     // $PPID inside the hook subshell is the parent process — i.e. the claude
     // binary that spawned the hook.
-    let busy_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
+    // PreToolUse / UserPromptSubmit: flip dot to busy. PreToolUse also pipes
+    // the JSON body (which carries `tool_input`) to /pretool-cache so the
+    // Notification path can splice the actual command into the Telegram push.
+    // The server ignores cache writes that don't carry `tool_input`, so this
+    // command stays safe to share with UserPromptSubmit.
+    let busy_cmd = "input=$(cat 2>/dev/null); curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/pretool-cache?pid=$PPID\" > /dev/null 2>&1 || true";
     let idle_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=idle\" > /dev/null 2>&1 || true";
     let ani_marker = "127.0.0.1:1234";
 
