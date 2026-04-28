@@ -58,11 +58,28 @@ fn truncate(s: &str, max: usize) -> String {
     format!("{}\u{2026}", cut)
 }
 
+/// Empty-decision response — PermissionRequest spec: returning nothing /
+/// no `decision` field lets the dialog proceed normally. Equivalent to the
+/// "ask" we used to send for PreToolUse, just shaped right for the new hook.
 fn ask_response(cors: tiny_http::Header) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    tiny_http::Response::from_string("{}".to_string())
+        .with_status_code(200)
+        .with_header(cors)
+}
+
+fn permission_response(
+    cors: tiny_http::Header,
+    behavior: &str,
+    message: &str,
+) -> tiny_http::Response<std::io::Cursor<Vec<u8>>> {
+    let mut decision = serde_json::json!({ "behavior": behavior });
+    if behavior == "deny" && !message.is_empty() {
+        decision["message"] = serde_json::Value::String(message.to_string());
+    }
     let payload = serde_json::json!({
         "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
+            "hookEventName": "PermissionRequest",
+            "decision": decision,
         }
     });
     let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
@@ -248,6 +265,13 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                 session.busy_type.clear();
                                 session.busy_since = 0;
                                 session.service_since = 0;
+                                // Claude's Notification hook is the only thing that
+                                // hits state=waiting on /status, so the pid is always
+                                // a claude process. Force the AI flag here so the
+                                // session passes the AI-driver gate in resolve_ui_state
+                                // even when proc_scan / is_claude_pid haven't picked
+                                // up the binary yet (e.g. version-named installer).
+                                session.is_claude_proc = true;
                                 crate::app_log!("[http] pid={} -> waiting (permission)", pid);
                                 emit_if_changed(&app_handle, &mut st);
                             } else if url.contains("state=idle") {
@@ -520,8 +544,12 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
 
                 if let Some(path) = settings_path(&app_handle) {
                     let detail = cached_detail.unwrap_or_else(|| message_text.clone());
+                    // Notification fires only when remote-approval is off — the
+                    // PermissionRequest hook would have decided already otherwise.
+                    // So this push is informational; tell the user to confirm in
+                    // the terminal rather than promising /yes /no will do anything.
                     let push = format!(
-                        "Claude \u{2014} permission needed\nProject: {}\n\n{}\n\nReply /yes or /no",
+                        "Claude \u{2014} permission needed\nProject: {}\n\n{}\n\nSwitch to terminal to confirm.",
                         project, detail
                     );
                     let path_clone = path.clone();
@@ -632,18 +660,11 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                     tool_name, decision
                 );
 
-                let payload = serde_json::json!({
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": decision,
-                        "permissionDecisionReason": "Decided remotely via Telegram",
-                    }
-                });
-                let body = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
-                let resp = tiny_http::Response::from_string(body)
-                    .with_status_code(200)
-                    .with_header(cors.clone());
-                let _ = req.respond(resp);
+                let _ = req.respond(permission_response(
+                    cors.clone(),
+                    decision,
+                    "Decided remotely via Telegram",
+                ));
                 continue;
             }
 

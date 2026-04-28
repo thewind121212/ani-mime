@@ -82,8 +82,8 @@ pub fn send_message_with_decision(
 ) -> Result<i64, String> {
     let keyboard = serde_json::json!({
         "inline_keyboard": [[
-            { "text": "\u{2705} Allow", "callback_data": format!("decision:{}:allow", decision_id) },
-            { "text": "\u{274C} Deny",  "callback_data": format!("decision:{}:deny",  decision_id) },
+            { "text": "\u{2705} Yes", "callback_data": format!("decision:{}:allow", decision_id) },
+            { "text": "\u{274C} No",  "callback_data": format!("decision:{}:deny",  decision_id) },
         ]]
     });
     send_message_inner(token, chat_id, text, Some(keyboard))
@@ -243,7 +243,7 @@ pub fn request_decision_blocking(
     let (tx, rx) = channel::<String>();
 
     let text = format!(
-        "Claude \u{2014} approval needed\nProject: {}\n\n{}\n\nTap a button to decide.",
+        "Claude \u{2014} approval needed\nProject: {}\n\n{}\n\nTap Yes or No.",
         project, detail
     );
 

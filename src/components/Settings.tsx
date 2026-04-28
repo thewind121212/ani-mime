@@ -685,11 +685,13 @@ export function Settings() {
               </div>
               <div className="settings-row with-hint">
                 <div>
-                  <span className="settings-row-label">Remote Approval (Bash)</span>
+                  <span className="settings-row-label">Remote Approval</span>
                   <span className="settings-row-hint">
-                    When on, Claude Bash tool calls send an Allow/Deny prompt to Telegram and
-                    block up to 5 minutes for your tap. Times out to <strong>deny</strong>.
-                    Other tools keep using Claude's native prompt.
+                    When on, any Claude tool call that would normally pop a permission
+                    dialog instead sends an Allow/Deny prompt to Telegram and blocks up
+                    to 5 minutes for your tap. Times out to <strong>deny</strong>.
+                    Sub-agent and auto-approved calls bypass this — only manual prompts
+                    route through.
                   </span>
                 </div>
                 <button

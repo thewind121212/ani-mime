@@ -58,18 +58,25 @@ fn ensure_ani_hook(settings: &mut serde_json::Value, event: &str, cmd: &str) -> 
 }
 
 const APPROVAL_MARKER: &str = "/permission-decide";
-const APPROVAL_MATCHER: &str = "Bash";
+const APPROVAL_EVENT: &str = "PermissionRequest";
+const APPROVAL_MATCHER: &str = "*";
 
 fn approval_command() -> &'static str {
     // Hook contract: exit 0 + valid JSON on stdout. If our backend is down,
-    // times out, or returns nothing, fall back to a `permissionDecision:ask`
-    // payload so Claude shows its native prompt instead of silently allowing.
-    "input=$(cat); resp=$(printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null); if [ -z \"$resp\" ]; then printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"ask\"}}'; else printf '%s' \"$resp\"; fi; exit 0"
+    // times out, or returns nothing, print `{}` so Claude falls back to its
+    // native permission dialog instead of silently allowing/denying.
+    // PermissionRequest only fires when a dialog would otherwise be shown,
+    // so sub-agent calls and auto-approved tools never reach this code path.
+    "input=$(cat); resp=$(printf %s \"$input\" | curl -s --max-time 360 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/permission-decide?pid=$PPID\" 2>/dev/null); if [ -z \"$resp\" ]; then printf '%s' '{}'; else printf '%s' \"$resp\"; fi; exit 0"
 }
 
-/// Install or remove the PreToolUse remote-approval hook in `~/.claude/settings.json`.
-/// Idempotent. The hook only fires for the `Bash` matcher so other tool calls
-/// keep using Claude Code's native prompts.
+/// Install or remove the PermissionRequest remote-approval hook in
+/// `~/.claude/settings.json`. Idempotent. Uses `*` matcher so any tool
+/// that would otherwise pop a permission dialog gets routed through
+/// Telegram. PermissionRequest fires *only* when a dialog is about to
+/// be shown — sub-agent and auto-approved tool calls bypass this hook
+/// entirely, so the user only sees pushes for things they'd manually
+/// confirm anyway.
 pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
     let settings_path = home.join(".claude/settings.json");
     let mut settings: serde_json::Value = if settings_path.exists() {
@@ -84,16 +91,38 @@ pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
         .ok_or_else(|| "settings.json is not an object".to_string())?
         .entry("hooks")
         .or_insert(serde_json::json!({}));
-    let pretooluse = hooks
+    let hooks_obj = hooks
         .as_object_mut()
-        .ok_or_else(|| "hooks is not an object".to_string())?
-        .entry("PreToolUse")
+        .ok_or_else(|| "hooks is not an object".to_string())?;
+
+    let mut changed = false;
+    let mut changed_legacy = false;
+
+    // Migrate away from any prior PreToolUse-based approval hook so the new
+    // PermissionRequest install doesn't double-fire alongside the legacy one.
+    if let Some(legacy_arr) = hooks_obj.get_mut("PreToolUse").and_then(|v| v.as_array_mut()) {
+        let before = legacy_arr.len();
+        legacy_arr.retain(|entry| {
+            !entry["hooks"].as_array().map_or(false, |hks| {
+                hks.iter().any(|h| {
+                    h["command"]
+                        .as_str()
+                        .map_or(false, |c| c.contains(APPROVAL_MARKER))
+                })
+            })
+        });
+        if legacy_arr.len() != before {
+            crate::app_log!("[setup] removed legacy PreToolUse approval hook");
+            changed_legacy = true;
+        }
+    }
+
+    let pretooluse = hooks_obj
+        .entry(APPROVAL_EVENT)
         .or_insert(serde_json::json!([]));
     let entries = pretooluse
         .as_array_mut()
-        .ok_or_else(|| "PreToolUse is not an array".to_string())?;
-
-    let mut changed = false;
+        .ok_or_else(|| format!("{} is not an array", APPROVAL_EVENT))?;
 
     if enabled {
         // First, replace any stale approval-hook command with the freshest
@@ -148,7 +177,7 @@ pub fn set_remote_approval(home: &Path, enabled: bool) -> Result<(), String> {
         }
     }
 
-    if !changed {
+    if !changed && !changed_legacy {
         return Ok(());
     }
 
