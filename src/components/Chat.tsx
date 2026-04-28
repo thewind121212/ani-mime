@@ -82,6 +82,8 @@ export function Chat() {
 
   const [input, setInput] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const draftRef = useRef("");
   const messagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -92,7 +94,24 @@ export function Chat() {
 
   useEffect(() => {
     inputRef.current?.focus();
+    setHistoryIndex(-1);
+    draftRef.current = "";
   }, [activeId]);
+
+  const userMessages = (activeSession?.messages ?? []).filter((m) => m.role === "user");
+
+  const applyRecall = useCallback((value: string) => {
+    setInput(value);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      const len = el.value.length;
+      el.setSelectionRange(len, len);
+      el.focus();
+    });
+  }, []);
 
   // Escape key hides window (like peer-list)
   useEffect(() => {
@@ -111,18 +130,55 @@ export function Chat() {
     const session = activeSession ?? createSession();
     send(session, input.trim());
     setInput("");
+    setHistoryIndex(-1);
+    draftRef.current = "";
     if (inputRef.current) inputRef.current.style.height = "auto";
   }, [input, loading, activeSession, createSession, send]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      const el = e.currentTarget;
+      const before = el.value.slice(0, el.selectionStart);
+      if (before.includes("\n")) return;
+      if (userMessages.length === 0) return;
+      if (historyIndex >= userMessages.length - 1) return;
+      e.preventDefault();
+      if (historyIndex === -1) draftRef.current = input;
+      const next = historyIndex + 1;
+      setHistoryIndex(next);
+      applyRecall(userMessages[userMessages.length - 1 - next].content);
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (historyIndex === -1) return;
+      const el = e.currentTarget;
+      const after = el.value.slice(el.selectionEnd);
+      if (after.includes("\n")) return;
+      e.preventDefault();
+      const next = historyIndex - 1;
+      setHistoryIndex(next);
+      if (next === -1) {
+        applyRecall(draftRef.current);
+      } else {
+        applyRecall(userMessages[userMessages.length - 1 - next].content);
+      }
+      return;
     }
   };
 
   const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+    if (historyIndex !== -1) {
+      setHistoryIndex(-1);
+      draftRef.current = e.target.value;
+    }
     const el = e.target;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
