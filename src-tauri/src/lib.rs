@@ -86,6 +86,7 @@ fn get_sessions(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<SessionInf
         codex_pid: s.codex_pid,
         is_codex_proc: s.is_codex_proc,
         fg_cmd: s.fg_cmd.clone(),
+        is_tmux_proc: s.is_tmux_proc,
     }).collect()
 }
 
@@ -638,6 +639,7 @@ pub fn run() {
             let app_state = Arc::new(Mutex::new(AppState {
                 sessions: HashMap::new(),
                 current_ui: "searching".to_string(),
+                current_audio_ui: "searching".to_string(),
                 idle_since: 0,
                 sleeping: false,
                 peers: HashMap::new(),

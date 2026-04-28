@@ -556,6 +556,33 @@ pub fn pid_exists(pid: u32) -> bool {
     }
 }
 
+/// True if a process's kernel comm name looks like a tmux server.
+/// Matches "tmux" exactly and "tmux:" prefix (some installs report
+/// `tmux: server` / `tmux: client`).
+fn is_tmux_name(name: &str) -> bool {
+    name == "tmux" || name.starts_with("tmux:")
+}
+
+/// Walk up from a shell pid and return true if any ancestor is a tmux server.
+/// Used to flag sessions running inside a tmux pane so the mascot reacts to
+/// their busy/idle even when an AI session is also active.
+fn shell_under_tmux(shell_pid: u32, by_pid: &HashMap<u32, &ProcInfo>) -> bool {
+    let mut cursor = shell_pid;
+    let mut steps = 0;
+    while cursor != 0 && steps < 8 {
+        let Some(p) = by_pid.get(&cursor) else { return false };
+        if is_tmux_name(&p.name) {
+            return true;
+        }
+        if p.ppid == 0 || p.ppid == cursor {
+            return false;
+        }
+        cursor = p.ppid;
+        steps += 1;
+    }
+    false
+}
+
 /// Determine if a shell process is a user terminal (not a `zsh -c` subshell,
 /// not a daemon shell, not spawned by claude as a tool-call helper).
 fn is_user_terminal(shell: &ProcInfo, by_pid: &HashMap<u32, &ProcInfo>) -> bool {
@@ -741,6 +768,11 @@ fn reconcile(app_handle: &tauri::AppHandle, app_state: &Arc<Mutex<AppState>>) {
         // parallel `shell_has_codex` map computed above.
         entry.has_codex = shell_has_codex.contains_key(&t.pid);
         entry.codex_pid = shell_has_codex.get(&t.pid).copied();
+
+        // Tmux: shells inside a tmux pane drive the mascot the same way
+        // Claude/Codex sessions do, so commands run there flip the dog
+        // busy even when an AI session is active elsewhere.
+        entry.is_tmux_proc = shell_under_tmux(t.pid, &by_pid);
     }
 
     // (3) Mark sessions whose PID is itself a claude/codex process. The UI

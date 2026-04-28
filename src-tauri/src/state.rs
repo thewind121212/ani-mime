@@ -80,6 +80,21 @@ pub struct Session {
     /// Name of the foreground command running in this shell (e.g. "claude",
     /// "node", "bun"). Empty if the shell is idle at its prompt.
     pub fg_cmd: String,
+    /// Millisecond timestamp of the most recent codex PermissionRequest
+    /// `phase=start` ping. 0 when nothing is pending. Used to detect
+    /// auto-approval: if a `state=busy` arrives between `phase=start` and
+    /// the deferred `phase=wait`, the wait gets suppressed.
+    pub perm_pending_since_ms: u64,
+    /// Set true when `state=busy` arrives while a permission request is
+    /// pending (i.e. between phase=start and phase=wait). Tells the wait
+    /// handler the request was auto-approved and the yellow flash should
+    /// be skipped. Cleared when the wait handler runs.
+    pub busy_after_perm: bool,
+    /// Set by proc_scan: this shell sits inside a tmux pane (any ancestor
+    /// process is a tmux server). Treated as first-class for mascot status
+    /// alongside Claude/Codex sessions, so commands run inside tmux still
+    /// flip the dog to busy even when AI sessions are present elsewhere.
+    pub is_tmux_proc: bool,
 }
 
 impl Session {
@@ -100,6 +115,9 @@ impl Session {
             codex_pid: None,
             is_codex_proc: false,
             fg_cmd: String::new(),
+            perm_pending_since_ms: 0,
+            busy_after_perm: false,
+            is_tmux_proc: false,
         }
     }
 }
@@ -120,12 +138,18 @@ pub struct SessionInfo {
     pub codex_pid: Option<u32>,
     pub is_codex_proc: bool,
     pub fg_cmd: String,
+    pub is_tmux_proc: bool,
 }
 
 pub struct AppState {
     pub sessions: HashMap<u32, Session>,
     /// What the frontend is currently showing.
     pub current_ui: String,
+    /// Mirror of `current_ui` but considering only AI sessions
+    /// (Claude / Codex / pid=0). Drives the working/done sound transitions
+    /// — tmux shells are excluded so plain `cd`/`ls`/`git status` runs
+    /// don't fire the "task done" sound on every command.
+    pub current_audio_ui: String,
     /// When the UI entered "idle" state (0 = not idle).
     pub idle_since: u64,
     /// True when idle countdown triggered sleep. Only busy/service wakes up.
@@ -179,6 +203,7 @@ fn sessions_fingerprint(sessions: &HashMap<u32, Session>) -> u64 {
         s.codex_pid.hash(&mut h);
         s.is_codex_proc.hash(&mut h);
         s.fg_cmd.hash(&mut h);
+        s.is_tmux_proc.hash(&mut h);
     }
     h.finish()
 }
@@ -190,32 +215,89 @@ fn sessions_fingerprint(sessions: &HashMap<u32, Session>) -> u64 {
 /// exists, only those sessions drive the mascot. Plain shell sessions are
 /// excluded from that pass — otherwise every `cd` / `ls` / `git status`
 /// would flip the dog through busy→idle and trigger the celebration animation
-/// on each command. With no AI sessions present we fall back to the original
-/// "consider every session" behavior so shell-only users still see status.
+/// on each command. Tmux sessions are an exception: users explicitly opt into
+/// "command = working" by running inside a tmux pane, so we treat tmux shells
+/// as first-class drivers alongside AI sessions. With no AI/tmux sessions
+/// present we fall back to the original "consider every session" behavior so
+/// shell-only users still see status.
 pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
-    let has_ai = sessions
+    let has_driver = sessions
         .iter()
-        .any(|(pid, s)| s.is_claude_proc || s.is_codex_proc || *pid == 0);
+        .any(|(pid, s)| s.is_claude_proc || s.is_codex_proc || s.is_tmux_proc || *pid == 0);
 
+    let mut has_waiting = false;
     let mut has_service = false;
     let mut has_idle = false;
 
     for (pid, s) in sessions.iter() {
-        if has_ai {
-            let is_ai = s.is_claude_proc || s.is_codex_proc || *pid == 0;
-            if !is_ai {
+        if has_driver {
+            let drives = s.is_claude_proc || s.is_codex_proc || s.is_tmux_proc || *pid == 0;
+            if !drives {
                 continue;
             }
         }
+        // Tmux shells fire `state=busy` on every preexec — including
+        // `cd` / `ls` / `git status`. Counting those as busy makes the
+        // mascot bounce on every prompt. Long-running commands
+        // (`bun run dev`, `docker compose up`, ssh, ...) hit the
+        // shell-script "service" classifier and arrive as
+        // ui_state=service instead of busy, so they still drive the
+        // mascot through the service arm below. Non-tmux drivers
+        // (Claude / Codex / pid=0) always count.
+        let tmux_only = s.is_tmux_proc && !s.is_claude_proc && !s.is_codex_proc && *pid != 0;
         match s.ui_state.as_str() {
-            "busy" => return "busy",
+            "busy" => {
+                if tmux_only {
+                    has_idle = true;
+                } else {
+                    return "busy";
+                }
+            }
+            "waiting" => has_waiting = true,
             "service" => has_service = true,
             "idle" => has_idle = true,
             _ => {}
         }
     }
 
-    if has_service {
+    if has_waiting {
+        "waiting"
+    } else if has_service {
+        "service"
+    } else if has_idle {
+        "idle"
+    } else {
+        "disconnected"
+    }
+}
+
+/// Audio-only UI resolution: same priority rules as `resolve_ui_state` but
+/// only AI sessions (Claude / Codex / pid=0 virtual claude) participate.
+/// Tmux shells are deliberately excluded — they drive the mascot visually
+/// (so the dot turns green during a `make build`) but the working/done
+/// sound effects only fire for AI tasks.
+pub fn resolve_audio_state(sessions: &HashMap<u32, Session>) -> &'static str {
+    let mut has_waiting = false;
+    let mut has_service = false;
+    let mut has_idle = false;
+
+    for (pid, s) in sessions.iter() {
+        let is_ai = s.is_claude_proc || s.is_codex_proc || *pid == 0;
+        if !is_ai {
+            continue;
+        }
+        match s.ui_state.as_str() {
+            "busy" => return "busy",
+            "waiting" => has_waiting = true,
+            "service" => has_service = true,
+            "idle" => has_idle = true,
+            _ => {}
+        }
+    }
+
+    if has_waiting {
+        "waiting"
+    } else if has_service {
         "service"
     } else if has_idle {
         "idle"
@@ -226,6 +308,7 @@ pub fn resolve_ui_state(sessions: &HashMap<u32, Session>) -> &'static str {
 
 pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
     let new_ui = resolve_ui_state(&state.sessions);
+    let new_audio_ui = resolve_audio_state(&state.sessions);
 
     // If sleeping, only wake up for busy or service
     if state.sleeping {
@@ -254,6 +337,17 @@ pub fn emit_if_changed(app: &tauri::AppHandle, state: &mut AppState) {
             crate::app_error!("[state] failed to emit status-changed: {}", e);
         }
         state.current_ui = new_ui.to_string();
+    }
+
+    if new_audio_ui != state.current_audio_ui {
+        crate::app_log!(
+            "[state] audio transition: {} -> {}",
+            state.current_audio_ui, new_audio_ui
+        );
+        if let Err(e) = app.emit("audio-status-changed", new_audio_ui) {
+            crate::app_error!("[state] failed to emit audio-status-changed: {}", e);
+        }
+        state.current_audio_ui = new_audio_ui.to_string();
     }
 
     maybe_emit_sessions_changed(app, state);

@@ -28,6 +28,7 @@ import {
   LogicalPosition,
   LogicalSize,
 } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { useInstallPrompt } from "./hooks/useInstallPrompt";
 import { InstallPromptDialog } from "./components/InstallPromptDialog";
 import "./styles/theme.css";
@@ -45,12 +46,7 @@ const SESSION_DROPDOWN_MIN_WIDTH = 320;
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
 // needs so the bubble fits inside the window without clipping.
-const BASE_PAD_TOP = 20;
 const BASE_PAD_HORIZONTAL = 50; // padding-left + padding-right base
-// The bubble overlaps the top 46*scale px of the sprite (see
-// speech-bubble.css `bottom` calc). Anything taller than the overlap
-// plus the container's base top padding needs extra vertical room.
-const BUBBLE_OVERLAP_PX = 46;
 // The sprite's native frame width (css px, pre-scale).
 const SPRITE_NATIVE_WIDTH = 128;
 // Baseline root width — see app.css .container min-width. The bubble
@@ -117,15 +113,30 @@ function App() {
     prevVisitorCountRef.current = visitors.length;
   }, [visitors.length, sound.master, sound.visit, soundOverrides, getSoundUrl]);
 
+  // Audio-only status driven by `audio-status-changed` from the backend.
+  // Mirrors `current_ui` but is computed from AI sessions only — tmux
+  // shells drive the visual mascot but not the working/done sounds, so
+  // a `git status` inside a tmux pane doesn't ring the "done" sound on
+  // every prompt.
+  const [audioStatus, setAudioStatus] = useState<Status>("initializing");
+  useEffect(() => {
+    const unlisten = listen<string>("audio-status-changed", (e) => {
+      setAudioStatus(e.payload as Status);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // Working-status audio: loop the working sound while busy, play the
   // done sound once when the task finishes (busy → anything else).
   // Every transition maps to a case id whose sound is resolved through
   // the override map — lets users swap or silence any specific case.
   const busyLoopRef = useRef<HTMLAudioElement | null>(null);
-  const prevStatusRef = useRef(status);
+  const prevAudioStatusRef = useRef(audioStatus);
   useEffect(() => {
-    const prev = prevStatusRef.current;
-    prevStatusRef.current = status;
+    const prev = prevAudioStatusRef.current;
+    prevAudioStatusRef.current = audioStatus;
     const statusEnabled = sound.isCategoryEnabled("status");
 
     // If status sounds (or master) got disabled mid-loop, cut it
@@ -137,7 +148,7 @@ function App() {
 
     if (!statusEnabled) return;
 
-    const caseId = transitionToCaseId(prev, status);
+    const caseId = transitionToCaseId(prev, audioStatus);
     if (!caseId) return;
     const c = findStatusCase(caseId);
     if (!c) return;
@@ -164,7 +175,7 @@ function App() {
     } else if (resolved) {
       void playResolvedSound(resolved, c.playOptions, getSoundUrl);
     }
-  }, [status, sound.master, sound.status, sound.workingLoop, soundOverrides, getSoundUrl]);
+  }, [audioStatus, sound.master, sound.status, sound.workingLoop, soundOverrides, getSoundUrl]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [effectActive, setEffectActive] = useState(false);
   const [sessionOpen, setSessionOpen] = useState(false);
@@ -174,16 +185,21 @@ function App() {
   // race this effect with its own setSize (which would otherwise flash
   // the content at the wrong position for a frame).
   const [sessionClosing, setSessionClosing] = useState(false);
-  // Window position captured when the dropdown opens, restored on close.
+  // Logical-pixel leftward shift we applied to the window on open
+  // (half the width growth). On close we add it back to the *current*
+  // window position so user drags during the open state aren't undone.
   // Keeping this as a ref avoids triggering a re-render when we record it.
-  const savedPosRef = useRef<LogicalPosition | null>(null);
+  const openShiftXRef = useRef<number | null>(null);
   // Extra padding the container needs so a multi-line / wide bubble
   // fits inside the window without clipping. Driven by a ResizeObserver
   // on the bubble; applied via CSS vars on .container.
   const [bubbleExtra, setBubbleExtra] = useState<{ top: number; horizontal: number }>({ top: 0, horizontal: 0 });
-  // Window position recorded at the moment the bubble first starts
-  // growing the window, used to restore position on hide.
-  const bubbleSavedPosRef = useRef<LogicalPosition | null>(null);
+  // Logical-pixel shift currently applied to the window position to
+  // accommodate the speech bubble. We track the delta we've applied
+  // (instead of an absolute pre-bubble position) so the restore on
+  // hide doesn't undo any drags the user made while the bubble was
+  // visible. {0,0} means the window sits at its un-shifted position.
+  const bubbleAppliedShiftRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   // True while our bubble effect owns the window geometry — pauses
   // useWindowAutoSize so it doesn't race our setSize/setPosition.
   const bubbleGrowActive = visible && (bubbleExtra.top > 0 || bubbleExtra.horizontal > 0);
@@ -230,12 +246,15 @@ function App() {
               )
             )
           : 0;
-      // Vertical: bubble bottom is at BUBBLE_OVERLAP_PX * scale below
-      // the mascot top. Budget above = overlap + BASE_PAD_TOP.
-      const extraTop = Math.max(
-        0,
-        Math.ceil(rect.height - BUBBLE_OVERLAP_PX * scale - BASE_PAD_TOP)
-      );
+      // Vertical: bubble is absolute and overflows above the container
+      // when taller than the natural budget (overlap + BASE_PAD_TOP).
+      // We deliberately do NOT push the container down to fit it, because
+      // the only way to keep the mascot visually anchored is a paired
+      // window setPosition — and the async window move never lands in the
+      // same paint frame as the synchronous CSS padding update, which
+      // makes the dog jump on every status change. Letting the bubble
+      // clip when the window is near the screen top is the lesser evil.
+      const extraTop = 0;
       setBubbleExtra((prev) =>
         prev.top === extraTop && prev.horizontal === extraH
           ? prev
@@ -263,57 +282,42 @@ function App() {
     const win = getCurrentWindow();
     const { top: extraTop, horizontal: extraH } = bubbleExtra;
     const shouldGrow = visible && (extraTop > 0 || extraH > 0);
+    const target = shouldGrow ? { x: extraH, y: extraTop } : { x: 0, y: 0 };
+    const applied = bubbleAppliedShiftRef.current;
+    const dx = target.x - applied.x;
+    const dy = target.y - applied.y;
+    const sizeChanged = !!containerRef.current;
 
-    if (shouldGrow) {
-      void (async () => {
-        try {
-          const el = containerRef.current;
-          if (!el) return;
+    if (dx === 0 && dy === 0 && !sizeChanged) return;
 
-          if (!bubbleSavedPosRef.current) {
-            const sf = await win.scaleFactor();
-            const pos = await win.outerPosition();
-            const logical = pos.toLogical(sf);
-            bubbleSavedPosRef.current = new LogicalPosition(
-              Math.round(logical.x),
-              Math.round(logical.y)
-            );
-          }
-          const savedPos = bubbleSavedPosRef.current;
-          const newWidth = el.offsetWidth;
-          const newHeight = el.offsetHeight;
-
-          await Promise.all([
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        const ops: Promise<void>[] = [];
+        if (dx !== 0 || dy !== 0) {
+          const sf = await win.scaleFactor();
+          const pos = await win.outerPosition();
+          const logical = pos.toLogical(sf);
+          ops.push(
             win.setPosition(
-              new LogicalPosition(savedPos.x - extraH, savedPos.y - extraTop)
-            ),
-            win.setSize(new LogicalSize(newWidth, newHeight)),
-          ]);
-        } catch (err) {
-          console.error("[bubble-grow] resize failed:", err);
+              new LogicalPosition(
+                Math.round(logical.x) - dx,
+                Math.round(logical.y) - dy
+              )
+            )
+          );
         }
-      })();
-      return;
-    }
-
-    if (bubbleSavedPosRef.current) {
-      const savedPos = bubbleSavedPosRef.current;
-      bubbleSavedPosRef.current = null;
-      void (async () => {
-        try {
-          const el = containerRef.current;
-          const ops: Promise<void>[] = [win.setPosition(savedPos)];
-          if (el) {
-            ops.push(
-              win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))
-            );
-          }
-          await Promise.all(ops);
-        } catch (err) {
-          console.error("[bubble-grow] restore failed:", err);
+        if (el) {
+          ops.push(
+            win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))
+          );
         }
-      })();
-    }
+        await Promise.all(ops);
+        bubbleAppliedShiftRef.current = target;
+      } catch (err) {
+        console.error("[bubble-grow] resize failed:", err);
+      }
+    })();
   }, [visible, bubbleExtra, sessionOpen, sessionClosing, effectActive]);
 
   // Visitor count change → drive the window size directly.
@@ -394,8 +398,10 @@ function App() {
   // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
   // Because #root centers its content, a wider window visibly shifts the
   // pet + pill rightward. To keep the pet visually anchored we also move
-  // the window left by half the width growth. On close we restore both
-  // size and position so the pet returns to its original spot.
+  // the window left by half the width growth. On close we undo just that
+  // open-time shift against the *current* window position so the pet
+  // lands back where the user expects — even if they dragged the window
+  // while the dropdown was open.
   //
   // setSize + setPosition are fired in parallel via Promise.all so they
   // commit close to the same native-window frame — otherwise the
@@ -415,6 +421,7 @@ function App() {
       // bubble) keeps its height rather than being squeezed.
       const newHeight = Math.max(currentHeight, SESSION_DROPDOWN_WINDOW_HEIGHT);
       const dx = newWidth - currentWidth;
+      const shiftX = Math.round(dx / 2);
 
       void (async () => {
         try {
@@ -423,11 +430,9 @@ function App() {
           const logical = pos.toLogical(scale);
           const origX = Math.round(logical.x);
           const origY = Math.round(logical.y);
-          savedPosRef.current = new LogicalPosition(origX, origY);
+          openShiftXRef.current = shiftX;
           await Promise.all([
-            win.setPosition(
-              new LogicalPosition(origX - Math.round(dx / 2), origY)
-            ),
+            win.setPosition(new LogicalPosition(origX - shiftX, origY)),
             win.setSize(new LogicalSize(newWidth, newHeight)),
           ]);
         } catch (err) {
@@ -437,19 +442,26 @@ function App() {
       return;
     }
 
-    const savedPos = savedPosRef.current;
-    if (!savedPos) {
+    const shiftX = openShiftXRef.current;
+    if (shiftX === null) {
       // Nothing to revert — make sure we don't leave sessionClosing
       // stuck true (onOpenChange flipped it optimistically).
       setSessionClosing(false);
       return;
     }
-    savedPosRef.current = null;
+    openShiftXRef.current = null;
 
     void (async () => {
       try {
+        const scale = await win.scaleFactor();
+        const pos = await win.outerPosition();
+        const logical = pos.toLogical(scale);
+        const restoredX = Math.round(logical.x) + shiftX;
+        const restoredY = Math.round(logical.y);
         const el = containerRef.current;
-        const ops: Promise<void>[] = [win.setPosition(savedPos)];
+        const ops: Promise<void>[] = [
+          win.setPosition(new LogicalPosition(restoredX, restoredY)),
+        ];
         if (el) {
           ops.push(
             win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight))

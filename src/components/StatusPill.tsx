@@ -44,6 +44,7 @@ const dotClassMap: Record<Status, string> = {
   disconnected: "dot disconnected",
   initializing: "dot initializing",
   searching: "dot searching",
+  waiting: "dot waiting",
   visiting: "dot visiting",
 };
 
@@ -54,12 +55,14 @@ const labelMap: Record<Status, string> = {
   disconnected: "Sleep",
   initializing: "Initializing...",
   searching: "Searching...",
+  waiting: "Awaiting permission...",
   visiting: "Visiting...",
 };
 
-// Priority for picking a group's summary state: busy > service > idle.
+// Priority for picking a group's summary state: busy > waiting > service > idle.
 const statePriority: Record<string, number> = {
-  busy: 3,
+  busy: 4,
+  waiting: 3,
   service: 2,
   idle: 1,
 };

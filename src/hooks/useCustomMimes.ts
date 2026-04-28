@@ -25,6 +25,7 @@ const ALL_STATUSES: Status[] = [
   "service",
   "disconnected",
   "searching",
+  "waiting",
   "initializing",
   "visiting",
 ];

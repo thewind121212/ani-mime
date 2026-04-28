@@ -509,6 +509,12 @@ button.session-group-head:hover {
   animation: pulse 1.5s ease-in-out infinite;
 }
 
+.dot.waiting {
+  background: #ffcc00;
+  box-shadow: 0 0 8px rgba(255, 204, 0, 0.7);
+  animation: pulse 1s ease-in-out infinite;
+}
+
 .dot.visiting {
   background: #af52de;
   box-shadow: 0 0 6px rgba(175, 82, 222, 0.6);

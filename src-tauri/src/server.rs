@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 
-use crate::helpers::{get_port, get_query_param, now_secs};
+use crate::helpers::{get_port, get_query_param, now_millis, now_secs};
 use crate::proc_scan::pid_exists;
 use crate::state::{emit_if_changed, AppState, Session, TaskCompleted};
 
@@ -75,6 +75,14 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
 
                             if url.contains("state=busy") {
                                 let cmd_type = get_query_param(&url, "type").unwrap_or("task");
+                                let was_waiting = session.ui_state == "waiting";
+                                let was_busy = session.ui_state == "busy";
+                                // Mark auto-approve race: if a codex PermissionRequest
+                                // was pending and busy arrived first, the deferred
+                                // wait handler should skip the yellow flash.
+                                if session.perm_pending_since_ms > 0 {
+                                    session.busy_after_perm = true;
+                                }
                                 session.busy_type = cmd_type.to_string();
 
                                 if cmd_type == "service" {
@@ -89,6 +97,75 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                     crate::app_log!("[http] pid={} -> busy (type={})", pid, cmd_type);
                                 }
 
+                                // Waiting -> busy means the user just approved
+                                // a Claude permission prompt. Emit the
+                                // dedicated event so the frontend can play the
+                                // 3-bubble "permission unlocked" sequence
+                                // before the busy hide listener kicks in.
+                                let permission_allowed_pwd = if was_waiting {
+                                    Some(session.pwd.clone())
+                                } else {
+                                    None
+                                };
+
+                                if let Some(pwd) = permission_allowed_pwd {
+                                    crate::app_log!("[http] pid={} permission allowed (waiting -> busy)", pid);
+                                    if let Err(e) = app_handle.emit(
+                                        "permission-allowed",
+                                        serde_json::json!({ "pid": pid, "pwd": pwd }),
+                                    ) {
+                                        crate::app_error!("[http] failed to emit permission-allowed: {}", e);
+                                    }
+                                }
+
+                                // Fire `task-started` on non-busy → busy so the
+                                // frontend can show a "cooking ${folder}" bubble.
+                                // Only AI sessions are eligible — plain shell
+                                // bursts already get filtered out in the audio
+                                // and bubble paths. The frontend debounces with
+                                // a short delay so quick idle→busy→idle blips
+                                // never reach a user-visible bubble.
+                                if !was_busy {
+                                    let started_pwd = session.pwd.clone();
+                                    let started_source = if session.is_claude_proc
+                                        || pid == 0
+                                        || crate::proc_scan::is_claude_pid(pid)
+                                    {
+                                        "claude"
+                                    } else if session.is_codex_proc
+                                        || crate::proc_scan::is_codex_pid(pid)
+                                    {
+                                        "codex"
+                                    } else {
+                                        ""
+                                    };
+                                    if !started_source.is_empty() {
+                                        crate::app_log!(
+                                            "[http] pid={} task started (source={})",
+                                            pid, started_source
+                                        );
+                                        if let Err(e) = app_handle.emit(
+                                            "task-started",
+                                            serde_json::json!({
+                                                "pid": pid,
+                                                "pwd": started_pwd,
+                                                "source": started_source,
+                                            }),
+                                        ) {
+                                            crate::app_error!(
+                                                "[http] failed to emit task-started: {}", e
+                                            );
+                                        }
+                                    }
+                                }
+
+                                emit_if_changed(&app_handle, &mut st);
+                            } else if url.contains("state=waiting") {
+                                session.ui_state = "waiting".to_string();
+                                session.busy_type.clear();
+                                session.busy_since = 0;
+                                session.service_since = 0;
+                                crate::app_log!("[http] pid={} -> waiting (permission)", pid);
                                 emit_if_changed(&app_handle, &mut st);
                             } else if url.contains("state=idle") {
                                 let busy_since = session.busy_since;
@@ -199,6 +276,63 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                     }
                 }
 
+                let resp = tiny_http::Response::from_string("ok")
+                    .with_status_code(200)
+                    .with_header(cors.clone());
+                let _ = req.respond(resp);
+                continue;
+            }
+
+            // --- /codex-perm (codex PermissionRequest lifecycle) ---
+            // Two phases per request:
+            //   phase=start fires immediately when codex needs approval.
+            //   phase=wait fires ~500ms later from a backgrounded subshell.
+            // Between the two, a state=busy from PreToolUse means codex
+            // auto-approved (trusted-project / auto-edit). The wait handler
+            // checks `busy_after_perm` to suppress the yellow flash for
+            // those non-blocking approvals; only true human waits flip the
+            // dot to yellow and (on user approval) trigger the 3-bubble
+            // permission-allowed sequence.
+            if url.starts_with("/codex-perm") {
+                if let Some(pid_str) = get_query_param(&url, "pid") {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        if pid_exists(pid) {
+                            let phase = get_query_param(&url, "phase").unwrap_or("");
+                            let mut st = app_state.lock().unwrap();
+                            let session = st
+                                .sessions
+                                .entry(pid)
+                                .or_insert_with(|| Session::new_idle(now));
+                            session.last_seen = now;
+
+                            if phase == "start" {
+                                session.perm_pending_since_ms = now_millis();
+                                session.busy_after_perm = false;
+                                crate::app_log!("[http] codex pid={} perm-start", pid);
+                            } else if phase == "wait" {
+                                if session.perm_pending_since_ms == 0 {
+                                    crate::app_log!("[http] codex pid={} perm-wait without pending start", pid);
+                                } else if session.busy_after_perm {
+                                    crate::app_log!("[http] codex pid={} perm-wait suppressed (auto-approve)", pid);
+                                    session.perm_pending_since_ms = 0;
+                                    session.busy_after_perm = false;
+                                } else {
+                                    session.ui_state = "waiting".to_string();
+                                    session.busy_type.clear();
+                                    session.busy_since = 0;
+                                    session.service_since = 0;
+                                    session.perm_pending_since_ms = 0;
+                                    crate::app_log!("[http] codex pid={} perm-wait -> waiting", pid);
+                                    emit_if_changed(&app_handle, &mut st);
+                                }
+                            } else {
+                                crate::app_warn!("[http] /codex-perm unknown phase: {}", phase);
+                            }
+                        } else {
+                            crate::app_warn!("[http] /codex-perm rejected: pid={} not running", pid);
+                        }
+                    }
+                }
                 let resp = tiny_http::Response::from_string("ok")
                     .with_status_code(200)
                     .with_header(cors.clone());

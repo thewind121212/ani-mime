@@ -4,6 +4,7 @@ export type Status =
   | "idle"
   | "busy"
   | "service"
+  | "waiting"
   | "disconnected"
   | "visiting";
 

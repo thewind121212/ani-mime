@@ -53,6 +53,15 @@ pub fn setup_codex_hooks(home: &Path) {
 
     let busy_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
     let idle_cmd = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=idle\" > /dev/null 2>&1 || true";
+    // Two-phase PermissionRequest hook. Codex fires this for every approval —
+    // including auto-approved exec under trusted-project config. We can't
+    // tell from the hook input alone whether it's auto or human, so we ping
+    // /codex-perm twice: once immediately (phase=start, marks the request
+    // pending) and once 0.5s later from a detached subshell (phase=wait,
+    // promotes ui to "waiting" only if no PreToolUse arrived in between).
+    // PARENT captures $PPID (codex pid) before the subshell forks, since
+    // $PPID inside the subshell would point at the hook shell itself.
+    let perm_cmd = "PARENT=$PPID; curl -s --max-time 1 \"http://127.0.0.1:1234/codex-perm?pid=$PARENT&phase=start\" > /dev/null 2>&1; ( sleep 0.5; curl -s --max-time 1 \"http://127.0.0.1:1234/codex-perm?pid=$PARENT&phase=wait\" > /dev/null 2>&1 ) > /dev/null 2>&1 & true";
     let ani_marker = "127.0.0.1:1234";
 
     let has_ani_hook = |arr: &serde_json::Value| -> bool {
@@ -137,15 +146,33 @@ pub fn setup_codex_hooks(home: &Path) {
     add_hook(hooks, "UserPromptSubmit", busy_cmd);
     add_hook(hooks, "Stop", idle_cmd);
     add_hook(hooks, "SessionStart", idle_cmd);
-    // Intentionally NOT hooking PermissionRequest: it fires on every exec /
-    // tool approval — including ones auto-approved by trusted-project config.
-    // Marking idle there caused the dog to drop out of busy while a long
-    // background subprocess (e.g. `npm install`) was still running.
 
-    // Strip any pre-existing ani-mime PermissionRequest hook that an older
-    // ani-mime build may have written. Without this, users who installed the
-    // earlier hook stay stuck on the broken behavior.
-    remove_ani_hook(hooks, "PermissionRequest", ani_marker);
+    // Strip any legacy PermissionRequest hook (the old idle-on-perm version
+    // that broke busy state during long auto-approved subprocesses) before
+    // installing the new two-phase one. Comparing on the legacy idle/busy
+    // command shape: those don't contain `/codex-perm`, so we re-use the
+    // generic ani marker remove and then re-add the new hook fresh.
+    let has_new_perm_hook = hooks
+        .as_object()
+        .and_then(|o| o.get("PermissionRequest"))
+        .map(|v| {
+            v.as_array().map_or(false, |entries| {
+                entries.iter().any(|entry| {
+                    entry["hooks"].as_array().map_or(false, |hks| {
+                        hks.iter().any(|h| {
+                            h["command"]
+                                .as_str()
+                                .map_or(false, |c| c.contains("/codex-perm"))
+                        })
+                    })
+                })
+            })
+        })
+        .unwrap_or(false);
+    if !has_new_perm_hook {
+        remove_ani_hook(hooks, "PermissionRequest", ani_marker);
+    }
+    add_hook(hooks, "PermissionRequest", perm_cmd);
 
     match serde_json::to_string_pretty(&settings) {
         Ok(json_str) => {

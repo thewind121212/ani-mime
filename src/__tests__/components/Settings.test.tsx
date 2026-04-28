@@ -58,6 +58,7 @@ vi.mock("../../hooks/useCustomMimes", () => ({
     "service",
     "disconnected",
     "searching",
+    "waiting",
     "initializing",
     "visiting",
   ],
@@ -233,7 +234,7 @@ describe("Settings", () => {
     });
   });
 
-  const ALL_STATUSES_CONST = ["idle", "busy", "service", "disconnected", "searching", "initializing", "visiting"] as const;
+  const ALL_STATUSES_CONST = ["idle", "busy", "service", "disconnected", "searching", "waiting", "initializing", "visiting"] as const;
 
   function buildSprites(id: string) {
     return Object.fromEntries(

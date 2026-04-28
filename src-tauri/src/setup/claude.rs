@@ -1,5 +1,62 @@
 use std::path::Path;
 
+const ANI_HOOK_MARKER: &str = "127.0.0.1:1234";
+
+/// Returns true if the given event's array already has an ani-mime-tagged hook.
+fn has_ani_hook_in(arr: &serde_json::Value) -> bool {
+    arr.as_array().map_or(false, |entries| {
+        entries.iter().any(|entry| {
+            entry["hooks"].as_array().map_or(false, |hks| {
+                hks.iter().any(|h| {
+                    h["command"]
+                        .as_str()
+                        .map_or(false, |c| c.contains(ANI_HOOK_MARKER))
+                })
+            })
+        })
+    })
+}
+
+/// Add an ani-mime hook entry to the named event when it isn't already there.
+/// Returns true if the settings tree was modified.
+fn ensure_ani_hook(settings: &mut serde_json::Value, event: &str, cmd: &str) -> bool {
+    let hooks = match settings
+        .as_object_mut()
+        .and_then(|o| Some(o.entry("hooks").or_insert(serde_json::json!({}))))
+    {
+        Some(h) => h,
+        None => return false,
+    };
+    let arr = hooks
+        .as_object_mut()
+        .unwrap()
+        .entry(event)
+        .or_insert(serde_json::json!([]));
+
+    if has_ani_hook_in(arr) {
+        return false;
+    }
+
+    if let Some(entries) = arr.as_array_mut() {
+        if entries.is_empty() {
+            entries.push(serde_json::json!({
+                "matcher": "",
+                "hooks": [{ "type": "command", "command": cmd }]
+            }));
+        } else if let Some(first) = entries.first_mut() {
+            if let Some(hks) = first["hooks"].as_array_mut() {
+                hks.push(serde_json::json!({
+                    "type": "command",
+                    "command": cmd
+                }));
+            }
+        }
+        true
+    } else {
+        false
+    }
+}
+
 /// Patch existing ani-mime hooks for compatibility with newer behaviors.
 /// Safe to run on every startup — only modifies hooks that actually need fixing.
 ///
@@ -7,6 +64,7 @@ use std::path::Path;
 ///   1. Add `|| true` so a missing app doesn't error in claude
 ///   2. Replace `pid=0` (shared session) with `pid=$PPID` (per-claude session)
 ///      and switch single quotes to double so the shell expands $PPID
+///   3. Add Notification hook so the dot turns yellow on permission prompts
 pub fn migrate_claude_hooks(home: &Path) {
     let settings_path = home.join(".claude/settings.json");
     if !settings_path.exists() {
@@ -80,6 +138,16 @@ pub fn migrate_claude_hooks(home: &Path) {
                 }
             }
         }
+    }
+
+    // Migration 3: ensure the Notification hook is present so existing users
+    // get the yellow "waiting for permission" state without having to delete
+    // their setup marker. Idempotent — skipped when an ani hook for the
+    // event already exists.
+    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1 || true";
+    if ensure_ani_hook(&mut settings, "Notification", waiting_cmd) {
+        migrations_applied.push("added Notification hook");
+        patched = true;
     }
 
     if patched {
@@ -185,8 +253,15 @@ pub fn setup_claude_hooks(home: &Path) {
         crate::app_log!("[setup] added claude hook for {}", event);
     };
 
+    // Notification fires when Claude needs the user — most importantly,
+    // permission prompts. We grep stdin for "permission" so idle reminders
+    // don't flip the dot to yellow. Trailing `; true` keeps the hook from
+    // ever returning a non-zero exit (which Claude would surface).
+    let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1 || true";
+
     add_hook(hooks, "PreToolUse", busy_cmd);
     add_hook(hooks, "UserPromptSubmit", busy_cmd);
+    add_hook(hooks, "Notification", waiting_cmd);
     add_hook(hooks, "Stop", idle_cmd);
     add_hook(hooks, "SessionStart", idle_cmd);
     add_hook(hooks, "SessionEnd", idle_cmd);

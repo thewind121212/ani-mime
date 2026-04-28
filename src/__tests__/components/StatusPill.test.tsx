@@ -10,6 +10,7 @@ describe("StatusPill", () => {
     disconnected: "Sleep",
     initializing: "Initializing...",
     searching: "Searching...",
+    waiting: "Awaiting permission...",
     visiting: "Visiting...",
   };
 
@@ -28,6 +29,7 @@ describe("StatusPill", () => {
     "disconnected",
     "initializing",
     "searching",
+    "waiting",
     "visiting",
   ] as Status[])("applies correct CSS class for status '%s'", (status) => {
     const { container } = render(<StatusPill status={status} />);

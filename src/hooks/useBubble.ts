@@ -1,10 +1,34 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { load } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
+import { playAudio } from "../utils/audio";
+import { useSoundSettings } from "./useSoundSettings";
 
 const STORE_FILE = "settings.json";
 const STORE_KEY = "bubbleEnabled";
 const BUBBLE_DURATION_MS = 7000;
+const PERMISSION_BUBBLE_STEP_MS = 1300;
+const PERMISSION_BUBBLE_TAIL_MS = 800;
+// Debounce window for the "cooking ${folder}" start bubble. Short tasks that
+// finish before this delay never get a visible bubble, so a flurry of
+// idle→busy→idle blips doesn't spam the dog.
+const TASK_STARTED_DELAY_MS = 1500;
+const TASK_STARTED_DURATION_MS = 4000;
+
+const permissionLines = [
+  "Permission unlocked, boss!",
+  "On it — woof!",
+  "Tail wag! Back to work!",
+];
+
+function permissionLinesFor(folder: string): string[] {
+  if (!folder) return permissionLines;
+  return [
+    "Permission unlocked, boss!",
+    `Cooking ${folder} now!`,
+    "On it — woof!",
+  ];
+}
 
 const genericMessages = [
   "Done! Check it out",
@@ -39,6 +63,27 @@ const shellMessages = [
   "Tail wag! {folder} finished!",
 ];
 
+const claudeStartMessages = [
+  "Cooking {folder} now, boss!",
+  "Claude on {folder} — woof!",
+  "Boss! Diving into {folder}!",
+  "{folder} time — Claude rolling!",
+];
+
+const codexStartMessages = [
+  "Codex cooking {folder}, boss!",
+  "On {folder} — Codex rolling!",
+  "Boss! Codex digging into {folder}!",
+  "{folder} time — woof from Codex!",
+];
+
+const genericStartMessages = [
+  "On it, boss!",
+  "Tail wag — getting to work!",
+  "Cooking now!",
+  "Woof! Working!",
+];
+
 const welcomeMessages = [
   "Hey! Ready to work",
   "Let's get started!",
@@ -69,8 +114,29 @@ function pickMessage(source: string, pwd: string): string {
   return tpl.replace("{folder}", folder);
 }
 
+function pickStartMessage(source: string, pwd: string): string {
+  const folder = leafFolder(pwd);
+  if (!folder) {
+    return genericStartMessages[
+      Math.floor(Math.random() * genericStartMessages.length)
+    ];
+  }
+  const pool =
+    source === "claude" ? claudeStartMessages
+    : source === "codex" ? codexStartMessages
+    : genericStartMessages;
+  const tpl = pool[Math.floor(Math.random() * pool.length)];
+  return tpl.replace("{folder}", folder);
+}
+
 interface TaskCompleted {
   duration_secs: number;
+  pwd?: string;
+  source?: string;
+}
+
+interface TaskStarted {
+  pid: number;
   pwd?: string;
   source?: string;
 }
@@ -80,7 +146,19 @@ export function useBubble() {
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Pending "cooking ${folder}" reveal. Cleared on task-completed or any
+  // status-changed away from busy so a quick task never reaches the bubble.
+  const startTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const hasGreeted = useRef(false);
+  // True while the 3-bubble permission-allowed sequence is running. The
+  // status-changed=busy listener checks this to avoid hiding the bubble
+  // when claude transitions waiting -> busy mid-sequence.
+  const permissionShowingRef = useRef(false);
+  const sound = useSoundSettings();
+  const soundRef = useRef(sound);
+  useEffect(() => {
+    soundRef.current = sound;
+  }, [sound]);
 
   // Load saved preference
   useLayoutEffect(() => {
@@ -126,7 +204,16 @@ export function useBubble() {
   // until it's either dismissed or its own timer expires.
   useEffect(() => {
     const unlisten = listen<string>("status-changed", (e) => {
-      if (e.payload === "busy") {
+      // Any transition away from busy means the pending start-bubble is
+      // no longer relevant — drop the debounce so a quick idle→busy→idle
+      // never lands a bubble.
+      if (e.payload !== "busy") {
+        clearTimeout(startTimerRef.current);
+      }
+      // Skip the hide while the permission-allowed sequence owns the bubble:
+      // that sequence is started by the same waiting->busy transition that
+      // emits this event, and clearing it would kill the first bubble.
+      if (e.payload === "busy" && !permissionShowingRef.current) {
         clearTimeout(timerRef.current);
         setVisible(false);
       }
@@ -139,6 +226,12 @@ export function useBubble() {
   // Listen for task-completed events
   useEffect(() => {
     const unlisten = listen<TaskCompleted>("task-completed", (e) => {
+      // Always cancel any pending start-bubble — the task ended before
+      // the debounce fired, so the "cooking" message is no longer
+      // relevant. Done independently of `enabled` so a disabled-bubble
+      // user still drops the timer cleanly.
+      clearTimeout(startTimerRef.current);
+
       if (!enabled) return;
 
       clearTimeout(timerRef.current);
@@ -152,6 +245,34 @@ export function useBubble() {
 
     return () => {
       clearTimeout(timerRef.current);
+      clearTimeout(startTimerRef.current);
+      unlisten.then((fn) => fn());
+    };
+  }, [enabled]);
+
+  // Listen for task-started: schedules a delayed "cooking ${folder}"
+  // bubble. Quick busy bursts that resolve before the delay never reach
+  // the user — short tasks are noise, long tasks earn the announcement.
+  useEffect(() => {
+    const unlisten = listen<TaskStarted>("task-started", (e) => {
+      if (!enabled) return;
+
+      clearTimeout(startTimerRef.current);
+      const source = e.payload.source ?? "";
+      const pwd = e.payload.pwd ?? "";
+      startTimerRef.current = setTimeout(() => {
+        // Don't override the permission-allowed sequence mid-flight.
+        if (permissionShowingRef.current) return;
+        clearTimeout(timerRef.current);
+        setMessage(pickStartMessage(source, pwd));
+        setVisible(true);
+        timerRef.current = setTimeout(() => {
+          setVisible(false);
+        }, TASK_STARTED_DURATION_MS);
+      }, TASK_STARTED_DELAY_MS);
+    });
+
+    return () => {
       unlisten.then((fn) => fn());
     };
   }, [enabled]);
@@ -174,6 +295,45 @@ export function useBubble() {
       unlisten.then((fn) => fn());
     };
   }, []);
+
+  // Listen for permission-allowed: claude waiting -> busy transition (user
+  // approved the permission prompt). Plays a 3-bubble sequence with a sound
+  // on each step. Sequencing uses timerRef so we share cleanup with the
+  // other bubble triggers.
+  useEffect(() => {
+    const unlisten = listen<{ pid?: number; pwd?: string }>("permission-allowed", (e) => {
+      if (!enabled) return;
+
+      const folder = leafFolder(e.payload?.pwd ?? "");
+      const lines = permissionLinesFor(folder);
+
+      clearTimeout(timerRef.current);
+      permissionShowingRef.current = true;
+
+      let i = 0;
+      const step = () => {
+        if (i >= lines.length) {
+          timerRef.current = setTimeout(() => {
+            permissionShowingRef.current = false;
+            setVisible(false);
+          }, PERMISSION_BUBBLE_TAIL_MS);
+          return;
+        }
+        setMessage(lines[i++]);
+        setVisible(true);
+        const s = soundRef.current;
+        if (s.master && s.status) {
+          try { playAudio("done", { volume: 0.6 }); } catch { /* noop */ }
+        }
+        timerRef.current = setTimeout(step, PERMISSION_BUBBLE_STEP_MS);
+      };
+      step();
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [enabled]);
 
   // Listen for mcp-say: speech bubble triggered by MCP server / AI agent
   useEffect(() => {

@@ -41,6 +41,7 @@ const STATUS_DESCRIPTIONS: Record<Status, string> = {
   service: "A long-running process (e.g. dev server) is active",
   disconnected: "No terminal sessions connected",
   searching: "App just launched, looking for terminal sessions",
+  waiting: "Claude is waiting for permission",
   initializing: "First-launch setup in progress",
   visiting: "A friend's mime is visiting from the local network",
 };

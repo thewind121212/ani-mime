@@ -22,6 +22,7 @@ describe("sprites", () => {
         "service",
         "disconnected",
         "searching",
+        "waiting",
         "initializing",
         "visiting",
       ];
@@ -47,6 +48,7 @@ describe("sprites", () => {
       service: { file: "custom-service.png", frames: 3 },
       disconnected: { file: "custom-sleep.png", frames: 2 },
       searching: { file: "custom-search.png", frames: 5 },
+      waiting: { file: "custom-waiting.png", frames: 5 },
       initializing: { file: "custom-init.png", frames: 5 },
       visiting: { file: "custom-visit.png", frames: 4 },
     };

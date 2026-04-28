@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getCurrentWindow, currentMonitor, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize, LogicalPosition } from "@tauri-apps/api/window";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { useStatus } from "../hooks/useStatus";
@@ -142,30 +142,6 @@ function clearEffectShiftVars() {
   root.style.removeProperty("--effect-shift-y");
 }
 
-/**
- * Resolve the maximum shift the window can travel toward the top of
- * the current monitor without going off-screen. macOS auto-clamps a
- * window that's positioned above its monitor — the OS shoves it back
- * down, which desyncs from the paddingTop pin and the pet visibly
- * jumps to the middle of the expanded window.
- *
- * Returns logical pixels available above the window's current Y. If
- * monitor info is unavailable, falls back to the requested shift so
- * behavior matches the pre-clamp version.
- */
-async function maxUpwardShift(currentY: number, requested: number): Promise<number> {
-  try {
-    const mon = await currentMonitor();
-    if (!mon) return requested;
-    const sf = mon.scaleFactor ?? 1;
-    const monLogicalY = mon.position.y / sf;
-    const headroom = currentY - monLogicalY;
-    return Math.max(0, Math.min(requested, headroom));
-  } catch {
-    return requested;
-  }
-}
-
 export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
   const { status } = useStatus();
   const { pet } = usePet();
@@ -205,11 +181,13 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
         const w = physSize.width / factor;
         const h = physSize.height / factor;
         const shiftX = (size - w) / 2;
-        // Clamp the upward shift to the monitor's top edge so the OS
-        // doesn't auto-clamp the window back down — that desync makes
-        // the pet jump to the middle of the expanded window when the
-        // dog is near the top of the screen.
-        const shiftY = await maxUpwardShift(y, (size - h) / 2);
+        // Don't shift the window upward at all — even with the
+        // paddingTop pin, the async window-move IPC and the synchronous
+        // CSS update don't land in the same paint frame, so the mascot
+        // briefly drops/rises on every expand/restore. Letting the
+        // window grow down-right keeps the mascot pinned to its
+        // original screen Y on every busy ↔ idle transition.
+        const shiftY = 0;
         savedWindowRef.current = { x, y, w, h, shiftX, shiftY };
       }
 

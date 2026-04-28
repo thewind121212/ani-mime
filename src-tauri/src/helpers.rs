@@ -7,6 +7,16 @@ pub fn now_secs() -> u64 {
         .as_secs()
 }
 
+/// Millisecond timestamp for short-window race checks (e.g. distinguishing
+/// a codex auto-approved tool from a human-approved one). `now_secs` rounds
+/// to whole seconds, which collapses the ~150ms race window we need to see.
+pub fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
+}
+
 /// HTTP port for the local server. Override with ANI_MIME_PORT env var for multi-instance testing.
 pub fn get_port() -> u16 {
     std::env::var("ANI_MIME_PORT")

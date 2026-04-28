@@ -19,6 +19,10 @@ export interface SessionInfo {
   is_codex_proc: boolean;
   /** Name of the foreground command currently running in this shell, or "" if idle. */
   fg_cmd: string;
+  /** True if this shell sits inside a tmux pane. Tmux shells drive the mascot
+   *  the same way Claude/Codex sessions do, so commands run there flip the
+   *  dog busy even when AI sessions are present. */
+  is_tmux_proc: boolean;
 }
 
 export async function fetchSessions(): Promise<SessionInfo[]> {
