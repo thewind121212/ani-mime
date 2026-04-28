@@ -13,6 +13,7 @@ import { useDockVisible } from "../hooks/useDockVisible";
 import { useTrayVisible } from "../hooks/useTrayVisible";
 import { useSessionList } from "../hooks/useSessionList";
 import { useLanList } from "../hooks/useLanList";
+import { useTelegram } from "../hooks/useTelegram";
 import { mimeCategories, getMimesByCategory } from "../constants/sprites";
 import { useScale } from "../hooks/useScale";
 import { useOpacity, OPACITY_MIN, OPACITY_MAX } from "../hooks/useOpacity";
@@ -95,6 +96,41 @@ export function Settings() {
   const { hidden: trayHidden, setHidden: setTrayHidden } = useTrayVisible();
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
+  const telegram = useTelegram();
+  const [tgTokenDraft, setTgTokenDraft] = useState("");
+  const [tgChatDraft, setTgChatDraft] = useState("");
+  const [tgDraftLoaded, setTgDraftLoaded] = useState(false);
+  const [tgTestState, setTgTestState] = useState<{ status: "idle" | "sending" | "ok" | "err"; message: string }>({ status: "idle", message: "" });
+
+  useEffect(() => {
+    if (!telegram.loaded || tgDraftLoaded) return;
+    setTgTokenDraft(telegram.botToken);
+    setTgChatDraft(telegram.chatId);
+    setTgDraftLoaded(true);
+  }, [telegram.loaded, telegram.botToken, telegram.chatId, tgDraftLoaded]);
+
+  const tgDraftDirty =
+    tgDraftLoaded && (tgTokenDraft !== telegram.botToken || tgChatDraft !== telegram.chatId);
+  const tgCanTest = tgTokenDraft.trim().length > 0 && tgChatDraft.trim().length > 0 && tgTestState.status !== "sending";
+  const tgCanSave = tgDraftDirty && tgTestState.status !== "sending";
+
+  const handleTgSave = async () => {
+    await telegram.saveCredentials(tgTokenDraft.trim(), tgChatDraft.trim());
+    setTgTestState({ status: "idle", message: "Saved." });
+  };
+
+  const handleTgTest = async () => {
+    setTgTestState({ status: "sending", message: "Sending..." });
+    try {
+      const res = await invoke<{ ok: boolean; message: string }>("telegram_test", {
+        botToken: tgTokenDraft.trim(),
+        chatId: tgChatDraft.trim(),
+      });
+      setTgTestState({ status: res.ok ? "ok" : "err", message: res.message });
+    } catch (e) {
+      setTgTestState({ status: "err", message: String(e) });
+    }
+  };
   const { scale, setScale, SCALE_PRESETS } = useScale();
   const mimeOpacityHook = useOpacity("mime");
   const statusOpacityHook = useOpacity("status");
@@ -545,6 +581,104 @@ export function Settings() {
                   className={`toggle-switch ${lanListEnabled ? "active" : ""}`}
                   onClick={() => setLanListEnabled(!lanListEnabled)}
                   data-testid="lan-list-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="settings-section" data-testid="settings-section-notifications">
+            <div className="settings-section-title">Notifications</div>
+            <div className="settings-card">
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Telegram Push</span>
+                  <span className="settings-row-hint">
+                    Send Ani-Mime alerts to a Telegram chat. Create a bot via{" "}
+                    <strong>@BotFather</strong>, paste its token below, then enter the chat ID
+                    where messages should be delivered.
+                  </span>
+                </div>
+              </div>
+              <div className="settings-row settings-row-stack">
+                <label className="settings-input-label" htmlFor="telegram-bot-token">
+                  Bot Token
+                </label>
+                <input
+                  id="telegram-bot-token"
+                  type="password"
+                  className="settings-text-input"
+                  placeholder="123456:ABC-DEF..."
+                  value={tgTokenDraft}
+                  onChange={(e) => setTgTokenDraft(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  data-testid="telegram-bot-token-input"
+                />
+              </div>
+              <div className="settings-row settings-row-stack">
+                <label className="settings-input-label" htmlFor="telegram-chat-id">
+                  Chat ID
+                </label>
+                <input
+                  id="telegram-chat-id"
+                  type="text"
+                  className="settings-text-input"
+                  placeholder="-1001234567890 or 987654321"
+                  value={tgChatDraft}
+                  onChange={(e) => setTgChatDraft(e.target.value)}
+                  spellCheck={false}
+                  autoComplete="off"
+                  data-testid="telegram-chat-id-input"
+                />
+              </div>
+              <div className="settings-row settings-row-actions">
+                <button
+                  className="settings-btn"
+                  onClick={handleTgSave}
+                  disabled={!tgCanSave}
+                  data-testid="telegram-save-btn"
+                >
+                  {tgDraftDirty ? "Save" : "Saved"}
+                </button>
+                <button
+                  className="settings-btn settings-btn-secondary"
+                  onClick={handleTgTest}
+                  disabled={!tgCanTest}
+                  data-testid="telegram-test-btn"
+                >
+                  {tgTestState.status === "sending" ? "Testing..." : "Send Test"}
+                </button>
+                {tgTestState.message && (
+                  <span
+                    className={`settings-status-msg ${
+                      tgTestState.status === "ok"
+                        ? "is-ok"
+                        : tgTestState.status === "err"
+                        ? "is-err"
+                        : ""
+                    }`}
+                    data-testid="telegram-test-msg"
+                  >
+                    {tgTestState.message}
+                  </span>
+                )}
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Push Enabled</span>
+                  <span className="settings-row-hint">
+                    Master switch. Save credentials and pass a test before turning on. The
+                    status-bar icon (next to LAN) will mirror this toggle.
+                  </span>
+                </div>
+                <button
+                  className={`toggle-switch ${telegram.pushEnabled ? "active" : ""}`}
+                  onClick={() => telegram.setPushEnabled(!telegram.pushEnabled)}
+                  disabled={!telegram.configured}
+                  aria-disabled={!telegram.configured}
+                  title={telegram.configured ? undefined : "Save bot token and chat ID first"}
+                  data-testid="telegram-push-toggle"
                 >
                   <span className="toggle-knob" />
                 </button>

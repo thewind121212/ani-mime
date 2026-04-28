@@ -510,8 +510,8 @@ button.session-group-head:hover {
 }
 
 .dot.waiting {
-  background: #ffcc00;
-  box-shadow: 0 0 8px rgba(255, 204, 0, 0.7);
+  background: #ff2d92;
+  box-shadow: 0 0 8px rgba(255, 45, 146, 0.7);
   animation: pulse 1s ease-in-out infinite;
 }
 
@@ -546,6 +546,38 @@ button.session-group-head:hover {
     0 0 30px rgba(255, 59, 48, 0.15),
     inset 0 0 6px rgba(255, 59, 48, 0.1);
   animation: neon-pulse-red 1.5s ease-in-out infinite;
+}
+
+/* Pink neon glow + white label while awaiting permission. */
+.pill.neon-waiting {
+  border-color: #fff;
+  box-shadow:
+    0 0 6px rgba(255, 45, 146, 0.5),
+    0 0 14px rgba(255, 45, 146, 0.3),
+    0 0 30px rgba(255, 45, 146, 0.2),
+    inset 0 0 6px rgba(255, 45, 146, 0.12);
+  animation: neon-pulse-pink 1.5s ease-in-out infinite;
+}
+
+.pill.neon-waiting .label {
+  color: #fff;
+}
+
+@keyframes neon-pulse-pink {
+  0%, 100% {
+    box-shadow:
+      0 0 6px rgba(255, 45, 146, 0.5),
+      0 0 14px rgba(255, 45, 146, 0.3),
+      0 0 30px rgba(255, 45, 146, 0.2),
+      inset 0 0 6px rgba(255, 45, 146, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 10px rgba(255, 45, 146, 0.7),
+      0 0 22px rgba(255, 45, 146, 0.45),
+      0 0 44px rgba(255, 45, 146, 0.25),
+      inset 0 0 10px rgba(255, 45, 146, 0.18);
+  }
 }
 
 @keyframes neon-pulse-red {

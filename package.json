@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
-    "codex:login": "./scripts/codex-login.sh"
+    "codex:login": "./scripts/codex-login.sh",
+    "build:app": "bun run tauri build && bash src-tauri/script/post-build-sign.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

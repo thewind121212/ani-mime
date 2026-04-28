@@ -1541,3 +1541,82 @@
   color: #ff3b30;
   opacity: 0.8;
 }
+
+/* Notifications / Telegram */
+.settings-input-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+}
+
+.settings-text-input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  box-sizing: border-box;
+}
+
+.settings-text-input:focus {
+  border-color: #5e5ce6;
+  outline: none;
+}
+
+.settings-row-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.settings-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #5e5ce6;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.settings-btn:hover:not(:disabled) {
+  background: #4a48c9;
+}
+
+.settings-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings-btn-secondary {
+  background: transparent;
+  color: inherit;
+  border-color: rgba(128, 128, 128, 0.35);
+}
+
+.settings-btn-secondary:hover:not(:disabled) {
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.settings-status-msg {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.settings-status-msg.is-ok {
+  color: #34c759;
+  opacity: 1;
+}
+
+.settings-status-msg.is-err {
+  color: #ff3b30;
+  opacity: 1;
+}

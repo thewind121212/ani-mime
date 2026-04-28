@@ -598,7 +598,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     <div ref={wrapRef} className="pill-wrap" data-testid="status-pill-wrap" style={{ opacity: statusOpacity }}>
       <div
         data-testid="status-pill"
-        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${sessionOpen || peerOpen ? "is-open" : ""} ${!lanListEnabled ? "no-lan" : ""} ${!sessionListEnabled ? "no-tasks" : ""}`}
+        className={`pill ${glow ? "neon-glow" : ""} ${status === "busy" ? "neon-busy" : ""} ${status === "waiting" ? "neon-waiting" : ""} ${sessionOpen || peerOpen ? "is-open" : ""} ${!lanListEnabled ? "no-lan" : ""} ${!sessionListEnabled ? "no-tasks" : ""}`}
       >
         <span data-testid="status-dot" className={dotClassMap[status] ?? "dot searching"} />
         <span data-testid="status-label" className="label">

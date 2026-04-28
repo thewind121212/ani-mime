@@ -14,6 +14,7 @@ mod proc_scan;
 mod server;
 mod setup;
 mod state;
+mod telegram;
 mod updater;
 mod watchdog;
 
@@ -100,6 +101,58 @@ fn get_peers(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> Vec<PeerInfo> {
 fn get_status(state: tauri::State<'_, Arc<Mutex<AppState>>>) -> String {
     let st = state.lock().unwrap();
     st.current_ui.clone()
+}
+
+#[tauri::command]
+async fn telegram_test(
+    bot_token: String,
+    chat_id: String,
+) -> telegram::SendResult {
+    tauri::async_runtime::spawn_blocking(move || {
+        telegram::test_credentials(&bot_token, &chat_id)
+    })
+    .await
+    .unwrap_or(telegram::SendResult {
+        ok: false,
+        message: "Test thread panicked".into(),
+    })
+}
+
+#[tauri::command]
+async fn telegram_send(
+    text: String,
+    app: tauri::AppHandle,
+) -> telegram::SendResult {
+    let store_path = match app.path().app_data_dir() {
+        Ok(d) => d.join("settings.json"),
+        Err(e) => {
+            return telegram::SendResult {
+                ok: false,
+                message: format!("Cannot resolve settings dir: {}", e),
+            }
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = telegram::load_config(&store_path);
+        if !cfg.is_configured() {
+            return telegram::SendResult {
+                ok: false,
+                message: "Telegram is not configured".into(),
+            };
+        }
+        match telegram::send_message(&cfg.bot_token, &cfg.chat_id, &text) {
+            Ok(_) => telegram::SendResult {
+                ok: true,
+                message: "Sent".into(),
+            },
+            Err(e) => telegram::SendResult { ok: false, message: e },
+        }
+    })
+    .await
+    .unwrap_or(telegram::SendResult {
+        ok: false,
+        message: "Send thread panicked".into(),
+    })
 }
 
 #[tauri::command]
@@ -452,7 +505,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
