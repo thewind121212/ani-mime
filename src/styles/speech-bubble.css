@@ -15,7 +15,12 @@
      bubble grows to its natural single-line size, and `max-width`
      wraps longer messages to multiple lines at a reasonable width. */
   width: max-content;
-  max-width: 280px;
+  /* Cap to viewport so the bubble can never overflow the window edge —
+     the App.tsx grow effect can lag a frame on long messages, and a
+     fixed 280 max-width clipped both ends when the dog sat near the
+     window boundary. `calc(100vw - 24px)` keeps 12px breathing room
+     each side regardless of where the dog is positioned. */
+  max-width: min(280px, calc(100vw - 24px));
   padding: 8px 14px;
   z-index: 1;
   border-radius: 12px;

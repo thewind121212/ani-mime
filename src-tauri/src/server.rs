@@ -276,11 +276,12 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                 let is_ai_task = task_source == "claude" || task_source == "codex";
 
                                 session.busy_type.clear();
-                                if is_ai_task {
-                                    // Flash blue (service) for ~2s before idle so the
-                                    // user gets a visible "done" pulse on the dog,
-                                    // matching the codex shell-hook flash. Watchdog
-                                    // converts service -> idle after SERVICE_DISPLAY_SECS.
+                                // Mid-session AI Stop: go straight to idle. Initial
+                                // SessionStart for a brand-new Claude session: flash
+                                // service briefly so the user gets a visible "Claude
+                                // connected" pulse on first sight. The watchdog
+                                // converts service -> idle after SERVICE_DISPLAY_SECS.
+                                if is_new && is_ai_task {
                                     session.ui_state = "service".to_string();
                                     session.service_since = now;
                                 } else {
@@ -351,7 +352,11 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                     }
                                 }
 
-                                crate::app_log!("[http] pid={} -> {}", pid, if is_ai_task { "service (flash)" } else { "idle" });
+                                crate::app_log!(
+                                    "[http] pid={} -> {}",
+                                    pid,
+                                    if is_new && is_ai_task { "service (first sight)" } else { "idle" }
+                                );
                                 emit_if_changed(&app_handle, &mut st);
                             } else {
                                 crate::app_warn!("[http] pid={} /status with unknown state: {}", pid, url);
