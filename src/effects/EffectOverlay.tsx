@@ -236,6 +236,14 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
       // Measure dog center inside the expanded window so the clone
       // animation can be anchored on the pet rather than window center.
       // Retries across multiple frames because:
+      //   - WebKit viewport-resize race: `await win.setSize` resolves
+      //     when Rust commits the native resize, but WebKit reflows in
+      //     a separate runloop tick — the first RAF can land before
+      //     `window.innerWidth` matches `size`, and the dog's
+      //     window-local center is still (old_width / 2). Reading the
+      //     anchor then puts the clone at e.g. x=160 in a 1200-wide
+      //     window → clone bursts far LEFT of the dog. Wait for the
+      //     viewport to reach `size` before trusting the rect.
       //   - custom-mime first load: Mascot returns null until its sprite
       //     blob decodes, so [data-testid="mascot-sprite"] is briefly
       //     absent and a single-RAF query falls back to window center.
@@ -245,20 +253,26 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
       // window-center fallback so the clone never bursts from window
       // center when any dog-shaped target is reachable.
       return await new Promise<{ anchorX: number; anchorY: number }>((resolve) => {
-        const MAX_TRIES = 8;
+        const MAX_TRIES = 12;
         let tries = 0;
         const tick = () => {
-          const el =
-            document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]') ||
-            document.querySelector<HTMLElement>('[data-testid="mascot-placeholder"]') ||
-            document.querySelector<HTMLElement>('[data-testid="mascot-wrap"]');
-          if (el) {
-            const r = el.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0) {
-              return resolve({
-                anchorX: r.left + r.width / 2,
-                anchorY: r.top + r.height / 2,
-              });
+          // Tolerate a small rounding gap between requested size and
+          // reported innerWidth (HiDPI scale-factor rounding can shave
+          // a px). 4px slack is plenty.
+          const viewportReady = Math.abs(window.innerWidth - size) < 4;
+          if (viewportReady) {
+            const el =
+              document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]') ||
+              document.querySelector<HTMLElement>('[data-testid="mascot-placeholder"]') ||
+              document.querySelector<HTMLElement>('[data-testid="mascot-wrap"]');
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) {
+                return resolve({
+                  anchorX: r.left + r.width / 2,
+                  anchorY: r.top + r.height / 2,
+                });
+              }
             }
           }
           tries++;
