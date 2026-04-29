@@ -120,6 +120,13 @@ fn apply_wsl_topmost(title: &str) -> bool {
     }
 }
 
+/// On Linux the window manager controls z-order; GTK keep_above + Tauri alwaysOnTop
+/// are already applied in `setup_main_window`. No equivalent of NSWindow level —
+/// no-op so the cross-platform facade compiles.
+pub fn set_fullscreen_overlay(_app: &tauri::AppHandle, enabled: bool) {
+    crate::app_log!("[platform] linux fullscreen overlay requested ({}) — no-op", enabled);
+}
+
 /// Linux has no global dock concept; `skipTaskbar: true` in tauri.conf.json already
 /// hides the window from the taskbar. Nothing to toggle at runtime.
 pub fn set_dock_visibility(_app: &tauri::AppHandle, visible: bool) {

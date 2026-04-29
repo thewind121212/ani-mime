@@ -68,6 +68,37 @@ pub fn setup_main_window(app: &tauri::App) {
     }
 }
 
+/// Toggle whether the main window draws above other apps' native fullscreen content
+/// (e.g. Chrome HTML5 video fullscreen, Safari fullscreen).
+///
+/// `enabled = true`  → NSStatusWindowLevel (25) — sits above fullscreen content
+/// `enabled = false` → NSFloatingWindowLevel (3) — Tauri's default alwaysOnTop level
+///
+/// Collection behavior (canJoinAllSpaces | fullScreenAuxiliary) is already set in
+/// `setup_main_window` so the window appears in fullscreen spaces; this only
+/// controls z-order within that space.
+pub fn set_fullscreen_overlay(app: &tauri::AppHandle, enabled: bool) {
+    use tauri::Manager;
+    let Some(window) = app.get_webview_window("main") else {
+        crate::app_warn!("[platform] set_fullscreen_overlay: main window missing");
+        return;
+    };
+    let ns_win = match window.ns_window() {
+        Ok(w) => w,
+        Err(e) => {
+            crate::app_error!("[platform] set_fullscreen_overlay: ns_window failed: {:?}", e);
+            return;
+        }
+    };
+    use cocoa::base::id;
+    let ns_win = ns_win as id;
+    let level: i64 = if enabled { 25 } else { 3 };
+    unsafe {
+        let _: () = msg_send![ns_win, setLevel: level];
+    }
+    crate::app_log!("[platform] fullscreen overlay -> {} (NSWindow level {})", enabled, level);
+}
+
 /// Toggle dock icon visibility at runtime.
 /// `visible = false` → Accessory (no dock, no Cmd+Tab)
 /// `visible = true`  → Regular (normal dock app)
