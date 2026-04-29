@@ -177,11 +177,12 @@ export function SuperpowerTool() {
   const [rootBoundsVisible, setRootBoundsVisible] = useState(true);
   useTheme();
 
-  // Push the initial state to the main window so the outlines turn on
-  // the moment the Superpower tool mounts (i.e. when dev mode is opened).
-  // Without this, the main app stays at its defaults (false) until each
-  // toggle is clicked.
+  // Push the initial state to the main window so the DEV tag and
+  // outlines turn on the moment the Superpower tool mounts (i.e. when
+  // dev mode is opened). Without this, the main app stays at its
+  // defaults (false) until each toggle is clicked.
   useEffect(() => {
+    void emit("dev-tag-changed", true);
     void emit("dev-app-bounds-changed", true);
     void emit("dev-container-bounds-changed", true);
     void emit("dev-root-bounds-changed", true);
@@ -190,7 +191,7 @@ export function SuperpowerTool() {
   const handleDevTagToggle = () => {
     const next = !devTagVisible;
     setDevTagVisible(next);
-    invoke("set_dev_mode", { enabled: next });
+    void emit("dev-tag-changed", next);
   };
 
   const handleAppBoundsToggle = () => {

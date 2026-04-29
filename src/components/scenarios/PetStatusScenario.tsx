@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import type { Status } from "../../types/status";
 
 const statuses: { status: Status; label: string; desc: string; color: string; bubble?: string }[] = [
@@ -26,6 +27,10 @@ export function PetStatusScenario() {
     }
   };
 
+  const handleClearBubble = () => {
+    void emit("bubble-dismiss");
+  };
+
   return (
     <div className="scenario-panel">
       <div className="scenario-panel-desc">
@@ -45,6 +50,17 @@ export function PetStatusScenario() {
             <span className="scenario-status-desc">{desc}</span>
           </button>
         ))}
+        <button
+          className="scenario-status-btn"
+          onClick={handleClearBubble}
+          data-testid="scenario-clear-bubble"
+        >
+          <div className="scenario-status-title">
+            <span className="scenario-status-dot" style={{ background: "#8e8e93" }} />
+            <span className="scenario-status-label">Clear Bubble</span>
+          </div>
+          <span className="scenario-status-desc">Dismiss the current speech bubble</span>
+        </button>
       </div>
     </div>
   );

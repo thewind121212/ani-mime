@@ -239,6 +239,7 @@ export function Settings() {
         setDevMode(true);
       }
       await emit("dev-mode-changed", true);
+      void invoke("open_superpower");
     } else {
       clickTimerRef.current = setTimeout(() => {
         clickCountRef.current = 0;

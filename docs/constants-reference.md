@@ -80,19 +80,20 @@ All hardcoded values, timeouts, and configurable parameters in the codebase.
 
 ### Window sizing (see [window-sizing.md](./window-sizing.md) for the full pipeline)
 
+The pet window has a fixed default size; each trigger (bubble, visitors, session list, shadow-clone effect) explicitly grows the window away from the default and restores it on deactivate.
+
 | Constant | Value | File | Purpose |
 |----------|-------|------|---------|
-| `BASELINE_WIDTH` | 320 | `App.tsx` | Root window width floor |
-| `.container` `min-width` | 320 px | `app.css` | CSS-level width floor |
-| `.container` `min-height` | 250 px | `app.css` | CSS-level height floor |
-| `.container.has-visitors` `min-width` | 500 px | `app.css` | Visitor-mode width |
+| `PET_BASE_WIDTH` | 160 | `useWindowDefaultSize.ts` | Resting pet-window width (× scale) |
+| `PET_BASE_HEIGHT` | 240 | `useWindowDefaultSize.ts` | Resting pet-window height (× scale) |
+| `.container` `min-width` | 160 px | `app.css` | CSS-level width floor (matches default) |
+| `.container` `min-height` | 240 px | `app.css` | CSS-level height floor (matches default) |
+| `.container.has-visitors` `min-width` | 500 px | `app.css` | Visitor-mode container width |
 | Visitor-mode window width | 500 | `App.tsx` (visitor effect) | Explicit `setSize` target while visitors present |
-| `SESSION_DROPDOWN_MIN_WIDTH` | 320 | `App.tsx` | Width floor while session list is open |
-| `SESSION_DROPDOWN_WINDOW_HEIGHT` | 400 | `App.tsx` | Total window height while session list is open |
-| `BASE_PAD_TOP` | 20 | `App.tsx` | Container base top padding (used by bubble math) |
-| `BASE_PAD_HORIZONTAL` | 50 | `App.tsx` | Container base L+R padding (used by bubble math) |
-| `BUBBLE_OVERLAP_PX` | 46 | `App.tsx` | Bubble–sprite overlap in CSS px at scale=1 |
-| `SPRITE_NATIVE_WIDTH` | 128 | `App.tsx` | Pre-scale sprite width |
+| `SESSION_DROPDOWN_MIN_WIDTH` | 320 | `App.tsx` | Width floor while session list (or long bubble) is grown |
+| `SESSION_DROPDOWN_WINDOW_HEIGHT` | 400 | `App.tsx` | Total window height while session list (or long bubble) is grown |
+| `LONG_BUBBLE_THRESHOLD` | 30 | `useBubble.ts` | Char count above which a bubble triggers window upsize |
+| Shadow-clone `expandWindow` | 1200 | `effects/shadow-clone/index.ts` | Window size during the busy-state effect |
 
 ### Tauri Store Keys
 
