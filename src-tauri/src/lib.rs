@@ -411,6 +411,12 @@ fn set_dock_visible(visible: bool, app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+fn set_fullscreen_overlay(enabled: bool, app: tauri::AppHandle) {
+    crate::app_log!("[app] set_fullscreen_overlay -> {}", enabled);
+    platform::set_fullscreen_overlay(&app, enabled);
+}
+
+#[tauri::command]
 fn set_tray_visible(visible: bool, app: tauri::AppHandle) {
     crate::app_log!("[app] set_tray_visible -> {}", visible);
     if let Some(tray) = app.tray_by_id("main-tray") {
@@ -604,7 +610,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
-        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send, spotify_connect, spotify_disconnect, spotify_status, spotify_state, spotify_queue, spotify_play, spotify_pause, spotify_next, spotify_prev, spotify_seek])
+        .invoke_handler(tauri::generate_handler![start_visit, get_logs, clear_logs, open_log_dir, get_sessions, get_peers, get_status, focus_terminal, open_superpower, set_dev_mode, scenario_override, preview_dialog, set_dock_visible, set_tray_visible, set_fullscreen_overlay, request_local_network, claude_config::get_claude_config, claude_config::set_plugin_enabled, claude_config::get_command_content, claude_config::delete_command, claude_config::delete_mcp_server, claude_config::delete_hook_entry, telegram_test, telegram_send, spotify_connect, spotify_disconnect, spotify_status, spotify_state, spotify_queue, spotify_play, spotify_pause, spotify_next, spotify_prev, spotify_seek])
         .setup(|app| {
             crate::app_log!("[app] starting Ani-Mime v{}", env!("CARGO_PKG_VERSION"));
 
@@ -740,6 +746,10 @@ pub fn run() {
                                 if let Some(tray) = app.tray_by_id("main-tray") {
                                     let _ = tray.set_visible(false);
                                 }
+                            }
+                            if json.get("fullscreenOverlay").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                crate::app_log!("[app] restoring fullscreen-overlay preference");
+                                platform::set_fullscreen_overlay(app.handle(), true);
                             }
                         }
                     }

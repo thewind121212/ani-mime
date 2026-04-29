@@ -10,6 +10,7 @@ import { useAutoStart } from "../hooks/useAutoStart";
 import { useAutoUpdate } from "../hooks/useAutoUpdate";
 import { useAutoInstall } from "../hooks/useAutoInstall";
 import { useDockVisible } from "../hooks/useDockVisible";
+import { useFullscreenOverlay } from "../hooks/useFullscreenOverlay";
 import { useTrayVisible } from "../hooks/useTrayVisible";
 import { useSessionList } from "../hooks/useSessionList";
 import { useLanList } from "../hooks/useLanList";
@@ -94,6 +95,7 @@ export function Settings() {
   const { enabled: autoUpdateEnabled, setEnabled: setAutoUpdateEnabled } = useAutoUpdate();
   const { enabled: autoInstallEnabled, setEnabled: setAutoInstallEnabled } = useAutoInstall();
   const { hidden: dockHidden, setHidden: setDockHidden } = useDockVisible();
+  const { enabled: fullscreenOverlayEnabled, setEnabled: setFullscreenOverlayEnabled } = useFullscreenOverlay();
   const { hidden: trayHidden, setHidden: setTrayHidden } = useTrayVisible();
   const { enabled: sessionListEnabled, setEnabled: setSessionListEnabled } = useSessionList();
   const { enabled: lanListEnabled, setEnabled: setLanListEnabled } = useLanList();
@@ -895,6 +897,21 @@ export function Settings() {
                   aria-disabled={dockHidden}
                   title={dockHidden ? "Locked on while Dock is hidden" : undefined}
                   data-testid="show-tray-toggle"
+                >
+                  <span className="toggle-knob" />
+                </button>
+              </div>
+              <div className="settings-row with-hint">
+                <div>
+                  <span className="settings-row-label">Stay on Top in Fullscreen</span>
+                  <span className="settings-row-hint">
+                    Keep the dog visible over fullscreen apps and videos (Chrome, Safari, etc.). Off by default so it doesn't cover movies.
+                  </span>
+                </div>
+                <button
+                  className={`toggle-switch ${fullscreenOverlayEnabled ? "active" : ""}`}
+                  onClick={() => setFullscreenOverlayEnabled(!fullscreenOverlayEnabled)}
+                  data-testid="fullscreen-overlay-toggle"
                 >
                   <span className="toggle-knob" />
                 </button>
