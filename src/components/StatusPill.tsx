@@ -324,6 +324,22 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     if (soundSettings.master) playAudio("tap");
   };
 
+  // Click-rate gate for all pill action buttons (session / chat / peer /
+  // spotify). Rapid mashing used to hang the app: every toggle fires an
+  // async chain (Tauri WebviewWindow show/hide IPC, window setSize +
+  // setPosition, React batched state flips) and overlapping chains can
+  // race the dropdown handoff guards in App.tsx and leave the window
+  // stuck at the wrong size — sometimes wedging WebKit hard enough that
+  // the whole panel goes blank. 350ms is enough to let the average
+  // toggle's setSize land before the next click is accepted.
+  const pillClickLockRef = useRef(false);
+  const guardPillClick = (): boolean => {
+    if (pillClickLockRef.current) return false;
+    pillClickLockRef.current = true;
+    setTimeout(() => { pillClickLockRef.current = false; }, 350);
+    return true;
+  };
+
   // --- Session-group path tooltip (portaled to body so the dropdown's
   // overflow:auto doesn't clip it when it renders above the first row). ---
   const [pathTooltip, setPathTooltip] = useState<{
@@ -400,6 +416,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     if (!sessionListEnabled) return;
     e.preventDefault();
     e.stopPropagation();
+    if (!guardPillClick()) return;
     playClickTap();
     if (sessionOpen) {
       setSessionOpen(false);
@@ -627,6 +644,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     e.preventDefault();
     e.stopPropagation();
     if (!spotifyButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
     const win = await WebviewWindow.getByLabel("spotify-player");
@@ -661,6 +679,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     e.preventDefault();
     e.stopPropagation();
     if (!chatButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
     if (chatOpen) {
@@ -691,6 +710,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     e.preventDefault();
     e.stopPropagation();
     if (!lanButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
     const popover = await WebviewWindow.getByLabel("peer-list");
