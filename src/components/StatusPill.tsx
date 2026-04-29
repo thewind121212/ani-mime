@@ -405,12 +405,19 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       setSessionOpen(false);
       return;
     }
-    // Only one popover at a time — hide the peer popover before showing
-    // the session dropdown.
+    // Only one overlay at a time — close every other dropdown before
+    // showing the session list. Mirrors the close logic in toggleChat
+    // / toggleSpotify so any pair of buttons interleaves cleanly.
     if (peerOpen) {
       const popover = await WebviewWindow.getByLabel("peer-list");
       await popover?.hide().catch(() => {});
       setPeerOpen(false);
+    }
+    if (chatOpen) setChatOpen(false);
+    if (spotifyOpen) {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+      setSpotifyOpen(false);
     }
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
@@ -699,9 +706,15 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       return;
     }
 
-    // Only one popover at a time — close the session dropdown before
+    // Only one overlay at a time — close every other dropdown before
     // showing the peer list.
     if (sessionOpen) setSessionOpen(false);
+    if (chatOpen) setChatOpen(false);
+    if (spotifyOpen) {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+      setSpotifyOpen(false);
+    }
 
     const pos = await computePopoverScreenPos(lanButtonRef.current);
     await popover.setPosition(pos);
