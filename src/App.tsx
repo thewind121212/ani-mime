@@ -569,7 +569,7 @@ function App() {
     <div
       ref={containerRef}
       data-testid="app-container"
-      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${visitors.length > 0 ? "has-visitors" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
+      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${visitors.length > 0 ? "has-visitors" : ""} ${effectActive ? "effect-active" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
       style={{
         // Driven by the bubble measurement effect above. 0 when the
         // bubble is hidden or fits in the default padding.

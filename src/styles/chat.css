@@ -61,6 +61,16 @@ body,
   min-height: 0;
 }
 
+/* Hide the chat panel for the duration of a transient effect (e.g.
+   shadow-clone). The container grows briefly to host the burst, and
+   the chat panel would otherwise overlap the animation or trigger an
+   awkward height clamp mid-effect. `display: none` keeps the panel
+   in the DOM (input value + message list state survive) but yanks it
+   from layout — the chat reappears intact when the effect ends. */
+.container.effect-active .chat-dropdown {
+  display: none;
+}
+
 .chat {
   display: flex;
   flex-direction: column;
