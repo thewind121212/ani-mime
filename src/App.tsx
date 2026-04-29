@@ -12,6 +12,7 @@ import { useBubble, LONG_BUBBLE_THRESHOLD } from "./hooks/useBubble";
 import { useVisitors } from "./hooks/useVisitors";
 import { useScale } from "./hooks/useScale";
 import { useDevMode } from "./hooks/useDevMode";
+import { useDevTagVisible } from "./hooks/useDevTagVisible";
 import { useDevAppBounds } from "./hooks/useDevAppBounds";
 import { useDevContainerBounds } from "./hooks/useDevContainerBounds";
 import { useDevRootBounds } from "./hooks/useDevRootBounds";
@@ -71,6 +72,7 @@ function App() {
   const visitors = useVisitors();
   const { scale } = useScale();
   const devMode = useDevMode();
+  const devTagToggle = useDevTagVisible();
   const appBoundsToggle = useDevAppBounds();
   const containerBoundsToggle = useDevContainerBounds();
   const rootBoundsToggle = useDevRootBounds();
@@ -79,6 +81,7 @@ function App() {
   // tool is only meaningful while dev mode is active. If dev mode is
   // ever turned off, all three outlines hide regardless of their
   // individual toggle state.
+  const devTagVisible = devMode && devTagToggle;
   const devAppBounds = devMode && appBoundsToggle;
   const devContainerBounds = devMode && containerBoundsToggle;
   const devRootBounds = devMode && rootBoundsToggle;
@@ -430,7 +433,7 @@ function App() {
             setSessionOpen(open);
           }}
         />
-        {devMode && <DevTag />}
+        {devTagVisible && <DevTag />}
       </div>
       {visitors.length > 0 && (
         <div className="visitors-col" data-testid="visitors-col">
