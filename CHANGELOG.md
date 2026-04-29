@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.6] - 2026-04-29
+
+### Changed
+- **Fixed-default pet window with explicit size triggers** — the main window now starts at a single fixed default and only grows when a named trigger fires (session list, visitors, speech bubble), shrinking back when the trigger clears. Removes the cascade of auto-size effects that could leave the window in inconsistent states.
+
+### Fixed
+- **DEV Tag toggle no longer kills the bounds outlines.** Toggling DEV Tag off in the Superpower tool used to call `set_dev_mode(false)`, which dropped the App / Container / Root bounds visuals along with the tag. The toggle now emits a dedicated `dev-tag-changed` event and only hides the DEV tag.
+- **Auto-open Superpower on dev unlock** — clicking the version label 10 times now opens the Superpower window automatically, not just enables dev mode silently.
+
 ## [0.17.5] - 2026-04-23
 
 ### Fixed
