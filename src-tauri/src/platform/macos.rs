@@ -79,22 +79,31 @@ pub fn setup_main_window(app: &tauri::App) {
 /// controls z-order within that space.
 pub fn set_fullscreen_overlay(app: &tauri::AppHandle, enabled: bool) {
     use tauri::Manager;
-    let Some(window) = app.get_webview_window("main") else {
-        crate::app_warn!("[platform] set_fullscreen_overlay: main window missing");
-        return;
-    };
-    let ns_win = match window.ns_window() {
-        Ok(w) => w,
-        Err(e) => {
-            crate::app_error!("[platform] set_fullscreen_overlay: ns_window failed: {:?}", e);
-            return;
-        }
-    };
     use cocoa::base::id;
-    let ns_win = ns_win as id;
     let level: i64 = if enabled { 25 } else { 3 };
-    unsafe {
-        let _: () = msg_send![ns_win, setLevel: level];
+    // Apply to main AND popover windows so they keep their stacking
+    // relationship intact. If only main got bumped, the popovers (chat,
+    // peer-list, spotify-player) would sit at the default level 3 and
+    // get obscured by main's transparent surface — clicks in the overlap
+    // region land on main instead of the popover, making header buttons
+    // (history toggle, "+" new chat) appear inert.
+    for label in ["main", "peer-list", "spotify-player"] {
+        let Some(window) = app.get_webview_window(label) else {
+            if label == "main" {
+                crate::app_warn!("[platform] set_fullscreen_overlay: main window missing");
+            }
+            continue;
+        };
+        let ns_win = match window.ns_window() {
+            Ok(w) => w as id,
+            Err(e) => {
+                crate::app_error!("[platform] set_fullscreen_overlay: ns_window({}) failed: {:?}", label, e);
+                continue;
+            }
+        };
+        unsafe {
+            let _: () = msg_send![ns_win, setLevel: level];
+        }
     }
     crate::app_log!("[platform] fullscreen overlay -> {} (NSWindow level {})", enabled, level);
 }

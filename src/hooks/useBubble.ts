@@ -8,27 +8,16 @@ import { useLanList } from "./useLanList";
 const STORE_FILE = "settings.json";
 const STORE_KEY = "bubbleEnabled";
 const BUBBLE_DURATION_MS = 7000;
-const PERMISSION_BUBBLE_STEP_MS = 1300;
-const PERMISSION_BUBBLE_TAIL_MS = 800;
+const PERMISSION_BUBBLE_DURATION_MS = 4000;
 // Debounce window for the "cooking ${folder}" start bubble. Short tasks that
 // finish before this delay never get a visible bubble, so a flurry of
 // idle→busy→idle blips doesn't spam the dog.
 const TASK_STARTED_DELAY_MS = 1500;
 const TASK_STARTED_DURATION_MS = 4000;
 
-const permissionLines = [
-  "Permission unlocked, boss!",
-  "On it — woof!",
-  "Tail wag! Back to work!",
-];
-
-function permissionLinesFor(folder: string): string[] {
-  if (!folder) return permissionLines;
-  return [
-    "Permission unlocked, boss!",
-    `Cooking ${folder} now!`,
-    "On it — woof!",
-  ];
+function permissionLineFor(folder: string): string {
+  if (!folder) return "On it — woof!";
+  return `Cooking ${folder} now!`;
 }
 
 const genericMessages = [
@@ -338,37 +327,30 @@ export function useBubble() {
   }, []);
 
   // Listen for permission-allowed: claude waiting -> busy transition (user
-  // approved the permission prompt). Plays a 3-bubble sequence with a sound
-  // on each step. Sequencing uses timerRef so we share cleanup with the
-  // other bubble triggers.
+  // approved the permission prompt). Shows ONE "continuing job" bubble +
+  // ONE beep. The previous 3-step sequence overstayed and triple-beeped
+  // the user every approval; one shot conveys "back to work" without
+  // the noise.
   useEffect(() => {
     const unlisten = listen<{ pid?: number; pwd?: string }>("permission-allowed", (e) => {
       if (!enabled) return;
 
       const folder = leafFolder(e.payload?.pwd ?? "");
-      const lines = permissionLinesFor(folder);
 
       clearTimeout(timerRef.current);
       permissionShowingRef.current = true;
+      setMessage(permissionLineFor(folder));
+      setVisible(true);
 
-      let i = 0;
-      const step = () => {
-        if (i >= lines.length) {
-          timerRef.current = setTimeout(() => {
-            permissionShowingRef.current = false;
-            setVisible(false);
-          }, PERMISSION_BUBBLE_TAIL_MS);
-          return;
-        }
-        setMessage(lines[i++]);
-        setVisible(true);
-        const s = soundRef.current;
-        if (s.master && s.status) {
-          try { playAudio("done", { volume: 0.6 }); } catch { /* noop */ }
-        }
-        timerRef.current = setTimeout(step, PERMISSION_BUBBLE_STEP_MS);
-      };
-      step();
+      const s = soundRef.current;
+      if (s.master && s.status) {
+        try { playAudio("done", { volume: 0.6 }); } catch { /* noop */ }
+      }
+
+      timerRef.current = setTimeout(() => {
+        permissionShowingRef.current = false;
+        setVisible(false);
+      }, PERMISSION_BUBBLE_DURATION_MS);
     });
 
     return () => {

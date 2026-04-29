@@ -697,10 +697,11 @@ pub fn run() {
                             crate::app_log!("[app] tray: chat clicked");
                             if let Some(main) = app.get_webview_window("main") {
                                 let _ = main.show();
-                            }
-                            if let Some(win) = app.get_webview_window("chat") {
-                                let _ = win.show();
-                                let _ = win.set_focus();
+                                let _ = main.set_focus();
+                                // Chat now lives inline inside the main
+                                // window. Frontend listens for this event
+                                // and toggles the chat panel open.
+                                let _ = main.emit("tray-chat-clicked", ());
                             }
                         }
                         _ => {}
@@ -717,9 +718,6 @@ pub fn run() {
                         if let Some(win) = app.get_webview_window("main") {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
-                                if let Some(chat) = app.get_webview_window("chat") {
-                                    let _ = chat.hide();
-                                }
                             } else {
                                 let _ = win.show();
                                 let _ = win.set_focus();
@@ -771,20 +769,16 @@ pub fn run() {
                 }
             }
 
-            // Main window close → hide instead of destroy, and tear down the
-            // chat popover with it so the dialog doesn't linger over an
-            // empty desktop.
+            // Main window close → hide instead of destroy. Chat lives
+            // inline inside the main window now, so it follows main's
+            // visibility automatically.
             if let Some(main_win) = app.get_webview_window("main") {
                 let main_clone = main_win.clone();
-                let app_handle_for_main = app.handle().clone();
                 main_win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = main_clone.hide();
-                        if let Some(chat) = app_handle_for_main.get_webview_window("chat") {
-                            let _ = chat.hide();
-                        }
-                        crate::app_log!("[app] main window hidden (+ chat)");
+                        crate::app_log!("[app] main window hidden");
                     }
                 });
             }

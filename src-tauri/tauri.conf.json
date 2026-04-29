@@ -63,22 +63,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "focus": true,
-        "shadow": false
-      },
-      {
-        "label": "chat",
-        "title": "Coding Helper",
-        "url": "chat.html",
-        "width": 360,
-        "height": 460,
-        "resizable": false,
-        "visible": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "focus": true,
-        "shadow": false
+        "shadow": false,
+        "parent": "main"
       },
       {
         "label": "spotify-player",
@@ -93,7 +79,8 @@
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "focus": true,
-        "shadow": false
+        "shadow": false,
+        "parent": "main"
       }
     ],
     "security": {

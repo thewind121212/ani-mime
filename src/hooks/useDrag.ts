@@ -4,21 +4,27 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 export function useDrag() {
   const [dragging, setDragging] = useState(false);
 
-  const onMouseDown = useCallback(async (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    const target = e.target as HTMLElement;
-    // Drag only when the cursor lands on the dog sprite itself (or its
-    // visiting-mode placeholder). The speech bubble, status pill, and
-    // surrounding padding are NOT drag handles — clicking the bubble
-    // dismisses it, and empty space shouldn't grab the window.
-    const onSprite =
-      target.closest('[data-testid="mascot-sprite"]') ||
-      target.closest('[data-testid="mascot-placeholder"]');
-    if (!onSprite) return;
+  // Imperative starter — Mascot calls this after alpha-testing the click
+  // against opaque sprite pixels, and the placeholder branch below uses
+  // it for visiting-mode (no sprite to alpha-test).
+  const start = useCallback(async () => {
     setDragging(true);
     await getCurrentWindow().startDragging();
     setDragging(false);
   }, []);
 
-  return { dragging, onMouseDown };
+  // Container-level handler covers the visiting-mode placeholder only.
+  // Sprite drag is alpha-tested inside Mascot, so clicks on the
+  // transparent halo around the dog don't grab the window.
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-testid="mascot-placeholder"]')) return;
+      void start();
+    },
+    [start]
+  );
+
+  return { dragging, onMouseDown, start };
 }

@@ -13,6 +13,7 @@ import "../styles/mascot.css";
 
 interface MascotProps {
   status: Status;
+  onDragStart?: () => void;
 }
 
 const FRAME_BASE_PX = 128;
@@ -35,7 +36,7 @@ function inferGrid(w: number, h: number, frames: number) {
   return { framePx: h, cols: Math.max(1, Math.round(w / Math.max(1, h))), rows: 1 };
 }
 
-export function Mascot({ status }: MascotProps) {
+export function Mascot({ status, onDragStart }: MascotProps) {
   const { pet } = usePet();
   const { mode: glowMode } = useGlow();
   const { scale } = useScale();
@@ -46,6 +47,17 @@ export function Mascot({ status }: MascotProps) {
   const [sheetDims, setSheetDims] = useState<{ w: number; h: number } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const spriteRef = useRef<HTMLDivElement>(null);
+  // Per-sprite alpha mask, populated after the sheet decodes. Drag
+  // hit-testing reads it so clicks on the transparent halo around the
+  // dog don't start a window drag.
+  const spriteAlphaRef = useRef<{
+    data: Uint8ClampedArray;
+    width: number;
+    height: number;
+  } | null>(null);
+  // Frame index updated by the rAF loop below, used by the drag
+  // hit-test to read alpha at the right cell of the sheet.
+  const currentFrameRef = useRef(0);
 
   const isCustom = pet.startsWith("custom-");
   const customMime = isCustom ? mimes.find((m) => m.id === pet) : null;
@@ -115,14 +127,38 @@ export function Mascot({ status }: MascotProps) {
   // backgroundSize for one frame. Also reset backgroundPosition so the
   // stale offset from the previous status' rAF loop doesn't briefly show
   // an off-grid region of the new sprite.
+  //
+  // Same effect also caches the alpha channel of the sheet so drag
+  // hit-testing in handleMouseDown can skip clicks on transparent
+  // pixels around the visible dog.
   useLayoutEffect(() => {
     setSheetDims(null);
+    spriteAlphaRef.current = null;
     if (spriteRef.current) spriteRef.current.style.backgroundPosition = "0 0";
     if (!spriteUrl) return;
     let cancelled = false;
     const img = new Image();
     img.onload = () => {
-      if (!cancelled) setSheetDims({ w: img.naturalWidth, h: img.naturalHeight });
+      if (cancelled) return;
+      setSheetDims({ w: img.naturalWidth, h: img.naturalHeight });
+      try {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, c.width, c.height);
+        spriteAlphaRef.current = {
+          data: id.data,
+          width: id.width,
+          height: id.height,
+        };
+      } catch (err) {
+        // CORS/security failure — fall back to no alpha test (drag
+        // works on the full sprite frame, same as before).
+        logError(`[mascot] alpha cache failed: ${err instanceof Error ? err.message : err}`);
+      }
     };
     img.src = spriteUrl;
     return () => { cancelled = true; };
@@ -144,6 +180,7 @@ export function Mascot({ status }: MascotProps) {
       const sx = (idx % cols) * frameSize;
       const sy = Math.floor(idx / cols) * frameSize;
       el.style.backgroundPosition = `-${sx}px -${sy}px`;
+      currentFrameRef.current = idx;
     };
 
     if (frozen) {
@@ -165,6 +202,44 @@ export function Mascot({ status }: MascotProps) {
     return () => cancelAnimationFrame(raf);
   }, [layout, frames, frameSize, frozen]);
 
+  // Drag hit-test: only start dragging when the click lands on an
+  // opaque pixel of the current frame. The sheet is cached above as
+  // ImageData; we map the click from display coords (frameSize px) to
+  // source coords (layout.framePx px) and read alpha at that cell.
+  // If the alpha cache isn't populated yet, fall back to whole-frame
+  // drag so the window stays draggable during the brief decode window.
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const start = onDragStart;
+    if (!start) return;
+    const alpha = spriteAlphaRef.current;
+    if (!alpha || !layout) {
+      start();
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xInDisp = e.clientX - rect.left;
+    const yInDisp = e.clientY - rect.top;
+    if (xInDisp < 0 || yInDisp < 0 || xInDisp >= rect.width || yInDisp >= rect.height) {
+      return;
+    }
+    const ratio = layout.framePx / frameSize;
+    const idx = currentFrameRef.current;
+    const sx = (idx % layout.cols) * layout.framePx + xInDisp * ratio;
+    const sy = Math.floor(idx / layout.cols) * layout.framePx + yInDisp * ratio;
+    const px = Math.floor(sx);
+    const py = Math.floor(sy);
+    if (px < 0 || py < 0 || px >= alpha.width || py >= alpha.height) {
+      start();
+      return;
+    }
+    const a = alpha.data[(py * alpha.width + px) * 4 + 3];
+    // Threshold of 16 keeps anti-aliased edge pixels grabbable while
+    // ignoring the empty halo around the dog.
+    if (a < 16) return;
+    start();
+  };
+
   if (isCustom && !customSpriteUrl) return null;
 
   // Display each source cell at frameSize (128 * scale). Background is scaled
@@ -176,6 +251,7 @@ export function Mascot({ status }: MascotProps) {
     <div
       ref={spriteRef}
       data-testid="mascot-sprite"
+      onMouseDown={handleMouseDown}
       className={`sprite ${frozen ? "frozen" : ""} ${glowMode !== "off" ? `glow-${glowMode}` : ""}`}
       style={{
         backgroundImage: `url(${spriteUrl})`,

@@ -1,9 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useChatHistory } from "../hooks/useChatHistory";
 import { useChat } from "../hooks/useChat";
 import type { ChatMessage } from "../hooks/useChatHistory";
 import "../styles/chat.css";
+
+interface ChatProps {
+  /** Optional close handler — called when the user hits Escape inside
+   *  the chat. When unset, Escape is a no-op (used for the standalone
+   *  chat WebviewWindow rendering, where the host owns dismissal). */
+  onClose?: () => void;
+}
 
 function formatDate(ts: number): string {
   const d = new Date(ts);
@@ -94,7 +100,7 @@ function renderInlineCode(text: string, keyBase: number): React.ReactNode {
   return <span key={`txt-${keyBase}`}>{parts}</span>;
 }
 
-export function Chat() {
+export function Chat({ onClose }: ChatProps = {}) {
   const {
     sessions,
     activeSession,
@@ -141,16 +147,18 @@ export function Chat() {
     });
   }, []);
 
-  // Escape key hides window (like peer-list)
+  // Escape closes the chat. When mounted inline (StatusPill), `onClose`
+  // is provided and dismisses the panel via state. The standalone chat
+  // WebviewWindow renders Chat without `onClose`, so its Escape is a
+  // no-op here — the host installs its own listener if needed.
   useEffect(() => {
+    if (!onClose) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        void getCurrentWindow().hide();
-      }
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onClose]);
 
   // Fix B2: resolve session before calling send, pass explicitly
   const handleSend = useCallback(() => {
