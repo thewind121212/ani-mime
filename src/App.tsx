@@ -43,6 +43,13 @@ import "./styles/install-prompt.css";
 const SESSION_DROPDOWN_WINDOW_HEIGHT = 400;
 const SESSION_DROPDOWN_MIN_WIDTH = 320;
 
+// Chat dropdown — total Tauri window height while the chat panel is
+// open. Width stays at whatever the container's current size is — the
+// panel adapts to fit (no horizontal grow, no horizontal shift, no
+// dog flash). Must stay in sync with CHAT_DROPDOWN_WINDOW_HEIGHT in
+// StatusPill.tsx (panel max-height clamps against this).
+const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
+
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
 // needs so the bubble fits inside the window without clipping.
@@ -62,6 +69,12 @@ const BASELINE_WIDTH = 320;
 function transitionToCaseId(prev: Status, next: Status): string | null {
   if (prev === next) return null;
   if (prev === "initializing") return null;
+  // Permission resume: waiting → busy is the user clicking "Allow" on a
+  // Claude permission prompt. The task was already running; this is not
+  // a fresh "working" start, so suppress the working sound. The
+  // permission-allowed bubble handles the audible feedback for that
+  // transition (and avoids double-up with the working loop).
+  if (prev === "waiting" && next === "busy") return null;
   if (next === "busy" && prev !== "busy") return "working";
   if (prev === "busy" && next !== "busy") return "done";
   // For all other transitions the case id matches the status name
@@ -72,7 +85,7 @@ function transitionToCaseId(prev: Status, next: Status): string | null {
 function App() {
   const { prompt, error: installError, clear } = useInstallPrompt();
   const { status, scenario } = useStatus();
-  const { dragging, onMouseDown } = useDrag();
+  const { dragging, onMouseDown, start: startDrag } = useDrag();
   const { visible, message, dismiss } = useBubble();
   const visitors = useVisitors();
   const { scale } = useScale();
@@ -185,11 +198,30 @@ function App() {
   // race this effect with its own setSize (which would otherwise flash
   // the content at the wrong position for a frame).
   const [sessionClosing, setSessionClosing] = useState(false);
+  // Mirror of sessionOpen / sessionClosing for the inline chat panel.
+  // The chat lives inside the main window (no separate WebviewWindow),
+  // so the same window-grow + auto-size-pause pattern keeps the dog
+  // anchored when the panel opens / closes.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatClosing, setChatClosing] = useState(false);
+  // Tray "Coding Helper" menu item — opens the inline chat panel. The
+  // tray handler in lib.rs shows the main window and emits this event;
+  // we listen here and flip chatOpen on. Keeps the tray surface in sync
+  // with the pill-button surface (both open the same inline panel).
+  useEffect(() => {
+    const unlisten = listen<void>("tray-chat-clicked", () => {
+      setChatOpen(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
   // Logical-pixel leftward shift we applied to the window on open
   // (half the width growth). On close we add it back to the *current*
   // window position so user drags during the open state aren't undone.
   // Keeping this as a ref avoids triggering a re-render when we record it.
   const openShiftXRef = useRef<number | null>(null);
+  const chatOpenShiftXRef = useRef<number | null>(null);
   // Extra padding the container needs so a multi-line / wide bubble
   // fits inside the window without clipping. Driven by a ResizeObserver
   // on the bubble; applied via CSS vars on .container.
@@ -210,7 +242,7 @@ function App() {
   // container.offsetWidth reports.
   useWindowAutoSize(
     containerRef,
-    effectActive || sessionOpen || sessionClosing || bubbleGrowActive || visitors.length > 0
+    effectActive || sessionOpen || sessionClosing || chatOpen || chatClosing || bubbleGrowActive || visitors.length > 0
   );
 
   // Measure the rendered speech bubble (via ResizeObserver) and compute
@@ -283,7 +315,7 @@ function App() {
   // window geometry — otherwise the bubble's setPosition/setSize race
   // with expandWindow and the pet's visual Y desyncs from the pin.
   useEffect(() => {
-    if (sessionOpen || sessionClosing || effectActive) return;
+    if (sessionOpen || sessionClosing || chatOpen || chatClosing || effectActive) return;
 
     const win = getCurrentWindow();
     const { top: extraTop, horizontal: extraH } = bubbleExtra;
@@ -324,7 +356,7 @@ function App() {
         console.error("[bubble-grow] resize failed:", err);
       }
     })();
-  }, [visible, bubbleExtra, sessionOpen, sessionClosing, effectActive]);
+  }, [visible, bubbleExtra, sessionOpen, sessionClosing, chatOpen, chatClosing, effectActive]);
 
   // Visitor count change → drive the window size directly.
   //
@@ -457,6 +489,17 @@ function App() {
     }
     openShiftXRef.current = null;
 
+    // Dropdown→dropdown handoff: if chat just opened in the same render
+    // batch, skip the shrink-to-natural restore — the chat-open effect
+    // is about to setSize(width, CHAT_DROPDOWN_WINDOW_HEIGHT) and we'd
+    // race it. Without this, the close's setSize lands AFTER the open's
+    // and clamps the window back to 250-ish, leaving only the chat
+    // header visible inside the panel.
+    if (chatOpen) {
+      setSessionClosing(false);
+      return;
+    }
+
     void (async () => {
       try {
         const scale = await win.scaleFactor();
@@ -480,14 +523,78 @@ function App() {
         setSessionClosing(false);
       }
     })();
+    // chatOpen intentionally NOT in deps — it's only read for the
+    // dropdown→dropdown handoff. Adding it would re-fire the grow
+    // path when chat toggles independently and race the chat effect.
   }, [sessionOpen]);
+
+  // Mirror the session-dropdown effect above, but for the inline chat
+  // panel. Critically, only the HEIGHT grows — width stays put. With a
+  // horizontal grow the window has to shift left (to keep the dog
+  // centered) and the inter-IPC frame between setPosition and setSize
+  // visibly flashes the dog left for one paint. Session-list avoids
+  // this by sizing its panel to fit the existing 320px baseline; we do
+  // the same for chat — the panel adapts to whatever window width it's
+  // sitting in via `left/right: 12px` in chat.css.
+  useEffect(() => {
+    const win = getCurrentWindow();
+
+    if (chatOpen) {
+      const el = containerRef.current;
+      if (!el) return;
+      const currentHeight = el.offsetHeight;
+      const newHeight = Math.max(currentHeight, CHAT_DROPDOWN_WINDOW_HEIGHT);
+      // shiftX kept at 0 — no horizontal grow, no horizontal shift.
+      chatOpenShiftXRef.current = 0;
+
+      void (async () => {
+        try {
+          await win.setSize(new LogicalSize(el.offsetWidth, newHeight));
+        } catch (err) {
+          console.error("[chat-dropdown] open resize failed:", err);
+        }
+      })();
+      return;
+    }
+
+    const shiftX = chatOpenShiftXRef.current;
+    if (shiftX === null) {
+      setChatClosing(false);
+      return;
+    }
+    chatOpenShiftXRef.current = null;
+
+    // Symmetric handoff: if session-list just opened in the same render
+    // batch, skip the shrink — the session-open effect will setSize the
+    // window. Otherwise the chat-close shrink races the session-open
+    // grow and the dropdown ends up clipped.
+    if (sessionOpen) {
+      setChatClosing(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        if (el) {
+          await win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight));
+        }
+      } catch (err) {
+        console.error("[chat-dropdown] close resize failed:", err);
+      } finally {
+        setChatClosing(false);
+      }
+    })();
+    // sessionOpen intentionally NOT in deps — same reason as the
+    // session-dropdown effect. Closure captures the post-batch value.
+  }, [chatOpen]);
 
   return (
     <>
     <div
       ref={containerRef}
       data-testid="app-container"
-      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${visitors.length > 0 ? "has-visitors" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
+      className={`container ${dragging ? "dragging" : ""} ${scenario ? "scenario-active" : ""} ${visitors.length > 0 ? "has-visitors" : ""} ${effectActive ? "effect-active" : ""} ${devAppBounds ? "dev-bounds" : ""} ${devContainerBounds ? "dev-container-bounds" : ""}`}
       style={{
         // Driven by the bubble measurement effect above. 0 when the
         // bubble is hidden or fits in the default padding.
@@ -510,7 +617,7 @@ function App() {
             nudging the sprite's Y position when it appears/disappears. */}
         <div className="mascot-wrap" data-testid="mascot-wrap">
           <SpeechBubble visible={visible} message={message} onDismiss={dismiss} />
-          {status !== "visiting" && <Mascot status={status} />}
+          {status !== "visiting" && <Mascot status={status} onDragStart={startDrag} />}
           {status === "visiting" && <div data-testid="mascot-placeholder" style={{ width: 128 * scale, height: 128 * scale }} />}
         </div>
         <DevBuildBadge />
@@ -527,6 +634,14 @@ function App() {
             // position for a frame.
             if (!open) setSessionClosing(true);
             setSessionOpen(open);
+          }}
+          onChatOpenChange={(open) => {
+            // Same close-transition guard as onOpenChange. The chat panel
+            // is bigger than the session list, so the auto-size race is
+            // visually louder here — chatClosing keeps useWindowAutoSize
+            // paused until the close-effect's setSize lands.
+            if (!open) setChatClosing(true);
+            setChatOpen(open);
           }}
         />
         {devMode && <DevTag />}

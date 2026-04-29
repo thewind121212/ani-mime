@@ -168,7 +168,12 @@ pub fn start_http_server(app_handle: tauri::AppHandle, app_state: Arc<Mutex<AppS
                                 // and bubble paths. The frontend debounces with
                                 // a short delay so quick idle→busy→idle blips
                                 // never reach a user-visible bubble.
-                                if !was_busy {
+                                //
+                                // Permission resume (waiting → busy) is excluded:
+                                // the task was already running before the prompt,
+                                // so a fresh "cooking" bubble would double up with
+                                // the permission-allowed sequence.
+                                if !was_busy && !was_waiting {
                                     let started_pwd = session.pwd.clone();
                                     let started_source = if session.is_claude_proc
                                         || pid == 0

@@ -9,6 +9,7 @@ import {
 } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Status } from "../types/status";
+import { Chat } from "./Chat";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
@@ -37,6 +38,12 @@ interface StatusPillProps {
    * window while the fixed-positioned dropdown is visible.
    */
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Notifies parent when the inline chat panel open state changes.
+   * Same purpose as `onOpenChange` but for chat: App grows the window
+   * around the chat panel rather than letting auto-size shrink it back.
+   */
+  onChatOpenChange?: (open: boolean) => void;
 }
 
 const dotClassMap: Record<Status, string> = {
@@ -230,9 +237,11 @@ const POPOVER_WIDTH = 280;
 /** Negative offset overlaps the popover's 12px shadow-buffer padding. */
 const POPOVER_TOP_GAP = -8;
 
-/** Chat popover — must match tauri.conf.json width. */
-const CHAT_WIDTH = 360;
-const CHAT_TOP_GAP = -8;
+/** Inline chat panel — total Tauri window height while open. Sized to fit
+ *  the chat content + the pill above. App.tsx grows the window to this
+ *  before the panel renders so the chat fits without clipping. Must stay
+ *  in sync with CHAT_DROPDOWN_WINDOW_HEIGHT in App.tsx. */
+const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
 
 /** Spotify popover — must match tauri.conf.json width. */
 const SPOTIFY_WIDTH = 320;
@@ -257,25 +266,6 @@ async function computePopoverScreenPos(
   return new LogicalPosition(Math.round(left), Math.round(top));
 }
 
-async function computeChatScreenPos(
-  anchorEl: HTMLElement
-): Promise<LogicalPosition> {
-  const main = getCurrentWindow();
-  const mainPos = await main.outerPosition();
-  const scale = await main.scaleFactor();
-
-  const pill = anchorEl.closest(".pill") ?? anchorEl;
-  const rect = (pill as HTMLElement).getBoundingClientRect();
-
-  const mainLogical =
-    mainPos instanceof PhysicalPosition ? mainPos.toLogical(scale) : mainPos;
-
-  const centerX = mainLogical.x + rect.left + rect.width / 2;
-  const left = centerX - CHAT_WIDTH / 2;
-  const top = mainLogical.y + rect.bottom + CHAT_TOP_GAP;
-  return new LogicalPosition(Math.round(left), Math.round(top));
-}
-
 async function computeSpotifyScreenPos(
   anchorEl: HTMLElement
 ): Promise<LogicalPosition> {
@@ -295,7 +285,7 @@ async function computeSpotifyScreenPos(
   return new LogicalPosition(Math.round(left), Math.round(top));
 }
 
-export function StatusPill({ status, glow, disabled = false, onOpenChange }: StatusPillProps) {
+export function StatusPill({ status, glow, disabled = false, onOpenChange, onChatOpenChange }: StatusPillProps) {
   // --- Session list state ---
   const [sessionOpen, setSessionOpen] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -316,8 +306,10 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
 
-  // --- Chat popover state ---
+  // --- Chat panel state (inline, mirrors session-list dropdown) ---
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatDropdownTop, setChatDropdownTop] = useState(0);
+  const [chatDropdownMaxHeight, setChatDropdownMaxHeight] = useState(460);
   const chatButtonRef = useRef<HTMLButtonElement>(null);
 
   // --- Spotify popover state ---
@@ -330,6 +322,22 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
   const soundSettings = useSoundSettings();
   const playClickTap = () => {
     if (soundSettings.master) playAudio("tap");
+  };
+
+  // Click-rate gate for all pill action buttons (session / chat / peer /
+  // spotify). Rapid mashing used to hang the app: every toggle fires an
+  // async chain (Tauri WebviewWindow show/hide IPC, window setSize +
+  // setPosition, React batched state flips) and overlapping chains can
+  // race the dropdown handoff guards in App.tsx and leave the window
+  // stuck at the wrong size — sometimes wedging WebKit hard enough that
+  // the whole panel goes blank. 350ms is enough to let the average
+  // toggle's setSize land before the next click is accepted.
+  const pillClickLockRef = useRef(false);
+  const guardPillClick = (): boolean => {
+    if (pillClickLockRef.current) return false;
+    pillClickLockRef.current = true;
+    setTimeout(() => { pillClickLockRef.current = false; }, 350);
+    return true;
   };
 
   // --- Session-group path tooltip (portaled to body so the dropdown's
@@ -408,17 +416,25 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     if (!sessionListEnabled) return;
     e.preventDefault();
     e.stopPropagation();
+    if (!guardPillClick()) return;
     playClickTap();
     if (sessionOpen) {
       setSessionOpen(false);
       return;
     }
-    // Only one popover at a time — hide the peer popover before showing
-    // the session dropdown.
+    // Only one overlay at a time — close every other dropdown before
+    // showing the session list. Mirrors the close logic in toggleChat
+    // / toggleSpotify so any pair of buttons interleaves cleanly.
     if (peerOpen) {
       const popover = await WebviewWindow.getByLabel("peer-list");
       await popover?.hide().catch(() => {});
       setPeerOpen(false);
+    }
+    if (chatOpen) setChatOpen(false);
+    if (spotifyOpen) {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+      setSpotifyOpen(false);
     }
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
@@ -494,6 +510,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     const main = getCurrentWindow();
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let raf = 0;
 
     (async () => {
       const popover = await WebviewWindow.getByLabel("peer-list");
@@ -504,58 +521,62 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
         const pos = await computePopoverScreenPos(lanButtonRef.current);
         await popover.setPosition(pos).catch(() => {});
       };
-      const fn = await main.onMoved(handler);
+      // Coalesce drag move bursts to one IPC per frame. Without this,
+      // every native move event fires three async IPCs (outerPosition,
+      // scaleFactor, setPosition) and the popover visibly trails the
+      // pill during drag. macOS additionally tracks the parent natively
+      // via the `parent` config, so this throttle is mostly redundant
+      // there but still required on Linux/Windows.
+      const throttled = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          void handler();
+        });
+      };
+      const fn = await main.onMoved(throttled);
       unlisten = fn;
     })();
 
     return () => {
       cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
       unlisten?.();
     };
   }, [peerOpen]);
 
-  // --- Chat popover effects ---
-  // Hide on blur (lose focus)
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    (async () => {
-      const chatWin = await WebviewWindow.getByLabel("chat");
-      if (!chatWin) return;
-      const fn = await chatWin.onFocusChanged(({ payload: focused }) => {
-        if (!focused) {
-          void chatWin.hide();
-          setChatOpen(false);
-        }
-      });
-      unlisten = fn;
-    })();
-    return () => { unlisten?.(); };
-  }, []);
+  // --- Chat panel effects ---
+  // Chat is rendered inline as a fixed-position panel inside the main
+  // window — mirrors the session-list dropdown. No separate WebviewWindow,
+  // so drag preserves position natively (the chat moves with the main
+  // window) and the dog is not occluded.
 
-  // Track main window movement — reposition chat
+  useEffect(() => {
+    onChatOpenChange?.(chatOpen);
+  }, [chatOpen, onChatOpenChange]);
+
+  // Compute dropdown top + max height when chat opens. Top = below pill;
+  // max-height clamps the panel inside the grown Tauri window.
   useEffect(() => {
     if (!chatOpen) return;
-    const main = getCurrentWindow();
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const top = rect.bottom + 6;
+    setChatDropdownTop(top);
+    const BOTTOM_MARGIN = 10;
+    setChatDropdownMaxHeight(
+      Math.max(200, CHAT_DROPDOWN_WINDOW_HEIGHT - top - BOTTOM_MARGIN)
+    );
+  }, [chatOpen]);
 
-    (async () => {
-      const chatWin = await WebviewWindow.getByLabel("chat");
-      if (!chatWin || cancelled) return;
-      const handler = async () => {
-        if (!chatButtonRef.current) return;
-        if (!(await chatWin.isVisible())) return;
-        const pos = await computeChatScreenPos(chatButtonRef.current);
-        await chatWin.setPosition(pos).catch(() => {});
-      };
-      const fn = await main.onMoved(handler);
-      unlisten = fn;
-    })();
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
+  // Close on Escape — mirrors the session-list close-on-Escape behavior.
+  useEffect(() => {
+    if (!chatOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setChatOpen(false);
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [chatOpen]);
 
   // Spotify popover — hide on blur, reposition on main window move.
@@ -580,6 +601,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     const main = getCurrentWindow();
     let cancelled = false;
     let unlisten: (() => void) | undefined;
+    let raf = 0;
 
     (async () => {
       const win = await WebviewWindow.getByLabel("spotify-player");
@@ -590,12 +612,20 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
         const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
         await win.setPosition(pos).catch(() => {});
       };
-      const fn = await main.onMoved(handler);
+      const throttled = () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          void handler();
+        });
+      };
+      const fn = await main.onMoved(throttled);
       unlisten = fn;
     })();
 
     return () => {
       cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
       unlisten?.();
     };
   }, [spotifyOpen]);
@@ -614,6 +644,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     e.preventDefault();
     e.stopPropagation();
     if (!spotifyButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
     const win = await WebviewWindow.getByLabel("spotify-player");
@@ -635,11 +666,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       await peerWin?.hide().catch(() => {});
       setPeerOpen(false);
     }
-    if (chatOpen) {
-      const chatWin = await WebviewWindow.getByLabel("chat");
-      await chatWin?.hide().catch(() => {});
-      setChatOpen(false);
-    }
+    if (chatOpen) setChatOpen(false);
 
     const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
     await win.setPosition(pos);
@@ -652,33 +679,29 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     e.preventDefault();
     e.stopPropagation();
     if (!chatButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
-    const chatWin = await WebviewWindow.getByLabel("chat");
-    if (!chatWin) {
-      console.error("[status-pill] chat window not found");
-      return;
-    }
-
-    const visible = await chatWin.isVisible();
-    if (visible) {
-      await chatWin.hide();
+    if (chatOpen) {
       setChatOpen(false);
       return;
     }
 
-    // Close other popovers
+    // Only one overlay at a time — close session dropdown + peer popover
+    // + spotify popover before opening chat. Mirrors the toggleSession
+    // and togglePeer paths.
     if (sessionOpen) setSessionOpen(false);
     if (peerOpen) {
       const peerWin = await WebviewWindow.getByLabel("peer-list");
       await peerWin?.hide().catch(() => {});
       setPeerOpen(false);
     }
+    if (spotifyOpen) {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+      setSpotifyOpen(false);
+    }
 
-    const pos = await computeChatScreenPos(chatButtonRef.current);
-    await chatWin.setPosition(pos);
-    await chatWin.show();
-    await chatWin.setFocus();
     setChatOpen(true);
   };
 
@@ -687,6 +710,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
     e.preventDefault();
     e.stopPropagation();
     if (!lanButtonRef.current) return;
+    if (!guardPillClick()) return;
     playClickTap();
 
     const popover = await WebviewWindow.getByLabel("peer-list");
@@ -702,9 +726,15 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
       return;
     }
 
-    // Only one popover at a time — close the session dropdown before
+    // Only one overlay at a time — close every other dropdown before
     // showing the peer list.
     if (sessionOpen) setSessionOpen(false);
+    if (chatOpen) setChatOpen(false);
+    if (spotifyOpen) {
+      const win = await WebviewWindow.getByLabel("spotify-player");
+      await win?.hide().catch(() => {});
+      setSpotifyOpen(false);
+    }
 
     const pos = await computePopoverScreenPos(lanButtonRef.current);
     await popover.setPosition(pos);
@@ -999,6 +1029,23 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange }: Sta
               );
             })
           )}
+        </div>
+      )}
+
+      {chatOpen && (
+        <div
+          data-testid="chat-dropdown"
+          className="chat-dropdown"
+          style={{
+            top: `${chatDropdownTop}px`,
+            // Explicit height (not max-height) so the inner flex
+            // children inherit a determinate size and chat-messages
+            // can actually scroll. See .chat-dropdown comment in
+            // chat.css for why max-height collapses inner scroll.
+            height: `${chatDropdownMaxHeight}px`,
+          }}
+        >
+          <Chat onClose={() => setChatOpen(false)} />
         </div>
       )}
 

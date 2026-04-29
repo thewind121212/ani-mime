@@ -167,20 +167,26 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
     try {
       const win = getCurrentWindow();
 
-      // Only capture the baseline when we don't already have one. If we
-      // do, the previous stopEffect's restoreWindow is still in flight —
-      // reading win.outerSize() now would capture the expanded size as
-      // "normal" and lock the window at `size` x `size` on the next
-      // restore (rapid busy→idle→busy used to leave the window stuck).
+      // Read CURRENT window geometry every call. On re-entry (rapid
+      // busy→idle→busy while the previous restoreWindow is still in
+      // flight), curW may already be `size` — using a *live* shift
+      // computed from curW means we don't teleport the window back to
+      // the original baseline pos and any user drag during the
+      // expanded state is preserved.
+      const factor = await win.scaleFactor();
+      const physPos = await win.outerPosition();
+      const physSize = await win.outerSize();
+      const curX = physPos.x / factor;
+      const curY = physPos.y / factor;
+      const curW = physSize.width / factor;
+      const curH = physSize.height / factor;
+
+      // Capture the natural baseline only on the first expand of a
+      // cycle. If savedWindowRef already exists, the previous
+      // restoreWindow is mid-flight and curW could be `size` — capturing
+      // it as "natural" would lock the window expanded on next restore.
       if (!savedWindowRef.current) {
-        const factor = await win.scaleFactor();
-        const physPos = await win.outerPosition();
-        const physSize = await win.outerSize();
-        const x = physPos.x / factor;
-        const y = physPos.y / factor;
-        const w = physSize.width / factor;
-        const h = physSize.height / factor;
-        const shiftX = (size - w) / 2;
+        const shiftX = (size - curW) / 2;
         // Don't shift the window upward at all — even with the
         // paddingTop pin, the async window-move IPC and the synchronous
         // CSS update don't land in the same paint frame, so the mascot
@@ -188,10 +194,18 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
         // window grow down-right keeps the mascot pinned to its
         // original screen Y on every busy ↔ idle transition.
         const shiftY = 0;
-        savedWindowRef.current = { x, y, w, h, shiftX, shiftY };
+        savedWindowRef.current = { x: curX, y: curY, w: curW, h: curH, shiftX, shiftY };
       }
 
-      const { x: logX, y: logY, shiftX, shiftY } = savedWindowRef.current;
+      const { shiftX, shiftY } = savedWindowRef.current;
+
+      // Live shift = how far we need to move *from where the window is
+      // right now* to land at size×size centered on the original dog
+      // screen position. When curW === size (already expanded) this is
+      // 0 → no teleport. When curW === naturalW it equals the saved
+      // shiftX → standard expand.
+      const liveShiftX = (size - curW) / 2;
+      const liveShiftY = 0;
 
       // Compensate for the window shifting up by shiftY: push the
       // flex-start container down by the same amount so the dog stays
@@ -212,7 +226,7 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
 
       await win.setShadow(false);
       await Promise.all([
-        win.setPosition(new LogicalPosition(logX - shiftX, logY - shiftY)),
+        win.setPosition(new LogicalPosition(curX - liveShiftX, curY - liveShiftY)),
         win.setSize(new LogicalSize(size, size)),
       ]);
 
@@ -221,21 +235,51 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
 
       // Measure dog center inside the expanded window so the clone
       // animation can be anchored on the pet rather than window center.
-      // After clamped expand (e.g. dog near top of screen), window
-      // center is below the dog; without this anchor the clones
-      // visibly burst from below the pet ("going down to center").
-      // requestAnimationFrame waits one frame so the new layout
-      // (post-resize, post-paddingTop) is committed before measuring.
+      // Retries across multiple frames because:
+      //   - WebKit viewport-resize race: `await win.setSize` resolves
+      //     when Rust commits the native resize, but WebKit reflows in
+      //     a separate runloop tick — the first RAF can land before
+      //     `window.innerWidth` matches `size`, and the dog's
+      //     window-local center is still (old_width / 2). Reading the
+      //     anchor then puts the clone at e.g. x=160 in a 1200-wide
+      //     window → clone bursts far LEFT of the dog. Wait for the
+      //     viewport to reach `size` before trusting the rect.
+      //   - custom-mime first load: Mascot returns null until its sprite
+      //     blob decodes, so [data-testid="mascot-sprite"] is briefly
+      //     absent and a single-RAF query falls back to window center.
+      //   - visiting→busy transition: mascot replaces the placeholder
+      //     this same render cycle.
+      // Falls back to mascot-wrap (always present) before the
+      // window-center fallback so the clone never bursts from window
+      // center when any dog-shaped target is reachable.
       return await new Promise<{ anchorX: number; anchorY: number }>((resolve) => {
-        requestAnimationFrame(() => {
-          const mascotEl = document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]');
-          if (!mascotEl) return resolve(fallback);
-          const r = mascotEl.getBoundingClientRect();
-          resolve({
-            anchorX: r.left + r.width / 2,
-            anchorY: r.top + r.height / 2,
-          });
-        });
+        const MAX_TRIES = 12;
+        let tries = 0;
+        const tick = () => {
+          // Tolerate a small rounding gap between requested size and
+          // reported innerWidth (HiDPI scale-factor rounding can shave
+          // a px). 4px slack is plenty.
+          const viewportReady = Math.abs(window.innerWidth - size) < 4;
+          if (viewportReady) {
+            const el =
+              document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]') ||
+              document.querySelector<HTMLElement>('[data-testid="mascot-placeholder"]') ||
+              document.querySelector<HTMLElement>('[data-testid="mascot-wrap"]');
+            if (el) {
+              const r = el.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) {
+                return resolve({
+                  anchorX: r.left + r.width / 2,
+                  anchorY: r.top + r.height / 2,
+                });
+              }
+            }
+          }
+          tries++;
+          if (tries >= MAX_TRIES) return resolve(fallback);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
       });
     } catch (err) {
       console.error("[effects] expand error:", err);
@@ -309,6 +353,12 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
 
     if (prevStatus === status) return;
 
+    // Permission resume (waiting → busy): the task was already running
+    // before the prompt; skip the shadow-clone burst since it's not a
+    // fresh start. Without this, every "Allow" click triggers a clone
+    // animation mid-task.
+    if (prevStatus === "waiting" && status === "busy") return;
+
     const matchingEffect = effects.find((e) => e.trigger === status);
     if (!matchingEffect) return;
 
@@ -377,11 +427,20 @@ export function EffectOverlay({ onActiveChange }: EffectOverlayProps) {
           anchorY = anchor.anchorY;
         } else {
           setWindowReady(true);
-          const mascotEl = document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]');
-          if (mascotEl) {
-            const r = mascotEl.getBoundingClientRect();
-            anchorX = r.left + r.width / 2;
-            anchorY = r.top + r.height / 2;
+          // Same fallback chain as expandWindow's anchor measure:
+          // sprite → placeholder → wrap. Avoids a stale (frameSize/2)
+          // anchor when Mascot is mid-mount (custom mime decode,
+          // visiting transition).
+          const el =
+            document.querySelector<HTMLElement>('[data-testid="mascot-sprite"]') ||
+            document.querySelector<HTMLElement>('[data-testid="mascot-placeholder"]') ||
+            document.querySelector<HTMLElement>('[data-testid="mascot-wrap"]');
+          if (el) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) {
+              anchorX = r.left + r.width / 2;
+              anchorY = r.top + r.height / 2;
+            }
           }
         }
 

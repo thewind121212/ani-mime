@@ -207,6 +207,17 @@ pub fn migrate_claude_hooks(home: &Path) {
         patched = true;
     }
 
+    // Migration 7: ensure PostToolUse posts state=busy. Without it, a
+    // permission-prompted tool completes silently — the dot stays yellow
+    // until the next PreToolUse or Stop fires, which can be many seconds
+    // after the user clicks "Allow". The plain busy_cmd matches what
+    // setup_claude_hooks installs for new users.
+    let busy_cmd_for_post = "curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=busy&type=task\" > /dev/null 2>&1 || true";
+    if ensure_ani_hook(&mut settings, "PostToolUse", busy_cmd_for_post) {
+        migrations_applied.push("added PostToolUse hook");
+        patched = true;
+    }
+
     // Migration 6: revert busy_cmd hooks that pipe to /pretool-cache back to
     // the plain state=busy ping. The cache existed only to feed full Bash
     // commands into the Telegram push, which was dropped — keeping the POST
@@ -375,6 +386,7 @@ pub fn setup_claude_hooks(home: &Path) {
     let waiting_cmd = "input=$(cat); echo \"$input\" | grep -qi permission && { curl -s --max-time 1 \"http://127.0.0.1:1234/status?pid=$PPID&state=waiting\" >/dev/null 2>&1; printf %s \"$input\" | curl -s --max-time 1 -X POST -H 'Content-Type: application/json' --data-binary @- \"http://127.0.0.1:1234/notify-permission?pid=$PPID\" >/dev/null 2>&1; } || true";
 
     add_hook(hooks, "PreToolUse", busy_cmd);
+    add_hook(hooks, "PostToolUse", busy_cmd);
     add_hook(hooks, "UserPromptSubmit", busy_cmd);
     add_hook(hooks, "Notification", waiting_cmd);
     add_hook(hooks, "Stop", idle_cmd);

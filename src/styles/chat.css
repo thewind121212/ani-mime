@@ -7,8 +7,68 @@ body,
 
 .chat-shell {
   padding: 12px;
-  height: 100vh;
+  /* 100% so the shell fills whatever sized container it lives in:
+     - Standalone chat WebviewWindow: chat.html sets html/body/#root to
+       100% height, so this stretches to the window.
+     - Inline chat-dropdown panel inside main: the .chat-dropdown
+       wrapper sets a fixed height/max-height, this fills it. */
+  height: 100%;
   box-sizing: border-box;
+}
+
+/* Inline chat panel positioning. Mirrors the .session-dropdown rule in
+   status-pill.css: fixed-position panel below the pill, sized by the
+   ambient Tauri window. The chat panel does NOT grow the window
+   horizontally — left/right: 12px lets it stretch to whatever width
+   the window already is, so toggling the panel never shifts the dog. */
+.chat-dropdown {
+  position: fixed;
+  /* `--effect-shift-*` defaults to 0 — published by EffectOverlay only
+     while a shadow-clone-style window grow is active. Negate them so
+     the panel stays anchored to its pre-effect screen position instead
+     of riding the parent window jump. */
+  left: calc(12px - var(--effect-shift-x, 0px));
+  right: calc(12px + var(--effect-shift-x, 0px));
+  transform: translateY(calc(-1 * var(--effect-shift-y, 0px)));
+  /* `top` and `height` are set inline by StatusPill: top = pill-bottom
+     + 6, height = window-height - top - bottom-margin. Explicit height
+     (not max-height) is required so the inner flex column can hand
+     `flex: 1` to .chat-messages and let it scroll inside the panel
+     bounds — `max-height` collapses the flex children to 0 because
+     the parent never gets a determinate size. */
+  z-index: 10;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  /* Clip whatever the chat content tries to overflow (e.g. wide code
+     blocks, long messages) so it scrolls inside instead of bleeding
+     past the panel's border-radius. */
+  overflow: hidden;
+}
+
+/* Inside the inline panel, .chat-shell fills the full height of the
+   .chat-dropdown so the inner flex column can resolve. The standalone
+   chat WebviewWindow does the same via html/body { height: 100% }. */
+.chat-dropdown > .chat-shell {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Make .chat-messages a real flex child so its `overflow-y: auto`
+   actually engages — without min-height: 0, the flex item refuses to
+   shrink below its content size and the scrollbar never appears. */
+.chat-messages {
+  min-height: 0;
+}
+
+/* Hide the chat panel for the duration of a transient effect (e.g.
+   shadow-clone). The container grows briefly to host the burst, and
+   the chat panel would otherwise overlap the animation or trigger an
+   awkward height clamp mid-effect. `display: none` keeps the panel
+   in the DOM (input value + message list state survive) but yanks it
+   from layout — the chat reappears intact when the effect ends. */
+.container.effect-active .chat-dropdown {
+  display: none;
 }
 
 .chat {
