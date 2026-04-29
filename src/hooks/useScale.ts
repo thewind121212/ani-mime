@@ -13,12 +13,9 @@ function applyScale(scale: number) {
   document.documentElement.style.setProperty("--sprite-scale", String(scale));
 }
 
-// Window size is no longer driven from here — useWindowAutoSize watches
-// .container and resizes the window to match content (which grows with
-// the sprite scale via the CSS --sprite-scale variable). Previously this
-// hook set fixed per-scale sizes (scale=1 → 500x220) which fought the
-// min-width: 320 baseline and caused the window to snap back to 500
-// after any content-driven resize.
+// Window size is no longer driven from here — useWindowDefaultSize sets
+// the pet window to PET_BASE × scale, and each trigger event in App.tsx
+// explicitly grows/restores from there.
 
 export function useScale() {
   const [scale, setScaleState] = useState<DisplayScale>(1);

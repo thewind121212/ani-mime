@@ -6,6 +6,13 @@ const STORE_FILE = "settings.json";
 const STORE_KEY = "bubbleEnabled";
 const BUBBLE_DURATION_MS = 7000;
 
+/**
+ * Threshold (in characters) above which a bubble is considered "long" and
+ * triggers a window upsize. Tuned empirically: short status messages
+ * (≤25 chars) fit comfortably inside the default 160×240 window.
+ */
+export const LONG_BUBBLE_THRESHOLD = 30;
+
 const messages = [
   "Done! Check it out",
   "All finished!",
@@ -113,7 +120,7 @@ export function useBubble() {
       if (e.payload !== "no_peers") return;
 
       clearTimeout(timerRef.current);
-      setMessage("No friends nearby! Check Privacy \u2192 Local Network");
+      setMessage("No friends nearby! Check Privacy → Local Network");
       setVisible(true);
 
       timerRef.current = setTimeout(() => {
@@ -151,6 +158,17 @@ export function useBubble() {
       clearTimeout(timerRef.current);
       setMessage(e.payload);
       setVisible(true);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Listen for bubble-dismiss: scenario panel "Clear Bubble" button.
+  useEffect(() => {
+    const unlisten = listen("bubble-dismiss", () => {
+      clearTimeout(timerRef.current);
+      setVisible(false);
     });
     return () => {
       unlisten.then((fn) => fn());
