@@ -489,6 +489,17 @@ function App() {
     }
     openShiftXRef.current = null;
 
+    // Dropdown→dropdown handoff: if chat just opened in the same render
+    // batch, skip the shrink-to-natural restore — the chat-open effect
+    // is about to setSize(width, CHAT_DROPDOWN_WINDOW_HEIGHT) and we'd
+    // race it. Without this, the close's setSize lands AFTER the open's
+    // and clamps the window back to 250-ish, leaving only the chat
+    // header visible inside the panel.
+    if (chatOpen) {
+      setSessionClosing(false);
+      return;
+    }
+
     void (async () => {
       try {
         const scale = await win.scaleFactor();
@@ -512,6 +523,9 @@ function App() {
         setSessionClosing(false);
       }
     })();
+    // chatOpen intentionally NOT in deps — it's only read for the
+    // dropdown→dropdown handoff. Adding it would re-fire the grow
+    // path when chat toggles independently and race the chat effect.
   }, [sessionOpen]);
 
   // Mirror the session-dropdown effect above, but for the inline chat
@@ -550,6 +564,15 @@ function App() {
     }
     chatOpenShiftXRef.current = null;
 
+    // Symmetric handoff: if session-list just opened in the same render
+    // batch, skip the shrink — the session-open effect will setSize the
+    // window. Otherwise the chat-close shrink races the session-open
+    // grow and the dropdown ends up clipped.
+    if (sessionOpen) {
+      setChatClosing(false);
+      return;
+    }
+
     void (async () => {
       try {
         const el = containerRef.current;
@@ -562,6 +585,8 @@ function App() {
         setChatClosing(false);
       }
     })();
+    // sessionOpen intentionally NOT in deps — same reason as the
+    // session-dropdown effect. Closure captures the post-batch value.
   }, [chatOpen]);
 
   return (
