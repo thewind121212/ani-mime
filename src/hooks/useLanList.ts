@@ -3,14 +3,23 @@ import { load } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
 
 const STORAGE_KEY = "lanListEnabled";
+const MIGRATION_KEY = "lanListDefaultFalseMigrated";
 const EVENT_NAME = "lan-list-changed";
 
-/** Whether the LAN (peers) icon in the status pill is shown. Defaults to on. */
+/** Whether the LAN (peers) icon in the status pill is shown. Defaults to off. */
 export function useLanList() {
-  const [enabled, setEnabledState] = useState(true);
+  const [enabled, setEnabledState] = useState(false);
 
   useLayoutEffect(() => {
     load("settings.json").then(async (store) => {
+      const migrated = await store.get<boolean>(MIGRATION_KEY);
+      if (!migrated) {
+        await store.set(STORAGE_KEY, false);
+        await store.set(MIGRATION_KEY, true);
+        await store.save();
+        setEnabledState(false);
+        return;
+      }
       const val = await store.get<boolean>(STORAGE_KEY);
       if (val !== null && val !== undefined) {
         setEnabledState(val);
