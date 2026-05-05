@@ -37,3 +37,48 @@ pub fn get_query_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
     }
     None
 }
+
+/// Parse the `lanListEnabled` boolean out of a settings.json document.
+/// Returns `false` for missing key, non-bool value, or invalid JSON —
+/// matches the frontend default in `useLanList` (off by default).
+pub fn parse_lan_list_enabled(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| v.get("lanListEnabled").and_then(|x| x.as_bool()))
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_lan_list_enabled_returns_true_when_set_true() {
+        let json = r#"{"lanListEnabled": true}"#;
+        assert!(parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_returns_false_when_set_false() {
+        let json = r#"{"lanListEnabled": false}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_when_key_missing() {
+        let json = r#"{"nickname": "Anonymous"}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_for_invalid_json() {
+        let json = "not json at all {{";
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_for_non_bool_value() {
+        let json = r#"{"lanListEnabled": "yes"}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+}
