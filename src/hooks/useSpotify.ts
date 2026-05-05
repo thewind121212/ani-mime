@@ -39,6 +39,18 @@ interface SpotifyStatus {
 const EVENT_CONNECTED = "spotify-connected";
 const EVENT_CLIENT_CHANGED = "spotify-client-changed";
 
+function isAuthError(err: string): boolean {
+  const lower = err.toLowerCase();
+  return (
+    lower.includes("not connected") ||
+    lower.includes("invalid_grant") ||
+    lower.includes("refresh error") ||
+    lower.includes("no refresh token") ||
+    lower.includes("no client_id") ||
+    lower.includes("reconnect")
+  );
+}
+
 function parseState(raw: unknown): SpotifyTrack | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -78,6 +90,7 @@ export function useSpotify(active: boolean) {
   const [nextUp, setNextUp] = useState<SpotifyQueueItem | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [needsReauth, setNeedsReauth] = useState(false);
   const lastFetchRef = useRef<number>(0);
 
   // Connection status comes from the backend (which reads settings.json
@@ -95,7 +108,11 @@ export function useSpotify(active: boolean) {
       }
     };
     void refresh();
-    const u = listen<boolean>(EVENT_CONNECTED, () => void refresh());
+    const u = listen<boolean>(EVENT_CONNECTED, () => {
+      void refresh();
+      setNeedsReauth(false);
+      setError(null);
+    });
     return () => {
       cancelled = true;
       u.then((fn) => fn());
@@ -111,7 +128,12 @@ export function useSpotify(active: boolean) {
       setTrack(parsed);
       setError(null);
     } catch (e) {
-      setError(String(e));
+      const errStr = String(e);
+      setError(errStr);
+      if (isAuthError(errStr)) {
+        setConnected(false);
+        setNeedsReauth(true);
+      }
     }
     // Queue is independent of player state — fetch in parallel and
     // tolerate failure (e.g. some account types refuse the queue
@@ -197,7 +219,22 @@ export function useSpotify(active: boolean) {
     }
   }, []);
 
-  return { track, nextUp, connected, error, play, pause, next, prev, seek };
+  const reconnect = useCallback(async () => {
+    try {
+      const s = await invoke<SpotifyStatus>("spotify_status");
+      if (!s.client_id) {
+        setError("No Client ID configured. Set it in Settings → Spotify.");
+        return;
+      }
+      await invoke<string>("spotify_connect", { clientId: s.client_id });
+      // Browser opens — once user completes OAuth, spotify-connected event
+      // fires and the event listener above resets needsReauth + connected.
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
+  return { track, nextUp, connected, needsReauth, error, play, pause, next, prev, seek, reconnect };
 }
 
 /**

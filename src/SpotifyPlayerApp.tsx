@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useRef, useState } from "react";
 import { useSpotify } from "./hooks/useSpotify";
 import { useTheme } from "./hooks/useTheme";
 import "./styles/theme.css";
@@ -15,19 +14,8 @@ function fmtTime(ms: number): string {
 export function SpotifyPlayerApp() {
   useTheme();
   const rootRef = useRef<HTMLDivElement>(null);
-  const { track, nextUp, connected, error, play, pause, next, prev, seek } = useSpotify(true);
+  const { track, nextUp, connected, needsReauth, error, play, pause, next, prev, seek, reconnect } = useSpotify(true);
   const [scrubbing, setScrubbing] = useState<number | null>(null);
-
-  // Hide popover on blur — same pattern as peer-list.
-  useEffect(() => {
-    const win = getCurrentWindow();
-    const unlistenP = win.onFocusChanged(({ payload: focused }) => {
-      if (!focused) void win.hide();
-    });
-    return () => {
-      unlistenP.then((fn) => fn());
-    };
-  }, []);
 
   const renderEmpty = (msg: string) => (
     <div className="spotify-shell">
@@ -36,6 +24,26 @@ export function SpotifyPlayerApp() {
       </div>
     </div>
   );
+
+  if (!connected && needsReauth) {
+    return (
+      <div className="spotify-shell">
+        <div className="spotify-root">
+          <div className="spotify-reauth" data-testid="spotify-reauth">
+            <span className="spotify-reauth-msg">Spotify session expired. Log in again to continue.</span>
+            <button
+              type="button"
+              className="spotify-reauth-btn"
+              data-testid="spotify-reconnect-btn"
+              onClick={() => void reconnect()}
+            >
+              Reconnect
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!connected) return renderEmpty("Connect Spotify in Settings.");
   if (error && !track) return renderEmpty(error);

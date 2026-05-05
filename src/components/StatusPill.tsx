@@ -579,23 +579,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     return () => window.removeEventListener("keydown", onKey);
   }, [chatOpen]);
 
-  // Spotify popover — hide on blur, reposition on main window move.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    (async () => {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      if (!win) return;
-      const fn = await win.onFocusChanged(({ payload: focused }) => {
-        if (!focused) {
-          void win.hide();
-          setSpotifyOpen(false);
-        }
-      });
-      unlisten = fn;
-    })();
-    return () => { unlisten?.(); };
-  }, []);
-
+  // Spotify popover — reposition on main window move.
   useEffect(() => {
     if (!spotifyOpen) return;
     const main = getCurrentWindow();
