@@ -208,6 +208,37 @@ describe("useBubble", () => {
     });
   });
 
+  describe("LAN gate", () => {
+    it("suppresses discovery-hint bubble when lanListEnabled is false", async () => {
+      mockStoreValue("settings.json", "lanListEnabled", false);
+      mockStoreValue("settings.json", "lanListDefaultFalseMigrated", true);
+
+      const { result } = renderHook(() => useBubble());
+      await act(async () => {});
+
+      await act(async () => {
+        emitMockEvent("discovery-hint", "no_peers");
+      });
+
+      expect(result.current.visible).toBe(false);
+    });
+
+    it("shows discovery-hint bubble when lanListEnabled is true", async () => {
+      mockStoreValue("settings.json", "lanListEnabled", true);
+      mockStoreValue("settings.json", "lanListDefaultFalseMigrated", true);
+
+      const { result } = renderHook(() => useBubble());
+      await act(async () => {});
+
+      await act(async () => {
+        emitMockEvent("discovery-hint", "no_peers");
+      });
+
+      expect(result.current.visible).toBe(true);
+      expect(result.current.message).toContain("Local Network");
+    });
+  });
+
   describe("service status hides bubble", () => {
     it("hides bubble when status changes to service", async () => {
       const { result } = renderHook(() => useBubble());

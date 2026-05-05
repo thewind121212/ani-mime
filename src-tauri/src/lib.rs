@@ -659,13 +659,21 @@ pub fn run() {
                     st.nickname = nickname.clone();
                 }
 
-                discovery::start_discovery(
-                    discovery_handle.clone(),
-                    discovery_state.clone(),
-                    nickname.clone(),
-                    pet.clone(),
-                );
-                broadcast::start_broadcast(discovery_handle, discovery_state, nickname, pet);
+                let lan_enabled = crate::helpers::read_lan_list_enabled(&store_path);
+                if lan_enabled {
+                    crate::app_log!("[app] LAN Peer List enabled — starting mDNS discovery + UDP broadcast");
+                    discovery::start_discovery(
+                        discovery_handle.clone(),
+                        discovery_state.clone(),
+                        nickname.clone(),
+                        pet.clone(),
+                    );
+                    broadcast::start_broadcast(discovery_handle, discovery_state, nickname, pet);
+                } else {
+                    crate::app_log!(
+                        "[app] LAN Peer List disabled — skipping mDNS discovery + UDP broadcast (toggle in Settings + restart to enable)"
+                    );
+                }
             });
 
             use tauri_plugin_deep_link::DeepLinkExt;

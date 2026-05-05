@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { load } from "@tauri-apps/plugin-store";
 import { emit, listen } from "@tauri-apps/api/event";
+import { useLanList } from "./useLanList";
 
 const STORE_FILE = "settings.json";
 const STORE_KEY = "bubbleEnabled";
@@ -38,6 +39,7 @@ interface TaskCompleted {
 
 export function useBubble() {
   const [enabled, setEnabledState] = useState(true);
+  const { enabled: lanEnabled } = useLanList();
   const [visible, setVisible] = useState(false);
   const [message, setMessage] = useState("");
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -114,10 +116,13 @@ export function useBubble() {
     };
   }, [enabled]);
 
-  // Listen for discovery-hint: no peers found after timeout
+  // Listen for discovery-hint: no peers found after timeout. Gated on the
+  // LAN Peer List setting — if the user has opted out, don't nag them about
+  // Local Network privacy.
   useEffect(() => {
     const unlisten = listen<string>("discovery-hint", (e) => {
       if (e.payload !== "no_peers") return;
+      if (!lanEnabled) return;
 
       clearTimeout(timerRef.current);
       setMessage("No friends nearby! Check Privacy → Local Network");
@@ -131,7 +136,7 @@ export function useBubble() {
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, []);
+  }, [lanEnabled]);
 
   // Listen for mcp-say: speech bubble triggered by MCP server / AI agent
   useEffect(() => {

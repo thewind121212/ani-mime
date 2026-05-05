@@ -539,7 +539,7 @@ export function Settings() {
               <div className="settings-row with-hint">
                 <div>
                   <span className="settings-row-label">LAN Peer List</span>
-                  <span className="settings-row-hint">Show the nearby-peers icon on the status pill. Turn off to hide it entirely.</span>
+                  <span className="settings-row-hint">Show the nearby-peers icon on the status pill, and run the LAN scanner that finds them. Restart Ani-Mime after toggling for the scanner to start or stop.</span>
                 </div>
                 <button
                   className={`toggle-switch ${lanListEnabled ? "active" : ""}`}

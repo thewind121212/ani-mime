@@ -37,3 +37,85 @@ pub fn get_query_param<'a>(url: &'a str, key: &str) -> Option<&'a str> {
     }
     None
 }
+
+/// Parse the `lanListEnabled` boolean out of a settings.json document.
+/// Returns `false` for missing key, non-bool value, or invalid JSON —
+/// matches the frontend default in `useLanList` (off by default).
+pub fn parse_lan_list_enabled(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| v.get("lanListEnabled").and_then(|x| x.as_bool()))
+        .unwrap_or(false)
+}
+
+/// Read `lanListEnabled` from a `settings.json` file on disk. Returns
+/// `false` if the file is missing, unreadable, or malformed — same default
+/// as `parse_lan_list_enabled`.
+pub fn read_lan_list_enabled(path: &std::path::Path) -> bool {
+    match std::fs::read_to_string(path) {
+        Ok(s) => parse_lan_list_enabled(&s),
+        Err(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_lan_list_enabled_returns_true_when_set_true() {
+        let json = r#"{"lanListEnabled": true}"#;
+        assert!(parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_returns_false_when_set_false() {
+        let json = r#"{"lanListEnabled": false}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_when_key_missing() {
+        let json = r#"{"nickname": "Anonymous"}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_for_invalid_json() {
+        let json = "not json at all {{";
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn parse_lan_list_enabled_defaults_false_for_non_bool_value() {
+        let json = r#"{"lanListEnabled": "yes"}"#;
+        assert!(!parse_lan_list_enabled(json));
+    }
+
+    #[test]
+    fn read_lan_list_enabled_returns_false_for_missing_file() {
+        let path = std::path::PathBuf::from("/tmp/ani-mime-nonexistent-settings-xyz.json");
+        let _ = std::fs::remove_file(&path);
+        assert!(!read_lan_list_enabled(&path));
+    }
+
+    #[test]
+    fn read_lan_list_enabled_reads_true_from_real_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ani-mime-test-settings-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"lanListEnabled": true}"#).unwrap();
+        let result = read_lan_list_enabled(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(result);
+    }
+
+    #[test]
+    fn read_lan_list_enabled_reads_false_from_real_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ani-mime-test-settings-false-{}.json", std::process::id()));
+        std::fs::write(&path, r#"{"lanListEnabled": false}"#).unwrap();
+        let result = read_lan_list_enabled(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(!result);
+    }
+}
