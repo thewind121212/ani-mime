@@ -103,6 +103,10 @@
   border-color: rgba(52, 199, 89, 0.5);
 }
 
+.pill-action-btn[data-testid="pill-action-task"] {
+  border-radius: 0;
+}
+
 .pill-action-icon {
   opacity: 0.75;
   pointer-events: none;
