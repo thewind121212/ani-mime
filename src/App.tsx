@@ -332,8 +332,10 @@ function App() {
   // When the dropdown opens the window grows wider (>= SESSION_DROPDOWN_MIN_WIDTH).
   // Because #root centers its content, a wider window visibly shifts the
   // pet + pill rightward. To keep the pet visually anchored we also move
-  // the window left by half the width growth. On close we restore both
-  // size and position so the pet returns to its original spot.
+  // the window left by half the width growth. On close we shrink it back
+  // and inverse-shift the CURRENT position right by dx/2 — using the
+  // current position (not the open-time saved one) means any drag the
+  // user did while the dropdown was open is preserved across the close.
   //
   // setSize + setPosition are fired in parallel via Promise.all so they
   // commit close to the same native-window frame — otherwise the
@@ -342,11 +344,11 @@ function App() {
   useEffect(() => {
     const win = getCurrentWindow();
     const def = getDefaultPetSize(scale);
+    const newWidth = Math.max(def.width, SESSION_DROPDOWN_MIN_WIDTH);
+    const dx = newWidth - def.width;
 
     if (sessionOpen) {
-      const newWidth = Math.max(def.width, SESSION_DROPDOWN_MIN_WIDTH);
       const newHeight = Math.max(def.height, SESSION_DROPDOWN_WINDOW_HEIGHT);
-      const dx = newWidth - def.width;
 
       void (async () => {
         try {
@@ -355,6 +357,9 @@ function App() {
           const logical = pos.toLogical(sf);
           const origX = Math.round(logical.x);
           const origY = Math.round(logical.y);
+          // Sentinel so the close branch knows we actually opened. The
+          // value isn't restored — we read the current position on close
+          // to preserve any user drag.
           savedPosRef.current = new LogicalPosition(origX, origY);
           await Promise.all([
             win.setPosition(
@@ -369,8 +374,7 @@ function App() {
       return;
     }
 
-    const savedPos = savedPosRef.current;
-    if (!savedPos) {
+    if (!savedPosRef.current) {
       setSessionClosing(false);
       return;
     }
@@ -378,8 +382,15 @@ function App() {
 
     void (async () => {
       try {
+        const sf = await win.scaleFactor();
+        const pos = await win.outerPosition();
+        const logical = pos.toLogical(sf);
+        const curX = Math.round(logical.x);
+        const curY = Math.round(logical.y);
         await Promise.all([
-          win.setPosition(savedPos),
+          win.setPosition(
+            new LogicalPosition(curX + Math.round(dx / 2), curY)
+          ),
           win.setSize(new LogicalSize(def.width, def.height)),
         ]);
       } catch (err) {
