@@ -415,12 +415,33 @@ fn is_shell(name: &str) -> bool {
     )
 }
 
+/// Recent Claude Code releases spoof `p_comm` to the version string
+/// (e.g. "2.1.128") via setproctitle/argv-rewriting. When we see a
+/// numeric-dotted name we read argv0 to recover the real binary name.
+fn looks_like_version_string(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.is_empty() || !bytes[0].is_ascii_digit() {
+        return false;
+    }
+    let mut has_dot = false;
+    for &b in bytes {
+        if b == b'.' {
+            has_dot = true;
+        } else if !b.is_ascii_digit() && b != b'-' {
+            return false;
+        }
+    }
+    has_dot
+}
+
 fn is_claude(proc: &ProcInfo) -> bool {
-    // Claude Code has shipped under two executable names:
+    // Claude Code has shipped under three executable identities:
     //   • "node" — older Node-shipped CLI (real name is via argv[0])
-    //   • "claude.exe" — newer single-file compiled binary at
+    //   • "claude.exe" — single-file compiled binary at
     //     ~/.../@anthropic-ai/claude-code/bin/claude.exe, with a `claude`
     //     symlink in PATH. p_comm reflects the real file, not the symlink.
+    //   • "<version>" (e.g. "2.1.128") — recent claude.exe versions spoof
+    //     p_comm to their version string. Detected via argv0 fallback.
     fn is_claude_name(s: &str) -> bool {
         s == "claude" || s == "claude.exe"
     }
@@ -451,10 +472,12 @@ pub fn scan_processes() -> Vec<ProcInfo> {
 
         let cwd = get_cwd_macos(pid as i32);
 
-        // Only spend a sysctl roundtrip on shells and node (Claude Code is
-        // literally `node` to the kernel) — other processes aren't relevant
-        // and we don't want to pay for argv on every PID.
-        let argv0 = if name == "node" || is_shell(&name) {
+        // Only spend a sysctl roundtrip on processes that might be Claude
+        // Code: node-shipped CLI, shells (we read argv0 for shell detection
+        // elsewhere), or anything whose p_comm has been spoofed to a version
+        // string (recent claude.exe). Other processes aren't relevant and
+        // we don't want to pay for argv on every PID.
+        let argv0 = if name == "node" || is_shell(&name) || looks_like_version_string(&name) {
             read_argv0(pid as i32).unwrap_or_default()
         } else {
             String::new()
