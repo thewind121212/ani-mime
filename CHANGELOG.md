@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.7] - 2026-05-05
+
+### Fixed
+- **Claude Code mirror no longer flickers between Working… and Free during auto-compaction.** Recent Claude Code versions fire `SessionStart(source="compact")` mid-turn; the inline curl hooks couldn't read stdin JSON to distinguish that from `startup`/`resume`/`clear`, so the pill flipped to Free and back. Replaced the inline curl with a single stdin-aware Node hook script (`~/.ani-mime/hooks/ani-mime-hook.mjs`) that ignores `compact` and routes the rest correctly.
+- **Pill no longer sticks at Working… when Claude is waiting on the user.** Subscribed to `Notification(permission_prompt|idle_prompt)` → idle, so the mirror flips to Free during permission dialogs and back to Working… when you approve.
+- **Pill no longer sticks at Working… after a turn fails.** Subscribed to `StopFailure` → idle, mirroring the existing `Stop` mapping.
+- Existing settings.json migrates automatically on launch — legacy curl hooks are rewritten in place; unrelated hooks (e.g. masko-desktop) are untouched.
+
+### Changed
+- **LAN peer list defaults to off** for new users; square icon in the session list dropdown for visual consistency with the peer-count badge.
+
 ## [0.17.6] - 2026-04-29
 
 ### Changed
