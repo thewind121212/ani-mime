@@ -104,7 +104,7 @@
 }
 
 .pill-action-btn[data-testid="pill-action-task"] {
-  border-radius: 0;
+  border-radius: 9999px;
 }
 
 .pill-action-icon {
