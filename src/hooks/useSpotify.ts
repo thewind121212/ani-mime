@@ -45,6 +45,7 @@ function isAuthError(err: string): boolean {
     lower.includes("not connected") ||
     lower.includes("invalid_grant") ||
     lower.includes("refresh error") ||
+    lower.includes("refresh request failed") ||
     lower.includes("no refresh token") ||
     lower.includes("no client_id") ||
     lower.includes("reconnect")
@@ -91,6 +92,7 @@ export function useSpotify(active: boolean) {
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [needsReauth, setNeedsReauth] = useState(false);
+  const authFailedRef = useRef(false);
   const lastFetchRef = useRef<number>(0);
 
   // Connection status comes from the backend (which reads settings.json
@@ -112,6 +114,7 @@ export function useSpotify(active: boolean) {
       void refresh();
       setNeedsReauth(false);
       setError(null);
+      authFailedRef.current = false;
     });
     return () => {
       cancelled = true;
@@ -120,7 +123,7 @@ export function useSpotify(active: boolean) {
   }, []);
 
   const fetchState = useCallback(async () => {
-    if (!connected) return;
+    if (!connected || authFailedRef.current) return;
     try {
       const raw = await invoke<unknown>("spotify_state");
       lastFetchRef.current = Date.now();
@@ -131,8 +134,10 @@ export function useSpotify(active: boolean) {
       const errStr = String(e);
       setError(errStr);
       if (isAuthError(errStr)) {
+        authFailedRef.current = true;
         setConnected(false);
         setNeedsReauth(true);
+        return; // Don't try queue — auth is dead.
       }
     }
     // Queue is independent of player state — fetch in parallel and

@@ -394,23 +394,17 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     onOpenChange?.(sessionOpen);
   }, [sessionOpen, onOpenChange]);
 
-  useEffect(() => {
-    if (!sessionOpen) return;
+  const computeSessionLayout = () => {
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const top = rect.bottom + 6;
     setDropdownTop(top);
-    // The window grows to 400 tall when the session list opens (see
-    // SESSION_DROPDOWN_WINDOW_HEIGHT in App.tsx). Cap the dropdown's
-    // max-height so it fits between `top` and the window's bottom —
-    // the 10px tail leaves room for the shadow buffer. overflow-y:auto
-    // (in status-pill.css) scrolls when the list is taller.
     const SESSION_WINDOW_HEIGHT = 400;
     const BOTTOM_MARGIN = 10;
     setDropdownMaxHeight(
       Math.max(120, SESSION_WINDOW_HEIGHT - top - BOTTOM_MARGIN)
     );
-  }, [sessionOpen]);
+  };
 
   const toggleSession = async (e: React.MouseEvent) => {
     if (!sessionListEnabled) return;
@@ -439,6 +433,8 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
     setGroups(groupSessions(overlaid, detectHome(overlaid)));
+    // Compute position BEFORE opening so first render lands at correct spot.
+    computeSessionLayout();
     setSessionOpen(true);
   };
 
@@ -555,10 +551,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     onChatOpenChange?.(chatOpen);
   }, [chatOpen, onChatOpenChange]);
 
-  // Compute dropdown top + max height when chat opens. Top = below pill;
-  // max-height clamps the panel inside the grown Tauri window.
-  useEffect(() => {
-    if (!chatOpen) return;
+  const computeChatLayout = () => {
     const rect = wrapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const top = rect.bottom + 6;
@@ -567,7 +560,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     setChatDropdownMaxHeight(
       Math.max(200, CHAT_DROPDOWN_WINDOW_HEIGHT - top - BOTTOM_MARGIN)
     );
-  }, [chatOpen]);
+  };
 
   // Close on Escape — mirrors the session-list close-on-Escape behavior.
   useEffect(() => {
@@ -686,6 +679,8 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       setSpotifyOpen(false);
     }
 
+    // Compute position BEFORE opening so first render lands at correct spot.
+    computeChatLayout();
     setChatOpen(true);
   };
 

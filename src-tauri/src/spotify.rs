@@ -253,10 +253,22 @@ fn refresh_access_token(store_path: &Path, cfg: &SpotifyConfig) -> Result<Spotif
         rt = urlencoding::encode(&cfg.refresh_token),
         cid = urlencoding::encode(&cfg.client_id),
     );
-    let mut response = ureq::post("https://accounts.spotify.com/api/token")
+    let mut response = match ureq::post("https://accounts.spotify.com/api/token")
         .header("Content-Type", "application/x-www-form-urlencoded")
         .send(body)
-        .map_err(|e| format!("Refresh request failed: {}", e))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = e.to_string();
+            // ureq treats 4xx as transport errors — if the token endpoint
+            // returned 400 the refresh token is dead. Clear stored tokens
+            // so subsequent calls fail fast with "Not connected".
+            if msg.contains("400") {
+                let _ = clear_tokens(store_path);
+            }
+            return Err(format!("Refresh request failed: {}", msg));
+        }
+    };
 
     let status = response.status().as_u16();
     let json: serde_json::Value = response
@@ -270,6 +282,12 @@ fn refresh_access_token(store_path: &Path, cfg: &SpotifyConfig) -> Result<Spotif
             .or_else(|| json.get("error"))
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
+        // 400 (invalid_grant) means the refresh token is permanently dead —
+        // clear stored tokens so every subsequent call fails fast with
+        // "Not connected" instead of hammering Spotify's token endpoint.
+        if status == 400 {
+            let _ = clear_tokens(store_path);
+        }
         return Err(format!("Spotify refresh error ({}): {}", status, desc));
     }
 
