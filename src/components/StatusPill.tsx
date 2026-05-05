@@ -15,6 +15,7 @@ import { useSessionList } from "../hooks/useSessionList";
 import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
 import { useLanList } from "../hooks/useLanList";
 import { useSpotifyConnected } from "../hooks/useSpotify";
+import { SpotifyPlayerApp } from "../SpotifyPlayerApp";
 import { useTelegram } from "../hooks/useTelegram";
 import { useOpacity } from "../hooks/useOpacity";
 import { useCollapsedSessionGroups } from "../hooks/useCollapsedSessionGroups";
@@ -44,6 +45,25 @@ interface StatusPillProps {
    * around the chat panel rather than letting auto-size shrink it back.
    */
   onChatOpenChange?: (open: boolean) => void;
+  /**
+   * Notifies parent when the inline Spotify panel open state changes.
+   * Same purpose as `onChatOpenChange`: App grows the window height
+   * around the panel so it doesn't clip.
+   */
+  onSpotifyOpenChange?: (open: boolean) => void;
+  /**
+   * True while an EffectOverlay (e.g. shadow-clone) owns the window
+   * geometry. External popovers (peer) are hidden for the duration so
+   * they don't fight the effect's window resize. Inline panels (Spotify,
+   * chat) use CSS `display: none` instead.
+   */
+  effectActive?: boolean;
+  /**
+   * True while the user is dragging the main window. External popovers
+   * skip their onMoved repositioning during drag — macOS native
+   * parent-child tracking handles it without IPC lag.
+   */
+  dragging?: boolean;
 }
 
 const dotClassMap: Record<Status, string> = {
@@ -243,16 +263,17 @@ const POPOVER_TOP_GAP = -8;
  *  in sync with CHAT_DROPDOWN_WINDOW_HEIGHT in App.tsx. */
 const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
 
-/** Spotify popover — must match tauri.conf.json width. */
-const SPOTIFY_WIDTH = 320;
-const SPOTIFY_TOP_GAP = -8;
+/** Inline Spotify panel — total Tauri window height while open. Must stay
+ *  in sync with SPOTIFY_DROPDOWN_WINDOW_HEIGHT in App.tsx. */
+const SPOTIFY_DROPDOWN_WINDOW_HEIGHT = 450;
 
 async function computePopoverScreenPos(
-  anchorEl: HTMLElement
+  anchorEl: HTMLElement,
+  cachedScale?: number
 ): Promise<LogicalPosition> {
   const main = getCurrentWindow();
   const mainPos = await main.outerPosition();
-  const scale = await main.scaleFactor();
+  const scale = cachedScale ?? await main.scaleFactor();
 
   const pill = anchorEl.closest(".pill") ?? anchorEl;
   const rect = (pill as HTMLElement).getBoundingClientRect();
@@ -266,26 +287,8 @@ async function computePopoverScreenPos(
   return new LogicalPosition(Math.round(left), Math.round(top));
 }
 
-async function computeSpotifyScreenPos(
-  anchorEl: HTMLElement
-): Promise<LogicalPosition> {
-  const main = getCurrentWindow();
-  const mainPos = await main.outerPosition();
-  const scale = await main.scaleFactor();
 
-  const pill = anchorEl.closest(".pill") ?? anchorEl;
-  const rect = (pill as HTMLElement).getBoundingClientRect();
-
-  const mainLogical =
-    mainPos instanceof PhysicalPosition ? mainPos.toLogical(scale) : mainPos;
-
-  const centerX = mainLogical.x + rect.left + rect.width / 2;
-  const left = centerX - SPOTIFY_WIDTH / 2;
-  const top = mainLogical.y + rect.bottom + SPOTIFY_TOP_GAP;
-  return new LogicalPosition(Math.round(left), Math.round(top));
-}
-
-export function StatusPill({ status, glow, disabled = false, onOpenChange, onChatOpenChange }: StatusPillProps) {
+export function StatusPill({ status, glow, disabled = false, onOpenChange, onChatOpenChange, onSpotifyOpenChange, effectActive = false, dragging = false }: StatusPillProps) {
   // --- Session list state ---
   const [sessionOpen, setSessionOpen] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -312,10 +315,17 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
   const [chatDropdownMaxHeight, setChatDropdownMaxHeight] = useState(460);
   const chatButtonRef = useRef<HTMLButtonElement>(null);
 
-  // --- Spotify popover state ---
+  // --- Spotify panel state (inline, mirrors chat-dropdown pattern) ---
   const { connected: spotifyConnected } = useSpotifyConnected();
   const [spotifyOpen, setSpotifyOpen] = useState(false);
+  const [spotifyDropdownTop, setSpotifyDropdownTop] = useState(0);
+  const [spotifyDropdownMaxHeight, setSpotifyDropdownMaxHeight] = useState(280);
   const spotifyButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Ref mirror of the `dragging` prop so the onMoved closures (which
+  // outlive the render that created them) always read the current value.
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
 
   // UI click feedback — short tap on either pill button. Gated by the
   // master sound toggle so fully silencing the app silences these too.
@@ -425,11 +435,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       setPeerOpen(false);
     }
     if (chatOpen) setChatOpen(false);
-    if (spotifyOpen) {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      await win?.hide().catch(() => {});
-      setSpotifyOpen(false);
-    }
+    if (spotifyOpen) setSpotifyOpen(false);
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
     setGroups(groupSessions(overlaid, detectHome(overlaid)));
@@ -511,18 +517,20 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     (async () => {
       const popover = await WebviewWindow.getByLabel("peer-list");
       if (!popover || cancelled) return;
+      // Cache scale factor — doesn't change during drag. Eliminates
+      // one IPC round-trip per move event.
+      const sf = await main.scaleFactor();
       const handler = async () => {
+        if (draggingRef.current) return; // macOS native tracking handles drag
         if (!lanButtonRef.current) return;
-        if (!(await popover.isVisible())) return;
-        const pos = await computePopoverScreenPos(lanButtonRef.current);
+        const pos = await computePopoverScreenPos(lanButtonRef.current, sf);
         await popover.setPosition(pos).catch(() => {});
       };
-      // Coalesce drag move bursts to one IPC per frame. Without this,
-      // every native move event fires three async IPCs (outerPosition,
-      // scaleFactor, setPosition) and the popover visibly trails the
-      // pill during drag. macOS additionally tracks the parent natively
-      // via the `parent` config, so this throttle is mostly redundant
-      // there but still required on Linux/Windows.
+      // Coalesce programmatic-move bursts to one IPC per frame. During
+      // manual drag the handler bails early — macOS native parent-child
+      // tracking keeps the popover in sync without IPC. On Linux this
+      // means the popover may lag slightly during drag but snaps back
+      // when the drag ends.
       const throttled = () => {
         if (raf) return;
         raf = requestAnimationFrame(() => {
@@ -572,83 +580,92 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     return () => window.removeEventListener("keydown", onKey);
   }, [chatOpen]);
 
-  // Spotify popover — reposition on main window move.
+  // --- Spotify panel effects (inline, mirrors chat-dropdown pattern) ---
+  // No separate WebviewWindow — Spotify renders as a fixed-position div
+  // inside the main window, so it moves for free during drag.
+
+  useEffect(() => {
+    onSpotifyOpenChange?.(spotifyOpen);
+  }, [spotifyOpen, onSpotifyOpenChange]);
+
+  const computeSpotifyLayout = () => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const top = rect.bottom + 6;
+    setSpotifyDropdownTop(top);
+    const BOTTOM_MARGIN = 10;
+    setSpotifyDropdownMaxHeight(
+      Math.max(200, SPOTIFY_DROPDOWN_WINDOW_HEIGHT - top - BOTTOM_MARGIN)
+    );
+  };
+
+  // Close Spotify when disconnected.
+  useEffect(() => {
+    if (!spotifyConnected && spotifyOpen) setSpotifyOpen(false);
+  }, [spotifyConnected, spotifyOpen]);
+
+  // Close on Escape.
   useEffect(() => {
     if (!spotifyOpen) return;
-    const main = getCurrentWindow();
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    let raf = 0;
-
-    (async () => {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      if (!win || cancelled) return;
-      const handler = async () => {
-        if (!spotifyButtonRef.current) return;
-        if (!(await win.isVisible())) return;
-        const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
-        await win.setPosition(pos).catch(() => {});
-      };
-      const throttled = () => {
-        if (raf) return;
-        raf = requestAnimationFrame(() => {
-          raf = 0;
-          void handler();
-        });
-      };
-      const fn = await main.onMoved(throttled);
-      unlisten = fn;
-    })();
-
-    return () => {
-      cancelled = true;
-      if (raf) cancelAnimationFrame(raf);
-      unlisten?.();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSpotifyOpen(false);
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [spotifyOpen]);
 
-  // Hide popover when Spotify gets disconnected (e.g. user clicked Disconnect).
+  // Hide peer popover while an EffectOverlay (e.g. shadow-clone) owns
+  // the window geometry. Inline panels (Spotify, chat) use CSS
+  // `display: none` instead — no IPC needed.
+  const peerPreEffectRef = useRef(false);
   useEffect(() => {
-    if (spotifyConnected) return;
-    void (async () => {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      await win?.hide().catch(() => {});
-    })();
-    setSpotifyOpen(false);
-  }, [spotifyConnected]);
+    if (effectActive) {
+      peerPreEffectRef.current = peerOpen;
+      if (peerOpen) {
+        void (async () => {
+          const win = await WebviewWindow.getByLabel("peer-list");
+          await win?.hide().catch(() => {});
+        })();
+        setPeerOpen(false);
+      }
+      return;
+    }
+    if (peerPreEffectRef.current && lanButtonRef.current) {
+      peerPreEffectRef.current = false;
+      void (async () => {
+        const win = await WebviewWindow.getByLabel("peer-list");
+        if (!win) return;
+        const pos = await computePopoverScreenPos(lanButtonRef.current!);
+        await win.setPosition(pos);
+        await win.show();
+        setPeerOpen(true);
+      })();
+    }
+  }, [effectActive]);
 
-  const toggleSpotify = async (e: React.MouseEvent) => {
+  const toggleSpotify = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!spotifyButtonRef.current) return;
     if (!guardPillClick()) return;
     playClickTap();
 
-    const win = await WebviewWindow.getByLabel("spotify-player");
-    if (!win) {
-      console.error("[status-pill] spotify-player window not found");
-      return;
-    }
-
-    const visible = await win.isVisible();
-    if (visible) {
-      await win.hide();
+    if (spotifyOpen) {
       setSpotifyOpen(false);
       return;
     }
 
+    // Only one overlay at a time.
     if (sessionOpen) setSessionOpen(false);
     if (peerOpen) {
-      const peerWin = await WebviewWindow.getByLabel("peer-list");
-      await peerWin?.hide().catch(() => {});
+      void (async () => {
+        const peerWin = await WebviewWindow.getByLabel("peer-list");
+        await peerWin?.hide().catch(() => {});
+      })();
       setPeerOpen(false);
     }
     if (chatOpen) setChatOpen(false);
 
-    const pos = await computeSpotifyScreenPos(spotifyButtonRef.current);
-    await win.setPosition(pos);
-    await win.show();
-    await win.setFocus();
+    computeSpotifyLayout();
     setSpotifyOpen(true);
   };
 
@@ -664,20 +681,14 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       return;
     }
 
-    // Only one overlay at a time — close session dropdown + peer popover
-    // + spotify popover before opening chat. Mirrors the toggleSession
-    // and togglePeer paths.
+    // Only one overlay at a time.
     if (sessionOpen) setSessionOpen(false);
     if (peerOpen) {
       const peerWin = await WebviewWindow.getByLabel("peer-list");
       await peerWin?.hide().catch(() => {});
       setPeerOpen(false);
     }
-    if (spotifyOpen) {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      await win?.hide().catch(() => {});
-      setSpotifyOpen(false);
-    }
+    if (spotifyOpen) setSpotifyOpen(false);
 
     // Compute position BEFORE opening so first render lands at correct spot.
     computeChatLayout();
@@ -705,15 +716,10 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       return;
     }
 
-    // Only one overlay at a time — close every other dropdown before
-    // showing the peer list.
+    // Only one overlay at a time.
     if (sessionOpen) setSessionOpen(false);
     if (chatOpen) setChatOpen(false);
-    if (spotifyOpen) {
-      const win = await WebviewWindow.getByLabel("spotify-player");
-      await win?.hide().catch(() => {});
-      setSpotifyOpen(false);
-    }
+    if (spotifyOpen) setSpotifyOpen(false);
 
     const pos = await computePopoverScreenPos(lanButtonRef.current);
     await popover.setPosition(pos);
@@ -1025,6 +1031,19 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
           }}
         >
           <Chat onClose={() => setChatOpen(false)} />
+        </div>
+      )}
+
+      {spotifyOpen && (
+        <div
+          data-testid="spotify-dropdown"
+          className="spotify-dropdown"
+          style={{
+            top: `${spotifyDropdownTop}px`,
+            maxHeight: `${spotifyDropdownMaxHeight}px`,
+          }}
+        >
+          <SpotifyPlayerApp />
         </div>
       )}
 

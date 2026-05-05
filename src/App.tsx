@@ -50,6 +50,11 @@ const SESSION_DROPDOWN_MIN_WIDTH = 320;
 // StatusPill.tsx (panel max-height clamps against this).
 const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
 
+// Spotify panel — total Tauri window height while the inline Spotify
+// player is open. Must stay in sync with SPOTIFY_DROPDOWN_WINDOW_HEIGHT
+// in StatusPill.tsx.
+const SPOTIFY_DROPDOWN_WINDOW_HEIGHT = 450;
+
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
 // needs so the bubble fits inside the window without clipping.
@@ -204,6 +209,9 @@ function App() {
   // anchored when the panel opens / closes.
   const [chatOpen, setChatOpen] = useState(false);
   const [chatClosing, setChatClosing] = useState(false);
+  // Mirror of chatOpen / chatClosing for the inline Spotify panel.
+  const [spotifyOpen, setSpotifyOpen] = useState(false);
+  const [spotifyClosing, setSpotifyClosing] = useState(false);
   // Tray "Coding Helper" menu item — opens the inline chat panel. The
   // tray handler in lib.rs shows the main window and emits this event;
   // we listen here and flip chatOpen on. Keeps the tray surface in sync
@@ -242,7 +250,7 @@ function App() {
   // container.offsetWidth reports.
   useWindowAutoSize(
     containerRef,
-    effectActive || sessionOpen || sessionClosing || chatOpen || chatClosing || bubbleGrowActive || visitors.length > 0
+    effectActive || sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || bubbleGrowActive || visitors.length > 0
   );
 
   // Measure the rendered speech bubble (via ResizeObserver) and compute
@@ -315,7 +323,7 @@ function App() {
   // window geometry — otherwise the bubble's setPosition/setSize race
   // with expandWindow and the pet's visual Y desyncs from the pin.
   useEffect(() => {
-    if (sessionOpen || sessionClosing || chatOpen || chatClosing || effectActive) return;
+    if (sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || effectActive) return;
 
     const win = getCurrentWindow();
     const { top: extraTop, horizontal: extraH } = bubbleExtra;
@@ -356,7 +364,7 @@ function App() {
         console.error("[bubble-grow] resize failed:", err);
       }
     })();
-  }, [visible, bubbleExtra, sessionOpen, sessionClosing, chatOpen, chatClosing, effectActive]);
+  }, [visible, bubbleExtra, sessionOpen, sessionClosing, chatOpen, chatClosing, spotifyOpen, spotifyClosing, effectActive]);
 
   // Visitor count change → drive the window size directly.
   //
@@ -489,13 +497,10 @@ function App() {
     }
     openShiftXRef.current = null;
 
-    // Dropdown→dropdown handoff: if chat just opened in the same render
-    // batch, skip the shrink-to-natural restore — the chat-open effect
-    // is about to setSize(width, CHAT_DROPDOWN_WINDOW_HEIGHT) and we'd
-    // race it. Without this, the close's setSize lands AFTER the open's
-    // and clamps the window back to 250-ish, leaving only the chat
-    // header visible inside the panel.
-    if (chatOpen) {
+    // Dropdown→dropdown handoff: if another panel just opened in the
+    // same render batch, skip the shrink — the other panel's open effect
+    // will setSize the window.
+    if (chatOpen || spotifyOpen) {
       setSessionClosing(false);
       return;
     }
@@ -568,7 +573,7 @@ function App() {
     // batch, skip the shrink — the session-open effect will setSize the
     // window. Otherwise the chat-close shrink races the session-open
     // grow and the dropdown ends up clipped.
-    if (sessionOpen) {
+    if (sessionOpen || spotifyOpen) {
       setChatClosing(false);
       return;
     }
@@ -588,6 +593,46 @@ function App() {
     // sessionOpen intentionally NOT in deps — same reason as the
     // session-dropdown effect. Closure captures the post-batch value.
   }, [chatOpen]);
+
+  // Inline Spotify panel — height-only grow/shrink, mirrors chat effect.
+  useEffect(() => {
+    const win = getCurrentWindow();
+
+    if (spotifyOpen) {
+      const el = containerRef.current;
+      if (!el) return;
+      const currentHeight = el.offsetHeight;
+      const newHeight = Math.max(currentHeight, SPOTIFY_DROPDOWN_WINDOW_HEIGHT);
+
+      void (async () => {
+        try {
+          await win.setSize(new LogicalSize(el.offsetWidth, newHeight));
+        } catch (err) {
+          console.error("[spotify-dropdown] open resize failed:", err);
+        }
+      })();
+      return;
+    }
+
+    // Skip shrink if another panel just opened in the same batch.
+    if (sessionOpen || chatOpen) {
+      setSpotifyClosing(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        if (el) {
+          await win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight));
+        }
+      } catch (err) {
+        console.error("[spotify-dropdown] close resize failed:", err);
+      } finally {
+        setSpotifyClosing(false);
+      }
+    })();
+  }, [spotifyOpen]);
 
   return (
     <>
@@ -625,6 +670,8 @@ function App() {
           status={status}
           glow={visible}
           disabled={status === "visiting"}
+          effectActive={effectActive}
+          dragging={dragging}
           onOpenChange={(open) => {
             // Flip sessionClosing to true in the SAME render batch that
             // sessionOpen becomes false — this keeps useWindowAutoSize
@@ -642,6 +689,10 @@ function App() {
             // paused until the close-effect's setSize lands.
             if (!open) setChatClosing(true);
             setChatOpen(open);
+          }}
+          onSpotifyOpenChange={(open) => {
+            if (!open) setSpotifyClosing(true);
+            setSpotifyOpen(open);
           }}
         />
         {devMode && <DevTag />}

@@ -216,6 +216,28 @@
   to   { opacity: 1; }
 }
 
+/* Inline Spotify panel — mirrors .session-dropdown: fixed below the pill,
+   horizontally centered on the window. Moves with the main window for
+   free (no IPC repositioning). Width matches the old popover (320px). */
+.spotify-dropdown {
+  position: fixed;
+  left: 50%;
+  transform: translate(
+    calc(-50% + var(--effect-shift-x, 0px)),
+    var(--effect-shift-y, 0px)
+  );
+  width: 320px;
+  z-index: 10;
+  pointer-events: auto;
+  overflow: hidden;
+  animation: dropdown-in 0.12s ease-out;
+}
+
+/* Hide during shadow-clone / expand-window effects (same as chat). */
+.container.effect-active .spotify-dropdown {
+  display: none;
+}
+
 .session-empty {
   padding: 8px 12px;
   font-size: 12px;

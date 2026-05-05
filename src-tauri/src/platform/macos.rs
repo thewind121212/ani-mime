@@ -83,11 +83,11 @@ pub fn set_fullscreen_overlay(app: &tauri::AppHandle, enabled: bool) {
     let level: i64 = if enabled { 25 } else { 3 };
     // Apply to main AND popover windows so they keep their stacking
     // relationship intact. If only main got bumped, the popovers (chat,
-    // peer-list, spotify-player) would sit at the default level 3 and
-    // get obscured by main's transparent surface — clicks in the overlap
-    // region land on main instead of the popover, making header buttons
-    // (history toggle, "+" new chat) appear inert.
-    for label in ["main", "peer-list", "spotify-player"] {
+    // peer-list) would sit at the default level 3 and get obscured by
+    // main's transparent surface — clicks in the overlap region land on
+    // main instead of the popover, making header buttons appear inert.
+    // (Spotify is now inline in the main window, no separate WebviewWindow.)
+    for label in ["main", "peer-list"] {
         let Some(window) = app.get_webview_window(label) else {
             if label == "main" {
                 crate::app_warn!("[platform] set_fullscreen_overlay: main window missing");
