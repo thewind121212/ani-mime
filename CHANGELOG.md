@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.17.8] - 2026-05-05
+
+### Changed
+- **LAN Peer List toggle now fully gates the LAN feature.** Turning it off skips mDNS discovery, UDP multicast/unicast announces, and the periodic discovery heartbeat at startup — previously these all kept running even with the toggle off, only the status-pill icon was hidden. The "No friends nearby! Check Privacy → Local Network" speech bubble is also suppressed live when the toggle is off. Toggling the setting requires a restart for the LAN scanner to start or stop.
+
+### Fixed
+- **Session list dropdown no longer cancels in-flight window drags.** Closing the dropdown mid-drag preserves the dragged window position instead of snapping back.
+- **Session list button hover/active state is now rounded** to match the pill, no more sharp-cornered hover artifact.
+
 ## [0.17.7] - 2026-05-05
 
 ### Fixed
