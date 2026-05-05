@@ -83,6 +83,7 @@
       "script/terminal-mirror.bash",
       "script/terminal-mirror.fish",
       "script/tauri-hook.sh",
+      "script/ani-mime-hook.mjs",
       "docs/custom-mime-guide.pdf",
       "mcp-server/server.mjs"
     ],

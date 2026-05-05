@@ -1,11 +1,13 @@
 mod claude;
+mod hooks;
 mod mcp;
 pub(crate) mod shell;
 
 use std::path::PathBuf;
 use tauri::Emitter;
 
-use self::claude::{migrate_claude_hooks, setup_claude_hooks};
+use self::claude::{claude_hooks_configured, migrate_claude_hooks, setup_claude_hooks};
+use self::hooks::install_hook_script;
 use self::mcp::{install_mcp_server, register_mcp_server};
 use self::shell::{detect_shells, install_shell_hooks, ShellInfo};
 use crate::platform;
@@ -25,6 +27,11 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
                 return;
             }
         };
+        // Always install/update the hook script before migrating settings.json
+        // — migration rewrites legacy curl commands to point at this script,
+        // so the script must already be on disk.
+        install_hook_script(&resource_dir, &home);
+
         // Always run migrations for existing users
         migrate_claude_hooks(&home);
 
@@ -41,8 +48,6 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
 
         crate::app_log!("[setup] first launch detected, starting setup");
 
-        let settings_path = home.join(".claude/settings.json");
-
         // Detect shells and determine what needs setup
         let shells = detect_shells(&home);
         let available: Vec<&ShellInfo> = shells.iter().filter(|s| s.is_installed()).collect();
@@ -58,10 +63,7 @@ pub fn auto_setup(resource_dir: PathBuf, app_handle: tauri::AppHandle) {
             crate::app_log!("[setup]   {} (installed={}, configured={})", s.name, s.is_installed(), s.is_configured());
         }
 
-        let claude_done = {
-            let content = std::fs::read_to_string(&settings_path).unwrap_or_default();
-            content.contains("127.0.0.1:1234")
-        };
+        let claude_done = claude_hooks_configured(&home);
         crate::app_log!("[setup] claude hooks already configured: {}", claude_done);
 
         // Nothing to do — skip silently
