@@ -17,6 +17,7 @@ mod spotify;
 mod state;
 mod telegram;
 mod updater;
+mod usage;
 mod watchdog;
 
 use std::collections::HashMap;
