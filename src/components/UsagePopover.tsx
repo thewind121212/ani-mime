@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useClaudeUsage } from "../hooks/useClaudeUsage";
 
 interface UsagePopoverProps {
@@ -6,6 +6,8 @@ interface UsagePopoverProps {
   onClose: () => void;
   /** Pixel offset from the wrapper's top edge to position under the dot. */
   top: number;
+  /** Caps total popover height so the bottom doesn't clip the window edge. */
+  maxHeight: number;
 }
 
 interface Metric {
@@ -19,16 +21,32 @@ interface ParsedUsage {
   sonnet: Metric;
 }
 
-const RESET_RE =
-  /reset[^a-z0-9]*?(?:in|at|on|after)?\s*([0-9]{1,2}(?::[0-9]{2})?\s*(?:am|pm)?(?:\s*[a-z]{3,9})?(?:\s+[0-9]{1,2}[hm])?(?:\s+[0-9]{1,2}[hm])?|[0-9]+\s*(?:days?|hours?|minutes?|d|h|m)(?:\s+[0-9]+\s*[hm])?|[a-z]+\s+at\s+[0-9:]+\s*[ap]m)/i;
 const PCT_RE = /([0-9]{1,3})\s*%/;
+// `claude /usage` prints reset stamps like "Resets 10:20pm (Asia/Saigon)"
+// or "Resets May 22 at 1am (Asia/Saigon)" — and the pty output sometimes
+// strips spaces, leaving us with "resetsMay22at1am(asia/saigon)". Both
+// alts use `\s*` (not `\s+`) so they match either form.
+// First alt is anchored on a month-name prefix so `[a-z]+` can't
+// greedily swallow "Resets" into the capture (which produced the
+// "Resets ResetsMay 22 at 1am" double-prefix bug).
+const TIME_RE =
+  /((?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*\d{1,2}\s*at\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)|\d{1,2}(?::\d{2})?\s*(?:am|pm))/i;
+
+// "May22at1am" → "May 22 at 1am". No-op on already-spaced input.
+function prettifyTime(s: string): string {
+  return s
+    .replace(/([a-z])(\d)/gi, "$1 $2")
+    .replace(/(\d)at(?=\s|\d)/gi, "$1 at ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function extractMetric(block: string): Metric {
   const pct = block.match(PCT_RE)?.[1];
-  const reset = block.match(RESET_RE)?.[1];
+  const reset = block.match(TIME_RE)?.[1];
   return {
     percent: pct !== undefined ? Math.min(100, Number(pct)) : undefined,
-    resetIn: reset?.trim().replace(/\s+/g, " "),
+    resetIn: reset ? prettifyTime(reset) : undefined,
   };
 }
 
@@ -38,18 +56,29 @@ function parseUsage(text: string): ParsedUsage {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].toLowerCase();
-    // Look at a 4-line window so reset times on the next line are caught.
-    const block = lines.slice(i, i + 4).join(" ");
-    const blockL = block.toLowerCase();
+    // Wider window (10 lines) so the reset time — which can sit several
+    // lines below the header (progress bar + blank separator) — is
+    // still captured. TIME_RE returns the first match, so spillover
+    // into the next section can't shadow this section's own time.
+    const block = lines.slice(i, i + 10).join("\n");
 
-    if (!result.session.percent && !result.session.resetIn && /(?:current\s+)?session|5\s*hour|5h\b/.test(line)) {
-      result.session = extractMetric(blockL);
-    }
-    if (!result.week.percent && !result.week.resetIn && /(?:current\s+)?week(?:ly)?/.test(line)) {
-      result.week = extractMetric(blockL);
-    }
-    if (!result.sonnet.resetIn && /sonnet/.test(line)) {
-      result.sonnet = extractMetric(blockL);
+    // Substring tests (not `\s+`-anchored regexes) so the
+    // ANSI-compressed forms — "Currentweek(allmodels)" with no spaces —
+    // match the same way the normal "Current week (all models)" does.
+    // Order matters: "Current week (Sonnet only)" contains both "week"
+    // and "sonnet", and we want it to fill the sonnet bucket.
+    if (line.includes("sonnet")) {
+      if (!result.sonnet.percent && !result.sonnet.resetIn) {
+        result.sonnet = extractMetric(block);
+      }
+    } else if (line.includes("week")) {
+      if (!result.week.percent && !result.week.resetIn) {
+        result.week = extractMetric(block);
+      }
+    } else if (line.includes("session") || /5\s*hour|5h\b/.test(line)) {
+      if (!result.session.percent && !result.session.resetIn) {
+        result.session = extractMetric(block);
+      }
     }
   }
 
@@ -100,10 +129,9 @@ function UsageCard({
   );
 }
 
-export function UsagePopover({ open, onClose, top }: UsagePopoverProps) {
+export function UsagePopover({ open, onClose, top, maxHeight }: UsagePopoverProps) {
   const { data, loading, error, refresh } = useClaudeUsage({ enabled: open });
   const popoverRef = useRef<HTMLDivElement>(null);
-  const [showRaw, setShowRaw] = useState(false);
 
   // ESC closes.
   useEffect(() => {
@@ -123,9 +151,19 @@ export function UsagePopover({ open, onClose, top }: UsagePopoverProps) {
       handler = (e: MouseEvent) => {
         const el = popoverRef.current;
         if (!el) return;
-        if (e.target instanceof Node && !el.contains(e.target)) {
-          onClose();
+        if (!(e.target instanceof Node)) return;
+        if (el.contains(e.target)) return;
+        // Ignore clicks on the dot/pill that opens this popover — its own
+        // onClick handler will close it. Without this guard the mousedown
+        // here closes first, then the subsequent click event re-reads
+        // `usageOpen=false` and reopens it (close → reopen flash).
+        if (
+          e.target instanceof Element &&
+          e.target.closest("[data-usage-trigger]")
+        ) {
+          return;
         }
+        onClose();
       };
       window.addEventListener("mousedown", handler);
     }, 0);
@@ -144,7 +182,7 @@ export function UsagePopover({ open, onClose, top }: UsagePopoverProps) {
       ref={popoverRef}
       className="usage-popover"
       data-testid="usage-popover"
-      style={{ top }}
+      style={{ top, maxHeight }}
       role="dialog"
       aria-label="Claude Code usage"
     >
@@ -185,26 +223,11 @@ export function UsagePopover({ open, onClose, top }: UsagePopoverProps) {
           </div>
         )}
         {parsed && (
-          <>
-            <div className="usage-popover-cards">
-              <UsageCard label="Current session" metric={parsed.session} />
-              <UsageCard label="This week" metric={parsed.week} />
-              <UsageCard label="Sonnet" metric={parsed.sonnet} hidePercent />
-            </div>
-            <button
-              type="button"
-              className="usage-popover-raw-toggle"
-              onClick={() => setShowRaw((v) => !v)}
-              data-testid="usage-popover-raw-toggle"
-            >
-              {showRaw ? "Hide raw output" : "Show raw output"}
-            </button>
-            {showRaw && (
-              <pre className="usage-popover-text" data-testid="usage-popover-text">
-                {data!.text}
-              </pre>
-            )}
-          </>
+          <div className="usage-popover-cards">
+            <UsageCard label="Current session" metric={parsed.session} />
+            <UsageCard label="This week" metric={parsed.week} />
+            <UsageCard label="Sonnet" metric={parsed.sonnet} />
+          </div>
         )}
       </div>
     </div>

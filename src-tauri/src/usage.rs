@@ -200,9 +200,7 @@ pub fn fetch_usage_via_pty() -> Result<String, UsageError> {
 
     let text = String::from_utf8_lossy(&acc).to_string();
     let stripped = strip_ansi(&text);
-    let extracted = extract_usage_section(&stripped);
-    log::info!("[usage] raw output ({} bytes):\n{}", extracted.len(), extracted);
-    Ok(extracted)
+    Ok(extract_usage_section(&stripped))
 }
 
 /// Trim REPL noise so users only see the `/usage` output itself.

@@ -330,6 +330,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
   // --- Usage popover state ---
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTop, setUsageTop] = useState(0);
+  const [usageMaxHeight, setUsageMaxHeight] = useState(360);
   useEffect(() => {
     onUsageOpenChange?.(usageOpen);
   }, [usageOpen, onUsageOpenChange]);
@@ -759,6 +760,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
         <button
           type="button"
           data-testid="status-dot"
+          data-usage-trigger
           className={`dot-button ${dotClassMap[status] ?? "dot searching"}`}
           onClick={async (e) => {
             e.preventDefault();
@@ -779,7 +781,20 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
             if (chatOpen) setChatOpen(false);
             if (spotifyOpen) setSpotifyOpen(false);
             const rect = wrapRef.current?.getBoundingClientRect();
-            if (rect) setUsageTop(rect.bottom + 6);
+            if (rect) {
+              const top = rect.bottom + 6;
+              setUsageTop(top);
+              // Mirror the session-dropdown pattern: cap the popover's
+              // total height to (window height - top - bottom margin)
+              // so the bottom rounded corners never clip the window
+              // edge. USAGE_DROPDOWN_WINDOW_HEIGHT (480) lives in
+              // App.tsx; keep these two in sync.
+              const USAGE_WINDOW_HEIGHT = 480;
+              const BOTTOM_MARGIN = 10;
+              setUsageMaxHeight(
+                Math.max(160, USAGE_WINDOW_HEIGHT - top - BOTTOM_MARGIN)
+              );
+            }
             setUsageOpen(true);
           }}
           aria-label={`Status: ${labelMap[status] ?? "Searching..."}`}
@@ -1046,6 +1061,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
         open={usageOpen}
         onClose={() => setUsageOpen(false)}
         top={usageTop}
+        maxHeight={usageMaxHeight}
       />
 
       {chatOpen && (
