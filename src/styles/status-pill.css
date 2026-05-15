@@ -687,8 +687,8 @@ button.dot-button:focus-visible {
     var(--effect-shift-y, 0px)
   );
   z-index: 50;
-  width: 320px;
-  max-height: 360px;
+  width: 340px;
+  max-height: 480px;
   display: flex;
   flex-direction: column;
   background: var(--bg-pill, rgba(20, 20, 22, 0.92));

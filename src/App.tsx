@@ -56,9 +56,9 @@ const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
 const SPOTIFY_DROPDOWN_WINDOW_HEIGHT = 450;
 
 // Usage popover — total Tauri window height while the Claude /usage
-// popover is open. Popover max-height is 360 (status-pill.css), plus the
-// pill itself sitting above it, so 480 leaves room for both.
-const USAGE_DROPDOWN_WINDOW_HEIGHT = 480;
+// popover is open. Popover max-height is 480 (status-pill.css), plus
+// the pill itself sitting above it, so 600 leaves room for both.
+const USAGE_DROPDOWN_WINDOW_HEIGHT = 600;
 
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
