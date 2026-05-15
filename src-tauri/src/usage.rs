@@ -122,8 +122,15 @@ pub fn fetch_usage_via_pty() -> Result<String, UsageError> {
         .map_err(|e| UsageError::Spawn(e.to_string()))?;
 
     let mut cmd = CommandBuilder::new("claude");
-    if let Some(home) = dirs::home_dir() {
-        cmd.cwd(home);
+    // Claude shows a "trust this folder" dialog the first time it runs in
+    // a given cwd, and that swallows our /usage write. Pick a directory
+    // the user has already trusted (recorded in ~/.claude.json) so the
+    // REPL starts at its normal prompt. Falls back to home if no trusted
+    // dir is recorded — uncommon, but in that case the popover will show
+    // the trust prompt and the user can re-open to retry from a real dir.
+    let cwd = find_trusted_dir().or_else(dirs::home_dir);
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
     }
 
     let mut child = pair
@@ -200,6 +207,25 @@ pub fn fetch_usage_via_pty() -> Result<String, UsageError> {
 /// Keep lines from the first line that mentions "usage" (case-insensitive)
 /// onward, dropping the prompt banner above it. If we can't find such a
 /// line, return the input as-is — better to show too much than nothing.
+/// Read `~/.claude.json` and return the first directory the user has
+/// already accepted the workspace-trust dialog for. Returns `None` if the
+/// file is missing, unreadable, or has no trusted entries.
+fn find_trusted_dir() -> Option<std::path::PathBuf> {
+    let path = dirs::home_dir()?.join(".claude.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    let val: serde_json::Value = serde_json::from_str(&content).ok()?;
+    let projects = val.get("projects")?.as_object()?;
+    for (dir, info) in projects {
+        if info.get("hasTrustDialogAccepted") == Some(&serde_json::Value::Bool(true)) {
+            let p = std::path::PathBuf::from(dir);
+            if p.is_dir() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
 fn extract_usage_section(stripped: &str) -> String {
     let lower = stripped.to_lowercase();
     if let Some(idx) = lower.find("usage") {
