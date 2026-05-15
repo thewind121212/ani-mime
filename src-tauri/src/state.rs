@@ -179,6 +179,9 @@ pub struct AppState {
     /// `sessions-changed` only when this value shifts, so the frontend can
     /// stay event-driven instead of polling.
     pub last_sessions_fingerprint: u64,
+    /// Cached output of `claude /usage`. `None` until first fetch; refreshed
+    /// after 30 seconds. See `usage.rs`.
+    pub usage_cache: Option<crate::usage::UsageCache>,
 }
 
 /// Deterministic hash of the session fields the UI renders. Pids are sorted so
