@@ -78,7 +78,16 @@ export function UsagePopover({ open, onClose, top }: UsagePopoverProps) {
         )}
         {error && (
           <div className="usage-popover-error" data-testid="usage-popover-error">
-            {error}
+            <div>{error}</div>
+            <button
+              type="button"
+              data-testid="usage-popover-retry"
+              className="usage-popover-retry"
+              onClick={refresh}
+              disabled={loading}
+            >
+              Retry
+            </button>
           </div>
         )}
         {data && (
