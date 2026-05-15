@@ -22,6 +22,7 @@ const CACHE_TTL_SECS: u64 = 30;
 
 /// Strip ANSI escape sequences (CSI / OSC / cursor moves) and drop bare
 /// carriage returns. Preserves printable text including multi-byte UTF-8.
+#[must_use]
 pub fn strip_ansi(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
@@ -108,5 +109,15 @@ mod tests {
     fn keeps_plain_text_untouched() {
         let input = "5h session: 42% — resets in 2h 18m\n";
         assert_eq!(strip_ansi(input), "5h session: 42% — resets in 2h 18m\n");
+    }
+
+    #[test]
+    fn lone_esc_at_eof_does_not_panic() {
+        assert_eq!(strip_ansi("abc\x1b"), "abc");
+    }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        assert_eq!(strip_ansi(""), "");
     }
 }
