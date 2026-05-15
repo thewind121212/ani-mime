@@ -55,6 +55,11 @@ const CHAT_DROPDOWN_WINDOW_HEIGHT = 600;
 // in StatusPill.tsx.
 const SPOTIFY_DROPDOWN_WINDOW_HEIGHT = 450;
 
+// Usage popover — total Tauri window height while the Claude /usage
+// popover is open. Popover max-height is 360 (status-pill.css), plus the
+// pill itself sitting above it, so 480 leaves room for both.
+const USAGE_DROPDOWN_WINDOW_HEIGHT = 480;
+
 // Base container padding, duplicated from app.css. Used by the bubble
 // window-grow logic to compute how much extra padding the container
 // needs so the bubble fits inside the window without clipping.
@@ -212,6 +217,9 @@ function App() {
   // Mirror of chatOpen / chatClosing for the inline Spotify panel.
   const [spotifyOpen, setSpotifyOpen] = useState(false);
   const [spotifyClosing, setSpotifyClosing] = useState(false);
+  // Mirror of chatOpen / chatClosing for the inline /usage popover.
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageClosing, setUsageClosing] = useState(false);
   // Tray "Coding Helper" menu item — opens the inline chat panel. The
   // tray handler in lib.rs shows the main window and emits this event;
   // we listen here and flip chatOpen on. Keeps the tray surface in sync
@@ -250,7 +258,7 @@ function App() {
   // container.offsetWidth reports.
   useWindowAutoSize(
     containerRef,
-    effectActive || sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || bubbleGrowActive || visitors.length > 0
+    effectActive || sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || usageOpen || usageClosing || bubbleGrowActive || visitors.length > 0
   );
 
   // Measure the rendered speech bubble (via ResizeObserver) and compute
@@ -323,7 +331,7 @@ function App() {
   // window geometry — otherwise the bubble's setPosition/setSize race
   // with expandWindow and the pet's visual Y desyncs from the pin.
   useEffect(() => {
-    if (sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || effectActive) return;
+    if (sessionOpen || sessionClosing || chatOpen || chatClosing || spotifyOpen || spotifyClosing || usageOpen || usageClosing || effectActive) return;
 
     const win = getCurrentWindow();
     const { top: extraTop, horizontal: extraH } = bubbleExtra;
@@ -364,7 +372,7 @@ function App() {
         console.error("[bubble-grow] resize failed:", err);
       }
     })();
-  }, [visible, bubbleExtra, sessionOpen, sessionClosing, chatOpen, chatClosing, spotifyOpen, spotifyClosing, effectActive]);
+  }, [visible, bubbleExtra, sessionOpen, sessionClosing, chatOpen, chatClosing, spotifyOpen, spotifyClosing, usageOpen, usageClosing, effectActive]);
 
   // Visitor count change → drive the window size directly.
   //
@@ -500,7 +508,7 @@ function App() {
     // Dropdown→dropdown handoff: if another panel just opened in the
     // same render batch, skip the shrink — the other panel's open effect
     // will setSize the window.
-    if (chatOpen || spotifyOpen) {
+    if (chatOpen || spotifyOpen || usageOpen) {
       setSessionClosing(false);
       return;
     }
@@ -573,7 +581,7 @@ function App() {
     // batch, skip the shrink — the session-open effect will setSize the
     // window. Otherwise the chat-close shrink races the session-open
     // grow and the dropdown ends up clipped.
-    if (sessionOpen || spotifyOpen) {
+    if (sessionOpen || spotifyOpen || usageOpen) {
       setChatClosing(false);
       return;
     }
@@ -615,7 +623,7 @@ function App() {
     }
 
     // Skip shrink if another panel just opened in the same batch.
-    if (sessionOpen || chatOpen) {
+    if (sessionOpen || chatOpen || usageOpen) {
       setSpotifyClosing(false);
       return;
     }
@@ -633,6 +641,45 @@ function App() {
       }
     })();
   }, [spotifyOpen]);
+
+  // Usage popover — height-only grow/shrink, mirrors chat/spotify effects.
+  useEffect(() => {
+    const win = getCurrentWindow();
+
+    if (usageOpen) {
+      const el = containerRef.current;
+      if (!el) return;
+      const currentHeight = el.offsetHeight;
+      const newHeight = Math.max(currentHeight, USAGE_DROPDOWN_WINDOW_HEIGHT);
+
+      void (async () => {
+        try {
+          await win.setSize(new LogicalSize(el.offsetWidth, newHeight));
+        } catch (err) {
+          console.error("[usage-popover] open resize failed:", err);
+        }
+      })();
+      return;
+    }
+
+    if (sessionOpen || chatOpen || spotifyOpen) {
+      setUsageClosing(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const el = containerRef.current;
+        if (el) {
+          await win.setSize(new LogicalSize(el.offsetWidth, el.offsetHeight));
+        }
+      } catch (err) {
+        console.error("[usage-popover] close resize failed:", err);
+      } finally {
+        setUsageClosing(false);
+      }
+    })();
+  }, [usageOpen]);
 
   return (
     <>
@@ -693,6 +740,10 @@ function App() {
           onSpotifyOpenChange={(open) => {
             if (!open) setSpotifyClosing(true);
             setSpotifyOpen(open);
+          }}
+          onUsageOpenChange={(open) => {
+            if (!open) setUsageClosing(true);
+            setUsageOpen(open);
           }}
         />
         {devMode && <DevTag />}

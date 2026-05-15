@@ -53,6 +53,12 @@ interface StatusPillProps {
    */
   onSpotifyOpenChange?: (open: boolean) => void;
   /**
+   * Notifies parent when the usage popover open state changes.
+   * Same purpose as `onChatOpenChange`: App grows the window height
+   * around the popover so it doesn't clip.
+   */
+  onUsageOpenChange?: (open: boolean) => void;
+  /**
    * True while an EffectOverlay (e.g. shadow-clone) owns the window
    * geometry. External popovers (peer) are hidden for the duration so
    * they don't fight the effect's window resize. Inline panels (Spotify,
@@ -289,7 +295,7 @@ async function computePopoverScreenPos(
 }
 
 
-export function StatusPill({ status, glow, disabled = false, onOpenChange, onChatOpenChange, onSpotifyOpenChange, effectActive = false, dragging = false }: StatusPillProps) {
+export function StatusPill({ status, glow, disabled = false, onOpenChange, onChatOpenChange, onSpotifyOpenChange, onUsageOpenChange, effectActive = false, dragging = false }: StatusPillProps) {
   // --- Session list state ---
   const [sessionOpen, setSessionOpen] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -324,6 +330,9 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
   // --- Usage popover state ---
   const [usageOpen, setUsageOpen] = useState(false);
   const [usageTop, setUsageTop] = useState(0);
+  useEffect(() => {
+    onUsageOpenChange?.(usageOpen);
+  }, [usageOpen, onUsageOpenChange]);
 
   // Ref mirror of the `dragging` prop so the onMoved closures (which
   // outlive the render that created them) always read the current value.
