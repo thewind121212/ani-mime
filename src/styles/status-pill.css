@@ -680,9 +680,12 @@ button.dot-button:focus-visible {
 }
 
 .usage-popover {
-  position: absolute;
+  position: fixed;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(
+    calc(-50% + var(--effect-shift-x, 0px)),
+    var(--effect-shift-y, 0px)
+  );
   z-index: 50;
   width: 320px;
   max-height: 360px;
@@ -695,6 +698,8 @@ button.dot-button:focus-visible {
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto;
+  animation: dropdown-in 0.12s ease-out;
 }
 
 .usage-popover-header {
