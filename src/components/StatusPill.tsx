@@ -10,6 +10,7 @@ import {
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { Status } from "../types/status";
 import { Chat } from "./Chat";
+import { UsagePopover } from "./UsagePopover";
 import { fetchSessions, type SessionInfo } from "../hooks/useSessions";
 import { useSessionList } from "../hooks/useSessionList";
 import { useSessionGroupCount } from "../hooks/useSessionGroupCount";
@@ -303,8 +304,6 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
   const peers = usePeers();
   const { enabled: lanListEnabled } = useLanList();
   const telegram = useTelegram();
-  const [statusTipVisible, setStatusTipVisible] = useState(false);
-  const statusTipTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const { opacity: statusOpacity } = useOpacity("status");
   const [peerOpen, setPeerOpen] = useState(false);
   const lanButtonRef = useRef<HTMLButtonElement>(null);
@@ -321,6 +320,10 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
   const [spotifyDropdownTop, setSpotifyDropdownTop] = useState(0);
   const [spotifyDropdownMaxHeight, setSpotifyDropdownMaxHeight] = useState(280);
   const spotifyButtonRef = useRef<HTMLButtonElement>(null);
+
+  // --- Usage popover state ---
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageTop, setUsageTop] = useState(0);
 
   // Ref mirror of the `dragging` prop so the onMoved closures (which
   // outlive the render that created them) always read the current value.
@@ -436,6 +439,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     }
     if (chatOpen) setChatOpen(false);
     if (spotifyOpen) setSpotifyOpen(false);
+    if (usageOpen) setUsageOpen(false);
     const list = await fetchSessions();
     const overlaid = overlayClaudeState(reflectActiveServices(list));
     setGroups(groupSessions(overlaid, detectHome(overlaid)));
@@ -664,6 +668,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       setPeerOpen(false);
     }
     if (chatOpen) setChatOpen(false);
+    if (usageOpen) setUsageOpen(false);
 
     computeSpotifyLayout();
     setSpotifyOpen(true);
@@ -689,6 +694,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
       setPeerOpen(false);
     }
     if (spotifyOpen) setSpotifyOpen(false);
+    if (usageOpen) setUsageOpen(false);
 
     // Compute position BEFORE opening so first render lands at correct spot.
     computeChatLayout();
@@ -720,6 +726,7 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
     if (sessionOpen) setSessionOpen(false);
     if (chatOpen) setChatOpen(false);
     if (spotifyOpen) setSpotifyOpen(false);
+    if (usageOpen) setUsageOpen(false);
 
     const pos = await computePopoverScreenPos(lanButtonRef.current);
     await popover.setPosition(pos);
@@ -744,22 +751,31 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
           type="button"
           data-testid="status-dot"
           className={`dot-button ${dotClassMap[status] ?? "dot searching"}`}
-          onClick={() => {
-            setStatusTipVisible(true);
-            clearTimeout(statusTipTimerRef.current);
-            statusTipTimerRef.current = setTimeout(
-              () => setStatusTipVisible(false),
-              2000
-            );
+          onClick={async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!guardPillClick()) return;
+            playClickTap();
+            if (usageOpen) {
+              setUsageOpen(false);
+              return;
+            }
+            // Close all other overlays — single-overlay rule.
+            if (sessionOpen) setSessionOpen(false);
+            if (peerOpen) {
+              const popover = await WebviewWindow.getByLabel("peer-list");
+              await popover?.hide().catch(() => {});
+              setPeerOpen(false);
+            }
+            if (chatOpen) setChatOpen(false);
+            if (spotifyOpen) setSpotifyOpen(false);
+            const rect = wrapRef.current?.getBoundingClientRect();
+            if (rect) setUsageTop(rect.bottom + 6);
+            setUsageOpen(true);
           }}
           aria-label={`Status: ${labelMap[status] ?? "Searching..."}`}
           title={labelMap[status] ?? "Searching..."}
         />
-        {statusTipVisible && (
-          <span data-testid="status-tip" className="status-tip" role="status">
-            {labelMap[status] ?? "Searching..."}
-          </span>
-        )}
 
         <div className="pill-actions" data-testid="pill-actions">
           {sessionListEnabled && (
@@ -1016,6 +1032,12 @@ export function StatusPill({ status, glow, disabled = false, onOpenChange, onCha
           )}
         </div>
       )}
+
+      <UsagePopover
+        open={usageOpen}
+        onClose={() => setUsageOpen(false)}
+        top={usageTop}
+      />
 
       {chatOpen && (
         <div
