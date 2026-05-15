@@ -73,8 +73,63 @@ pub fn strip_ansi(input: &str) -> String {
 
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Directories to probe for `claude` when it isn't on the inherited PATH.
+/// Covers Homebrew (Apple Silicon + Intel), the official installer's
+/// `~/.claude/local`, npm global, pnpm, bun, and the XDG-style `~/.local/bin`.
+/// macOS apps launched from Finder/Dock inherit launchd's PATH, which omits
+/// all of these — so we have to probe them explicitly.
+fn common_claude_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = vec![
+        PathBuf::from("/opt/homebrew/bin"),
+        PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".claude/local"));
+        dirs.push(home.join(".npm-global/bin"));
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join("Library/pnpm"));
+        dirs.push(home.join(".bun/bin"));
+    }
+    dirs
+}
+
+/// Resolve `claude` to an absolute path. Checks the inherited PATH first,
+/// then probes well-known install locations. Returns `None` if not found.
+fn resolve_claude_bin() -> Option<PathBuf> {
+    if let Some(paths) = std::env::var_os("PATH") {
+        for p in std::env::split_paths(&paths) {
+            let candidate = p.join("claude");
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    for dir in common_claude_dirs() {
+        let candidate = dir.join("claude");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Build a PATH for the child process that includes the inherited PATH plus
+/// every common install dir, so any tool `claude` spawns can also be found.
+fn augmented_path() -> std::ffi::OsString {
+    let mut segments: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    for dir in common_claude_dirs() {
+        if !segments.contains(&dir) {
+            segments.push(dir);
+        }
+    }
+    std::env::join_paths(segments).unwrap_or_default()
+}
 
 #[derive(Debug)]
 pub enum UsageError {
@@ -103,13 +158,10 @@ const QUIESCENT_WINDOW: Duration = Duration::from_millis(700);
 /// Heuristic: read bytes until no new data arrives for `QUIESCENT_WINDOW`,
 /// or the overall `FETCH_TIMEOUT` elapses. Then kill the child and return.
 pub fn fetch_usage_via_pty() -> Result<String, UsageError> {
-    // Confirm `claude` exists on PATH before spawning a pty.
-    let found = std::env::var_os("PATH")
-        .map(|paths| std::env::split_paths(&paths).any(|p| p.join("claude").is_file()))
-        .unwrap_or(false);
-    if !found {
-        return Err(UsageError::CliNotFound);
-    }
+    // Resolve `claude` to an absolute path. Packaged macOS apps launched from
+    // Finder/Dock get launchd's PATH, which excludes Homebrew/npm/etc., so we
+    // can't rely on PATH lookup inside `CommandBuilder::new("claude")`.
+    let claude_bin = resolve_claude_bin().ok_or(UsageError::CliNotFound)?;
 
     let pty_system = NativePtySystem::default();
     let pair = pty_system
@@ -121,7 +173,8 @@ pub fn fetch_usage_via_pty() -> Result<String, UsageError> {
         })
         .map_err(|e| UsageError::Spawn(e.to_string()))?;
 
-    let mut cmd = CommandBuilder::new("claude");
+    let mut cmd = CommandBuilder::new(&claude_bin);
+    cmd.env("PATH", augmented_path());
     // Claude shows a "trust this folder" dialog the first time it runs in
     // a given cwd, and that swallows our /usage write. Pick a directory
     // the user has already trusted (recorded in ~/.claude.json) so the
