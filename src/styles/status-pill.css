@@ -688,9 +688,9 @@ button.dot-button:focus-visible {
   max-height: 360px;
   display: flex;
   flex-direction: column;
-  background: var(--pill-bg, rgba(20, 20, 22, 0.92));
-  color: var(--pill-text, #e8e8ea);
-  border: 1px solid var(--pill-border, rgba(255, 255, 255, 0.08));
+  background: var(--bg-pill, rgba(20, 20, 22, 0.92));
+  color: var(--text-primary, #e8e8ea);
+  border: 1px solid var(--border-pill, rgba(255, 255, 255, 0.08));
   border-radius: 10px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(8px);
