@@ -73,6 +73,7 @@ pub fn strip_ansi(input: &str) -> String {
 
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 #[derive(Debug)]
@@ -206,6 +207,65 @@ fn extract_usage_section(stripped: &str) -> String {
         return stripped[line_start..].trim_end().to_string();
     }
     stripped.trim_end().to_string()
+}
+
+fn now_secs() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Returns the cached usage if fresh (≤30s) and `force_refresh` is false;
+/// otherwise spawns `claude /usage`, caches the result, returns it.
+///
+/// Concurrent callers are coalesced via a global mutex around the spawn —
+/// the second caller blocks until the first finishes and then reads the
+/// cache instead of re-spawning.
+pub fn get_or_fetch_usage(
+    state: &Arc<Mutex<crate::state::AppState>>,
+    force_refresh: bool,
+) -> Result<UsageResult, String> {
+    if !force_refresh {
+        if let Some(cache) = state.lock().ok().and_then(|s| s.usage_cache.clone()) {
+            if now_secs().saturating_sub(cache.fetched_at) <= CACHE_TTL_SECS {
+                return Ok(UsageResult {
+                    text: cache.text,
+                    fetched_at: cache.fetched_at,
+                });
+            }
+        }
+    }
+
+    // Serialize fetches so concurrent clicks don't spawn N processes.
+    static FETCH_LOCK: Mutex<()> = Mutex::new(());
+    let _guard = FETCH_LOCK
+        .lock()
+        .map_err(|e| format!("usage fetch lock poisoned: {e}"))?;
+
+    // Re-check the cache after acquiring the lock: another caller may have
+    // refreshed it while we were waiting.
+    if !force_refresh {
+        if let Some(cache) = state.lock().ok().and_then(|s| s.usage_cache.clone()) {
+            if now_secs().saturating_sub(cache.fetched_at) <= CACHE_TTL_SECS {
+                return Ok(UsageResult {
+                    text: cache.text,
+                    fetched_at: cache.fetched_at,
+                });
+            }
+        }
+    }
+
+    let text = fetch_usage_via_pty().map_err(|e| e.to_string())?;
+    let fetched_at = now_secs();
+    if let Ok(mut s) = state.lock() {
+        s.usage_cache = Some(UsageCache {
+            text: text.clone(),
+            fetched_at,
+        });
+    }
+    Ok(UsageResult { text, fetched_at })
 }
 
 #[cfg(test)]
